@@ -1,0 +1,9 @@
+{
+  "discord_webhook_url": "https://discord.com/api/webhooks/REPLACE_ME",
+  "amazon_from_pattern": "amazon\\.co\\.jp",
+  "amazon_subject_pattern": "(配達済み|発送|お届け)",
+  "max_messages": 50,
+  "poll_interval_seconds": 60,
+  "state_file": "state.json",
+  "log_file": "logs/amazon_mail_notifier.log"
+}
