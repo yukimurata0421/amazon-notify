@@ -3,8 +3,8 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "amazon-notify-v2"
-version = "0.1.0"
+name = "amazon-notify"
+version = "0.1.1"
 description = "Self-hosted Gmail to Discord notifier for Amazon.co.jp shipping emails"
 readme = "README.md"
 requires-python = ">=3.11"

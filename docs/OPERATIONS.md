@@ -14,7 +14,7 @@
 - 監視間隔変更: `amazon-notify --interval 120`
 - 再認証: `amazon-notify --reauth`
 - ログ保存先変更: `amazon-notify --log-file /var/log/amazon-notify/notifier.log`
-- 設定ファイル変更: `amazon-notify --config /opt/amazon-notify-v2/config.json`
+- 設定ファイル変更: `amazon-notify --config /opt/amazon-notify/config.json`
 - モジュール実行: `python -m amazon_notify.cli`
 - `amazon_subject_pattern` が不正な正規表現なら、起動時にエラーを表示して終了します。
 - `state_file` と `log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
@@ -70,4 +70,4 @@ make clean
 make dist
 ```
 
-`make dist` で作る zip には、実行に必要なコードとドキュメント、パッケージ定義だけを含めます。テストや GitHub Actions 設定は含めません。
+`make dist` で作る zip には、実行に必要なコードとドキュメント、パッケージ定義だけを含めます。出力先は `dist/amazon-notify.zip` です。テストや GitHub Actions 設定は含めません。

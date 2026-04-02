@@ -1,7 +1,7 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 
-# Amazon Notify v2
+# Amazon Notify
 
 Gmail API を利用して Amazon.co.jp からの配送関連メールを検出し、Discord Webhook に通知する自己ホスト向けツールです。`state.json` による重複防止、認証異常時の警告、一時的な通信障害からの復旧通知に対応しています。
 
@@ -27,6 +27,7 @@ Amazon の注文・発送系メールを見逃しにくくするために、Gmai
 ## ディレクトリ構成
 - `amazon_notify/`: 本体パッケージ
 - `pyproject.toml`: パッケージ定義と CLI エントリポイント
+- `CHANGELOG.md`: リリース履歴
 - `config.example.json`: 設定例
 - `tests/unit`: ユニットテスト
 - `tests/e2e`: E2E シナリオテスト
@@ -92,7 +93,7 @@ amazon-notify --log-file /var/log/amazon-notify/notifier.log
 設定ファイルを明示:
 
 ```bash
-amazon-notify --config /opt/amazon-notify-v2/config.json
+amazon-notify --config /opt/amazon-notify/config.json
 ```
 
 ## 設定
@@ -156,7 +157,7 @@ pytest -q
 - `make test`: テスト
 - `make lint`: 構文チェック
 - `make clean`: `__pycache__`、`.pyc`、`.pytest_cache` の削除
-- `make dist`: 実行に必要なファイルだけを含む配布 zip (`dist/amazon-notify-v2.zip`) の作成
+- `make dist`: 実行に必要なファイルだけを含む配布 zip (`dist/amazon-notify.zip`) の作成
 
 ## CI
 GitHub Actions では以下を実行します。
@@ -166,6 +167,9 @@ GitHub Actions では以下を実行します。
 - `python -m compileall -q amazon_notify`
 - `amazon-notify --help`
 - `pytest -q`
+
+## 変更履歴
+リリース単位の変更点は `CHANGELOG.md` を参照してください。
 
 ## systemd
 `deployment/systemd/amazon-notify.service` を環境に合わせて修正して利用してください。詳細は `docs/OPERATIONS.md` を参照してください。

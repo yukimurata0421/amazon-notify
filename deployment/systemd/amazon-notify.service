@@ -5,8 +5,8 @@ After=network-online.target
 [Service]
 Type=simple
 User=YOUR_USER
-WorkingDirectory=/opt/amazon-notify-v2
-ExecStart=/opt/amazon-notify-v2/.venv/bin/amazon-notify --config /opt/amazon-notify-v2/config.json
+WorkingDirectory=/opt/amazon-notify
+ExecStart=/opt/amazon-notify/.venv/bin/amazon-notify --config /opt/amazon-notify/config.json
 Restart=on-failure
 RestartSec=30
 

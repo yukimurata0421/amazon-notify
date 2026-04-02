@@ -39,9 +39,10 @@ clean:
 
 dist: clean
 	mkdir -p dist
-	rm -f dist/amazon-notify-v2.zip
-	zip -r dist/amazon-notify-v2.zip \
+	rm -f dist/amazon-notify.zip
+	zip -r dist/amazon-notify.zip \
 		amazon_notify \
+		CHANGELOG.md \
 		config.example.json \
 		deployment \
 		docs \
