@@ -17,6 +17,19 @@ def test_is_transient_network_error_for_timeout_and_hostname_mismatch() -> None:
     assert gmail_client.is_transient_network_error(ssl_exc)
 
 
+def test_is_transient_network_error_respects_max_depth() -> None:
+    root = RuntimeError("root")
+    current = root
+    for idx in range(12):
+        next_exc = RuntimeError(f"layer-{idx}")
+        current.__cause__ = next_exc
+        current = next_exc
+    current.__cause__ = RuntimeError("timed out")
+
+    assert not gmail_client.is_transient_network_error(root, max_depth=5)
+    assert gmail_client.is_transient_network_error(root, max_depth=20)
+
+
 def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "msg-1"}
@@ -220,6 +233,56 @@ def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch
     saved = _read_json(state_file)
     assert saved["last_message_id"] == "old-id"
     assert not sent
+
+
+def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = {
+        "discord_webhook_url": "https://discord.invalid/webhook",
+        "amazon_pattern": r"amazon\.co\.jp",
+        "state_file": state_file,
+        "max_messages": 10,
+        "subject_pattern": None,
+    }
+
+    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages",
+        lambda service, query, max_results: [{"id": "new-id"}, {"id": "old-id"}],
+    )
+    monkeypatch.setattr(
+        notifier,
+        "get_message_detail",
+        lambda service, message_id: {
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "テスト件名"},
+                    {"name": "From", "value": "Other Sender <other@example.com>"},
+                ]
+            },
+            "snippet": "non amazon",
+        },
+    )
+
+    sent: list[dict] = []
+    monkeypatch.setattr(notifier, "send_discord_notification", lambda **kwargs: sent.append(kwargs) or True)
+
+    logs: list[str] = []
+
+    def fake_info(message: str, *args) -> None:
+        logs.append(message % args if args else message)
+
+    monkeypatch.setattr(notifier.LOGGER, "info", fake_info)
+
+    notifier.run_once(runtime)
+
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "new-id"
+    assert not sent
+    assert any("non_amazon_skipped=1" in message for message in logs)
 
 
 def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch, tmp_path: Path) -> None:

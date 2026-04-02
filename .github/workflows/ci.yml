@@ -30,6 +30,12 @@ jobs:
         run: |
           python -m compileall -q amazon_notify
 
+      - name: Ruff
+        run: ruff check amazon_notify tests
+
+      - name: Type check
+        run: mypy amazon_notify
+
       - name: CLI help
         run: amazon-notify --help
 

@@ -77,6 +77,7 @@ def run_once(runtime: dict) -> None:
     pending_messages.reverse()
     last_processed_id = last_message_id
     processed_any = False
+    non_amazon_count = 0
 
     for msg_meta in pending_messages:
         msg_id = msg_meta["id"]
@@ -128,6 +129,8 @@ def run_once(runtime: dict) -> None:
                     )
                 break
             processed_any = True
+        else:
+            non_amazon_count += 1
 
         last_processed_id = msg_id
 
@@ -141,6 +144,12 @@ def run_once(runtime: dict) -> None:
         LOGGER.info("STATE_UNCHANGED")
 
     if not processed_any:
-        LOGGER.info("RUN_ONCE_COMPLETE: amazon_notifications=0")
+        LOGGER.info(
+            "RUN_ONCE_COMPLETE: amazon_notifications=0 non_amazon_skipped=%s",
+            non_amazon_count,
+        )
     else:
-        LOGGER.info("RUN_ONCE_COMPLETE: amazon_notifications>=1")
+        LOGGER.info(
+            "RUN_ONCE_COMPLETE: amazon_notifications>=1 non_amazon_skipped=%s",
+            non_amazon_count,
+        )

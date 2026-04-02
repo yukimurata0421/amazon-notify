@@ -1,9 +1,11 @@
-.PHONY: setup setup-dev test coverage lint run-once run reauth dry-run test-discord validate-config health-check clean dist
+.PHONY: setup setup-dev test coverage lint ruff typecheck run-once run reauth dry-run test-discord validate-config health-check clean dist
 
 VENV_BIN = .venv/bin
 PYTHON = $(VENV_BIN)/python
 PIP = $(VENV_BIN)/pip
 CLI = $(VENV_BIN)/amazon-notify
+RUFF = $(VENV_BIN)/ruff
+MYPY = $(VENV_BIN)/mypy
 
 setup:
 	python3 -m venv .venv
@@ -23,6 +25,13 @@ coverage:
 
 lint:
 	$(PYTHON) -m compileall -q amazon_notify
+	$(RUFF) check amazon_notify tests
+
+ruff:
+	$(RUFF) check amazon_notify tests
+
+typecheck:
+	$(MYPY) amazon_notify
 
 run-once:
 	$(CLI) --once

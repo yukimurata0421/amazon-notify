@@ -18,7 +18,7 @@ Amazon の注文・発送系メールを見逃しにくくするために、Gmai
 - 一時的な通信障害の検知と復旧通知
 - ローテーションファイルログ（既定: `logs/amazon_mail_notifier.log`）
 - `--dry-run`、`--test-discord`、`--validate-config`、`--health-check` の運用コマンド
-- `pytest` と GitHub Actions CI を同梱
+- `pytest`、`ruff`、`mypy` と GitHub Actions CI を同梱
 
 ## 前提条件
 - Python 3.11 以上
@@ -185,12 +185,21 @@ pytest -q
 pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml
 ```
 
+静的チェック:
+
+```bash
+ruff check amazon_notify tests
+mypy amazon_notify
+```
+
 ## Makefile
 - `make setup`: 実行依存のセットアップ
 - `make setup-dev`: 開発依存のセットアップ
 - `make test`: テスト
 - `make coverage`: カバレッジ付きテスト
 - `make lint`: 構文チェック
+- `make ruff`: Ruff チェック
+- `make typecheck`: mypy 型チェック
 - `make dry-run`: `--once --dry-run` で単発確認
 - `make test-discord`: Discord テスト通知
 - `make validate-config`: 設定検証
@@ -204,6 +213,8 @@ GitHub Actions では以下を実行します。
 - Python 3.11 / 3.12
 - `pip install -e .[dev]`
 - `python -m compileall -q amazon_notify`
+- `ruff check amazon_notify tests`
+- `mypy amazon_notify`
 - `amazon-notify --help`
 - `pytest -q --cov=amazon_notify --cov-report=term-missing`
 

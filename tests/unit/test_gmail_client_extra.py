@@ -168,6 +168,11 @@ def test_refresh_with_retry_returns_non_transient_error_without_sleep(monkeypatc
     assert sleeps == []
 
 
+def test_refresh_with_retry_raises_for_invalid_retries() -> None:
+    with pytest.raises(ValueError):
+        gmail_client.refresh_with_retry(_DummyCreds(), retries=0)
+
+
 def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: Path) -> None:
     token_path = tmp_path / "token.json"
     token_path.write_text("{}", encoding="utf-8")

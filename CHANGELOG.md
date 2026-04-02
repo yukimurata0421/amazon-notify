@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Improved automated test coverage to 80%+ (current total: 88% with `pytest --cov`).
+- Added Ruff linting and mypy type checking to the CI pipeline.
 
 ## [0.1.1] - 2026-04-02
 

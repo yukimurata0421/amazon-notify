@@ -1,6 +1,7 @@
 import socket
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, NoReturn
 
 try:
     from google.auth.transport.requests import Request
@@ -10,30 +11,41 @@ try:
     from googleapiclient.errors import HttpError
     GOOGLE_IMPORT_ERROR: ModuleNotFoundError | None = None
 except ModuleNotFoundError as exc:
-    class MissingCredentials:
+    GOOGLE_IMPORT_ERROR = exc
+
+    def _raise_google_import_error() -> NoReturn:
+        if GOOGLE_IMPORT_ERROR is None:
+            raise ModuleNotFoundError("Google API libraries are missing.")
+        raise GOOGLE_IMPORT_ERROR
+
+    class Credentials:  # type: ignore[no-redef]
         valid = False
         expired = False
         refresh_token = None
 
         @classmethod
         def from_authorized_user_file(cls, *_args, **_kwargs):
-            raise exc
+            _raise_google_import_error()
 
         def refresh(self, *_args, **_kwargs):
-            raise exc
+            _raise_google_import_error()
 
         def to_json(self) -> str:
-            raise exc
+            _raise_google_import_error()
 
-    class MissingHttpError(Exception):
-        """Fallback error type used when googleapiclient is unavailable."""
+    class _InstalledAppFlowStub:
+        @staticmethod
+        def from_client_secrets_file(*_args, **_kwargs):
+            _raise_google_import_error()
 
-    Request = None  # type: ignore[assignment]
-    Credentials = MissingCredentials  # type: ignore[assignment]
-    InstalledAppFlow = None  # type: ignore[assignment]
-    build = None  # type: ignore[assignment]
-    HttpError = MissingHttpError  # type: ignore[assignment]
-    GOOGLE_IMPORT_ERROR = exc
+    def build(*_args, **_kwargs):  # type: ignore[no-redef]
+        _raise_google_import_error()
+
+    class HttpError(Exception):  # type: ignore[no-redef]
+        """Fallback error type when googleapiclient is unavailable."""
+
+    Request = Any  # type: ignore[misc,assignment]
+    InstalledAppFlow = _InstalledAppFlowStub  # type: ignore[assignment]
 
 from . import config as app_config
 from .config import LOGGER, save_state
@@ -78,14 +90,14 @@ def run_oauth_flow() -> Credentials | None:
     return creds
 
 
-def mark_transient_network_issue(state: dict, state_file, err: Exception | str) -> None:
+def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
     state["transient_network_issue_active"] = True
     state["last_transient_error"] = str(err)
     state["last_transient_error_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
     save_state(state_file, state)
 
 
-def notify_recovery_if_needed(webhook_url: str, state: dict, state_file) -> None:
+def notify_recovery_if_needed(webhook_url: str, state: dict, state_file: Path) -> None:
     if not state.get("transient_network_issue_active"):
         return
 
@@ -104,7 +116,7 @@ def notify_recovery_if_needed(webhook_url: str, state: dict, state_file) -> None
     save_state(state_file, state)
 
 
-def mark_token_issue(state: dict, state_file, reason: str) -> bool:
+def mark_token_issue(state: dict, state_file: Path, reason: str) -> bool:
     previous_active = bool(state.get("token_issue_active"))
     previous_reason = state.get("token_issue_reason")
 
@@ -116,8 +128,12 @@ def mark_token_issue(state: dict, state_file, reason: str) -> bool:
     return (not previous_active) or (previous_reason != reason)
 
 
-def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_file) -> None:
+def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_file: Path) -> None:
     if not state.get("token_issue_active"):
+        return
+
+    if not webhook_url:
+        LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED: missing_webhook")
         return
 
     message = (
@@ -136,7 +152,7 @@ def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_
     save_state(state_file, state)
 
 
-def is_transient_network_error(exc: Exception) -> bool:
+def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
     if isinstance(exc, (TimeoutError, socket.timeout, socket.gaierror)):
         return True
 
@@ -151,20 +167,25 @@ def is_transient_network_error(exc: Exception) -> bool:
         "servernotfounderror",
     )
 
-    current = exc
+    current: BaseException | None = exc
     visited: set[int] = set()
-    while current and id(current) not in visited:
+    depth = 0
+    while current and id(current) not in visited and depth < max_depth:
         visited.add(id(current))
         text = f"{type(current).__name__}: {current}".lower()
         if any(keyword in text for keyword in transient_keywords):
             return True
         current = current.__cause__ or current.__context__
+        depth += 1
 
     return False
 
 
 def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2) -> Exception | None:
-    last_exc = None
+    if retries < 1:
+        raise ValueError("retries must be >= 1")
+
+    last_exc: Exception | None = None
 
     for attempt in range(1, retries + 1):
         try:
@@ -172,8 +193,9 @@ def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2
             return None
         except Exception as exc:
             last_exc = exc
-            if not is_transient_network_error(exc) or attempt == retries:
-                return last_exc
+            is_transient = is_transient_network_error(exc)
+            if (not is_transient) or attempt == retries:
+                break
 
             sleep_sec = base_delay * attempt
             LOGGER.warning(
@@ -191,7 +213,7 @@ def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2
 def get_gmail_service(
     webhook_url: str | None = None,
     state: dict | None = None,
-    state_file=None,
+    state_file: Path | None = None,
     allow_oauth_interactive: bool = False,
 ):
     creds = None
@@ -321,7 +343,7 @@ def get_gmail_service(
         return None
 
 
-def list_recent_messages(service, query: str, max_results: int):
+def list_recent_messages(service: Any, query: str, max_results: int) -> list[dict[str, str]]:
     result = service.users().messages().list(
         userId="me",
         q=query,
@@ -330,7 +352,7 @@ def list_recent_messages(service, query: str, max_results: int):
     return result.get("messages", [])
 
 
-def get_message_detail(service, message_id: str) -> dict:
+def get_message_detail(service: Any, message_id: str) -> dict[str, Any]:
     return service.users().messages().get(
         userId="me",
         id=message_id,
