@@ -24,11 +24,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
+          pip install -e .[dev]
 
       - name: Syntax check
         run: |
-          python -m py_compile amazon_mail_notifier.py
+          python -m compileall -q amazon_notify
+
+      - name: CLI help
+        run: amazon-notify --help
 
       - name: Run tests
         run: pytest -q

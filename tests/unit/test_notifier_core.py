@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import amazon_mail_notifier as notifier
+from amazon_notify import config, gmail_client, notifier
 
 
 def _read_json(path: Path) -> dict:
@@ -9,19 +9,19 @@ def _read_json(path: Path) -> dict:
 
 
 def test_is_transient_network_error_for_timeout_and_hostname_mismatch() -> None:
-    assert notifier.is_transient_network_error(TimeoutError("timed out"))
+    assert gmail_client.is_transient_network_error(TimeoutError("timed out"))
     ssl_exc = Exception(
         "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed: "
         "Hostname mismatch, certificate is not valid for 'gmail.googleapis.com'."
     )
-    assert notifier.is_transient_network_error(ssl_exc)
+    assert gmail_client.is_transient_network_error(ssl_exc)
 
 
 def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "msg-1"}
 
-    notifier.mark_transient_network_issue(state, state_file, TimeoutError("timed out"))
+    gmail_client.mark_transient_network_issue(state, state_file, TimeoutError("timed out"))
     saved = _read_json(state_file)
     assert saved["transient_network_issue_active"] is True
     assert "timed out" in saved["last_transient_error"]
@@ -32,9 +32,9 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
         calls.append((webhook_url, message))
         return True
 
-    monkeypatch.setattr(notifier, "send_discord_recovery", fake_send_recovery)
+    monkeypatch.setattr(gmail_client, "send_discord_recovery", fake_send_recovery)
 
-    notifier.notify_recovery_if_needed("https://discord.invalid/webhook", state, state_file)
+    gmail_client.notify_recovery_if_needed("https://discord.invalid/webhook", state, state_file)
 
     assert len(calls) == 1
     assert "復旧" in calls[0][1]
@@ -55,9 +55,9 @@ def test_notify_recovery_keeps_state_when_discord_send_fails(monkeypatch, tmp_pa
     }
     state_file.write_text(json.dumps(state), encoding="utf-8")
 
-    monkeypatch.setattr(notifier, "send_discord_recovery", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(gmail_client, "send_discord_recovery", lambda *_args, **_kwargs: False)
 
-    notifier.notify_recovery_if_needed(
+    gmail_client.notify_recovery_if_needed(
         "https://discord.invalid/webhook",
         state,
         state_file,
@@ -65,6 +65,14 @@ def test_notify_recovery_keeps_state_when_discord_send_fails(monkeypatch, tmp_pa
 
     saved = _read_json(state_file)
     assert saved["transient_network_issue_active"] is True
+
+
+def test_save_state_creates_parent_directories(tmp_path: Path) -> None:
+    state_file = tmp_path / "nested" / "runtime" / "state.json"
+
+    config.save_state(state_file, {"last_message_id": "msg-1"})
+
+    assert _read_json(state_file)["last_message_id"] == "msg-1"
 
 
 def test_run_once_sends_amazon_notification_and_updates_state(monkeypatch, tmp_path: Path) -> None:

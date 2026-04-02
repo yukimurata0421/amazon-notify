@@ -1,44 +1,54 @@
 .PHONY: setup setup-dev test lint run-once run reauth clean dist
 
+VENV_BIN = .venv/bin
+PYTHON = $(VENV_BIN)/python
+PIP = $(VENV_BIN)/pip
+CLI = $(VENV_BIN)/amazon-notify
+
 setup:
 	python3 -m venv .venv
-	. .venv/bin/activate && pip install --upgrade pip && pip install -r requirements.txt
+	$(PIP) install --upgrade pip
+	$(PIP) install .
 
 setup-dev:
 	python3 -m venv .venv
-	. .venv/bin/activate && pip install --upgrade pip && pip install -r requirements-dev.txt
+	$(PIP) install --upgrade pip
+	$(PIP) install -e .[dev]
 
 test:
-	. .venv/bin/activate && pytest -q
+	$(PYTHON) -m pytest -q
 
 lint:
-	. .venv/bin/activate && python -m py_compile amazon_mail_notifier.py
+	$(PYTHON) -m compileall -q amazon_notify
 
 run-once:
-	. .venv/bin/activate && python amazon_mail_notifier.py --once
+	$(CLI) --once
 
 run:
-	. .venv/bin/activate && python amazon_mail_notifier.py
+	$(CLI)
 
 reauth:
-	. .venv/bin/activate && python amazon_mail_notifier.py --reauth
+	$(CLI) --reauth
 
 clean:
-	find . -type d -name '__pycache__' -prune -exec rm -rf {} +
+	find . -type d -name '__pycache__' -exec rm -rf {} +
 	find . -type f -name '*.pyc' -delete
+	find . -type d -name '*.egg-info' -exec rm -rf {} +
+	rm -rf build
 	rm -rf .pytest_cache
 
 dist: clean
 	mkdir -p dist
-	zip -r dist/amazon-notify-v2.zip . \
-		-x '.git/*' \
-		-x '.venv/*' \
-		-x 'dist/*' \
-		-x '*.pyc' \
+	rm -f dist/amazon-notify-v2.zip
+	zip -r dist/amazon-notify-v2.zip \
+		amazon_notify \
+		config.example.json \
+		deployment \
+		docs \
+		LICENSE \
+		Makefile \
+		pyproject.toml \
+		README.md \
+		-x '*/__pycache__' \
 		-x '*/__pycache__/*' \
-		-x '.pytest_cache/*' \
-		-x 'config.json' \
-		-x 'credentials.json' \
-		-x 'token.json' \
-		-x 'state.json' \
-		-x 'logs/*'
+		-x '*.pyc'

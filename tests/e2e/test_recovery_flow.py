@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-import amazon_mail_notifier as notifier
+from amazon_notify import gmail_client, notifier
 
 
 def _read_json(path: Path) -> dict:
@@ -41,7 +41,7 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
         lambda webhook_url, message: alerts.append(message) or True,
     )
     monkeypatch.setattr(
-        notifier,
+        gmail_client,
         "send_discord_recovery",
         lambda webhook_url, message: recoveries.append(message) or True,
     )

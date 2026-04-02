@@ -1,12 +1,12 @@
 [Unit]
-Description=Amazon Mail Notifier (Gmail -> Discord)
+Description=Amazon Notify (Gmail -> Discord)
 After=network-online.target
 
 [Service]
 Type=simple
 User=YOUR_USER
 WorkingDirectory=/opt/amazon-notify-v2
-ExecStart=/opt/amazon-notify-v2/.venv/bin/python -u /opt/amazon-notify-v2/amazon_mail_notifier.py
+ExecStart=/opt/amazon-notify-v2/.venv/bin/amazon-notify --config /opt/amazon-notify-v2/config.json
 Restart=on-failure
 RestartSec=30
 
