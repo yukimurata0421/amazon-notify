@@ -1,4 +1,4 @@
-.PHONY: setup setup-dev test lint run-once run reauth clean dist
+.PHONY: setup setup-dev test coverage lint run-once run reauth dry-run test-discord validate-config health-check clean dist
 
 VENV_BIN = .venv/bin
 PYTHON = $(VENV_BIN)/python
@@ -18,6 +18,9 @@ setup-dev:
 test:
 	$(PYTHON) -m pytest -q
 
+coverage:
+	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml
+
 lint:
 	$(PYTHON) -m compileall -q amazon_notify
 
@@ -29,6 +32,18 @@ run:
 
 reauth:
 	$(CLI) --reauth
+
+dry-run:
+	$(CLI) --once --dry-run
+
+test-discord:
+	$(CLI) --test-discord
+
+validate-config:
+	$(CLI) --validate-config
+
+health-check:
+	$(CLI) --health-check
 
 clean:
 	find . -type d -name '__pycache__' -exec rm -rf {} +

@@ -18,15 +18,16 @@ def run_once(runtime: dict) -> None:
     state_file = runtime["state_file"]
     max_messages = runtime["max_messages"]
     subject_pattern = runtime["subject_pattern"]
+    dry_run = bool(runtime.get("dry_run", False))
 
     state = load_state(state_file)
     last_message_id = state.get("last_message_id")
-    LOGGER.info("RUN_ONCE_START: last_message_id=%s", last_message_id)
+    LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", last_message_id, dry_run)
 
     service = get_gmail_service(
-        webhook_url=discord_webhook_url,
-        state=state,
-        state_file=state_file,
+        webhook_url=None if dry_run else discord_webhook_url,
+        state=None if dry_run else state,
+        state_file=None if dry_run else state_file,
     )
     if service is None:
         LOGGER.warning("RUN_ONCE_SKIPPED: gmail_service_unavailable")
@@ -36,25 +37,27 @@ def run_once(runtime: dict) -> None:
         messages = list_recent_messages(service, query="in:inbox", max_results=max_messages)
     except HttpError as exc:
         LOGGER.error("GMAIL_API_HTTP_ERROR: %s", exc)
-        if discord_webhook_url:
+        if discord_webhook_url and not dry_run:
             send_discord_alert(discord_webhook_url, f"Gmail API 呼び出しエラー: {exc}")
         return
     except Exception as exc:
         if is_transient_network_error(exc):
             LOGGER.warning("GMAIL_API_TRANSIENT_ERROR: %s", exc)
-            if discord_webhook_url:
+            if discord_webhook_url and not dry_run:
                 send_discord_alert(
                     discord_webhook_url,
                     f"Gmail API 取得で一時的な通信障害が発生しました。次周期で再試行します。\nエラー: {exc}",
                 )
-            mark_transient_network_issue(state, state_file, exc)
+            if not dry_run:
+                mark_transient_network_issue(state, state_file, exc)
             return
         LOGGER.error("GMAIL_API_UNEXPECTED_ERROR: %s", exc)
-        if discord_webhook_url:
+        if discord_webhook_url and not dry_run:
             send_discord_alert(discord_webhook_url, f"Gmail API 予期しないエラー: {exc}")
         return
 
-    notify_recovery_if_needed(discord_webhook_url, state, state_file)
+    if not dry_run:
+        notify_recovery_if_needed(discord_webhook_url, state, state_file)
 
     if not messages:
         LOGGER.info("RUN_ONCE_NO_MESSAGES")
@@ -81,7 +84,7 @@ def run_once(runtime: dict) -> None:
             msg = get_message_detail(service, msg_id)
         except Exception as exc:
             LOGGER.warning("MESSAGE_DETAIL_FETCH_FAILED: id=%s error=%s", msg_id, exc)
-            if discord_webhook_url:
+            if discord_webhook_url and not dry_run:
                 send_discord_alert(
                     discord_webhook_url,
                     f"メッセージ詳細の取得に失敗しました。次周期で再試行します。\nmessage_id: {msg_id}\nエラー: {exc}",
@@ -99,15 +102,24 @@ def run_once(runtime: dict) -> None:
 
         if should_notify:
             LOGGER.info("AMAZON_MAIL_DETECTED: id=%s subject=%s from=%s", msg_id, subject, from_decoded)
-            sent = send_discord_notification(
-                webhook_url=discord_webhook_url,
-                subject=subject,
-                from_addr=extract_email_address(from_decoded),
-                snippet=msg.get("snippet", ""),
-                url=build_gmail_message_url(msg_id),
-            )
+            if dry_run:
+                LOGGER.info(
+                    "DRY_RUN_NOTIFICATION: id=%s subject=%s from=%s",
+                    msg_id,
+                    subject,
+                    extract_email_address(from_decoded),
+                )
+                sent = True
+            else:
+                sent = send_discord_notification(
+                    webhook_url=discord_webhook_url,
+                    subject=subject,
+                    from_addr=extract_email_address(from_decoded),
+                    snippet=msg.get("snippet", ""),
+                    url=build_gmail_message_url(msg_id),
+                )
             if not sent:
-                if discord_webhook_url:
+                if discord_webhook_url and not dry_run:
                     send_discord_alert(
                         discord_webhook_url,
                         "Amazon メールの Discord 通知に失敗しました。"
@@ -119,7 +131,9 @@ def run_once(runtime: dict) -> None:
 
         last_processed_id = msg_id
 
-    if last_processed_id and last_processed_id != last_message_id:
+    if dry_run:
+        LOGGER.info("DRY_RUN_STATE_UNCHANGED")
+    elif last_processed_id and last_processed_id != last_message_id:
         state["last_message_id"] = last_processed_id
         save_state(state_file, state)
         LOGGER.info("STATE_UPDATED: last_message_id=%s", last_processed_id)

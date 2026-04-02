@@ -3,18 +3,22 @@ import requests
 from .config import LOGGER
 
 
-def send_discord_alert(webhook_url: str, message: str) -> bool:
-    if not webhook_url:
-        return False
-
-    content = f"⚠️ **Gmail監視システム警告**\n{message}"
+def _post_webhook(webhook_url: str, content: str) -> bool:
     try:
         response = requests.post(webhook_url, json={"content": content}, timeout=10)
         response.raise_for_status()
         return True
     except Exception as exc:
-        LOGGER.error("DISCORD_ALERT_FAILED: %s", exc)
+        LOGGER.error("DISCORD_POST_FAILED: %s", exc)
         return False
+
+
+def send_discord_alert(webhook_url: str, message: str) -> bool:
+    if not webhook_url:
+        return False
+
+    content = f"⚠️ **Gmail監視システム警告**\n{message}"
+    return _post_webhook(webhook_url, content)
 
 
 def send_discord_recovery(webhook_url: str, message: str) -> bool:
@@ -22,13 +26,15 @@ def send_discord_recovery(webhook_url: str, message: str) -> bool:
         return False
 
     content = f"✅ **Gmail監視システム復旧**\n{message}"
-    try:
-        response = requests.post(webhook_url, json={"content": content}, timeout=10)
-        response.raise_for_status()
-        return True
-    except Exception as exc:
-        LOGGER.error("DISCORD_RECOVERY_FAILED: %s", exc)
+    return _post_webhook(webhook_url, content)
+
+
+def send_discord_test(webhook_url: str, message: str) -> bool:
+    if not webhook_url:
         return False
+
+    content = f"🧪 **Amazon Notify テスト通知**\n{message}"
+    return _post_webhook(webhook_url, content)
 
 
 def send_discord_notification(
@@ -46,11 +52,9 @@ def send_discord_notification(
         f"<{url}>"
     )
 
-    try:
-        response = requests.post(webhook_url, json={"content": content}, timeout=10)
-        response.raise_for_status()
+    sent = _post_webhook(webhook_url, content)
+    if sent:
         LOGGER.info("DISCORD_NOTIFICATION_SENT")
         return True
-    except Exception as exc:
-        LOGGER.error("DISCORD_NOTIFICATION_FAILED: %s", exc)
-        return False
+    LOGGER.error("DISCORD_NOTIFICATION_FAILED")
+    return False

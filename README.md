@@ -1,5 +1,6 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
+[![Coverage](https://img.shields.io/badge/coverage-88%25-success?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
 
 # Amazon Notify
 
@@ -16,6 +17,7 @@ Amazon の注文・発送系メールを見逃しにくくするために、Gmai
 - `token.json` 不在、破損、更新失敗時に警告を通知
 - 一時的な通信障害の検知と復旧通知
 - ローテーションファイルログ（既定: `logs/amazon_mail_notifier.log`）
+- `--dry-run`、`--test-discord`、`--validate-config`、`--health-check` の運用コマンド
 - `pytest` と GitHub Actions CI を同梱
 
 ## 前提条件
@@ -84,6 +86,12 @@ amazon-notify
 amazon-notify --interval 120
 ```
 
+副作用なしで単発確認（Discord送信・state更新なし）:
+
+```bash
+amazon-notify --once --dry-run
+```
+
 ログ保存先を上書き:
 
 ```bash
@@ -94,6 +102,26 @@ amazon-notify --log-file /var/log/amazon-notify/notifier.log
 
 ```bash
 amazon-notify --config /opt/amazon-notify/config.json
+```
+
+設定検証:
+
+```bash
+amazon-notify --validate-config
+```
+
+ヘルスチェック(JSON出力):
+
+```bash
+amazon-notify --health-check
+```
+
+`--health-check` は常に JSON を標準出力し、全チェック成功時は終了コード `0`、1つでも異常がある場合は終了コード `1` を返します。
+
+Discord疎通確認:
+
+```bash
+amazon-notify --test-discord
 ```
 
 ## 設定
@@ -151,11 +179,22 @@ pip install -e .[dev]
 pytest -q
 ```
 
+カバレッジ付き:
+
+```bash
+pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml
+```
+
 ## Makefile
 - `make setup`: 実行依存のセットアップ
 - `make setup-dev`: 開発依存のセットアップ
 - `make test`: テスト
+- `make coverage`: カバレッジ付きテスト
 - `make lint`: 構文チェック
+- `make dry-run`: `--once --dry-run` で単発確認
+- `make test-discord`: Discord テスト通知
+- `make validate-config`: 設定検証
+- `make health-check`: ヘルスチェック JSON 出力
 - `make clean`: `__pycache__`、`.pyc`、`.pytest_cache` の削除
 - `make dist`: 実行に必要なファイルだけを含む配布 zip (`dist/amazon-notify.zip`) の作成
 
@@ -166,7 +205,7 @@ GitHub Actions では以下を実行します。
 - `pip install -e .[dev]`
 - `python -m compileall -q amazon_notify`
 - `amazon-notify --help`
-- `pytest -q`
+- `pytest -q --cov=amazon_notify --cov-report=term-missing`
 
 ## 変更履歴
 リリース単位の変更点は `CHANGELOG.md` を参照してください。

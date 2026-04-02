@@ -178,6 +178,50 @@ def test_run_once_does_not_advance_state_when_notification_fails(monkeypatch, tm
     assert alerts
 
 
+def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = {
+        "discord_webhook_url": "https://discord.invalid/webhook",
+        "amazon_pattern": r"amazon\.co\.jp",
+        "state_file": state_file,
+        "max_messages": 10,
+        "subject_pattern": None,
+        "dry_run": True,
+    }
+
+    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages",
+        lambda service, query, max_results: [{"id": "new-id"}, {"id": "old-id"}],
+    )
+
+    monkeypatch.setattr(
+        notifier,
+        "get_message_detail",
+        lambda service, message_id: {
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "配達済み: テスト注文"},
+                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                ]
+            },
+            "snippet": "配達済みのお知らせ",
+        },
+    )
+
+    sent: list[dict] = []
+    monkeypatch.setattr(notifier, "send_discord_notification", lambda **kwargs: sent.append(kwargs) or True)
+
+    notifier.run_once(runtime)
+
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "old-id"
+    assert not sent
+
+
 def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch, tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "id-1"}), encoding="utf-8")

@@ -8,11 +8,17 @@
 5. `credentials.json` を `config.json` と同じディレクトリに配置
 6. `amazon-notify --reauth` で `token.json` を作成
 7. `amazon-notify --once` で動作確認
+8. 必要に応じて `amazon-notify --test-discord` で Discord 疎通確認
 
 ## 通常運用
 - 常駐監視: `amazon-notify`
 - 監視間隔変更: `amazon-notify --interval 120`
+- 副作用なし確認: `amazon-notify --once --dry-run`
 - 再認証: `amazon-notify --reauth`
+- Discord テスト通知: `amazon-notify --test-discord`
+- 設定検証: `amazon-notify --validate-config`
+- ヘルスチェック(JSON): `amazon-notify --health-check`
+  - 全チェック成功時は終了コード `0`、異常を含む場合は `1`
 - ログ保存先変更: `amazon-notify --log-file /var/log/amazon-notify/notifier.log`
 - 設定ファイル変更: `amazon-notify --config /opt/amazon-notify/config.json`
 - モジュール実行: `python -m amazon_notify.cli`
@@ -67,6 +73,7 @@ sudo journalctl -u amazon-notify.service -f
 ## 配布前クリーンアップ
 ```bash
 make clean
+make coverage
 make dist
 ```
 
