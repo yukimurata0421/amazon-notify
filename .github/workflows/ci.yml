@@ -33,5 +33,5 @@ jobs:
       - name: CLI help
         run: amazon-notify --help
 
-      - name: Run tests
-        run: pytest -q
+      - name: Run tests with coverage
+        run: pytest -q --cov=amazon_notify --cov-report=term-missing
