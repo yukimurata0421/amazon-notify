@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.1.2] - 2026-04-03
+
+### Added
+- Added CLI operational commands: `--dry-run`, `--test-discord`, `--validate-config`, and `--health-check` (JSON output).
+- Added test coverage execution via `pytest-cov`, `make coverage`, and CI coverage reporting.
+
+### Changed
+- Improved automated test coverage to 80%+ (current total: 88% with `pytest --cov`).
+
 ## [0.1.1] - 2026-04-02
 
 ### Changed
