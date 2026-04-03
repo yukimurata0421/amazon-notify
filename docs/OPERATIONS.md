@@ -91,7 +91,7 @@ sudo journalctl -u amazon-notify.service -f
 - `max_messages` は 1 監視周期あたりの最大流入数より大きくしてください。
 - `state.json` を削除すると未処理境界が失われ、直近メールを再走査します。
 - `state_file` にネストしたパスを指定した場合も、保存先ディレクトリは自動作成されます。
-- `config.json`、`credentials.json`、`token.json`、`state.json`、`logs/` は Git に含めないでください。
+- `config.json`、`credentials.json`、`token.json`、`state.json`、`events.jsonl`、`runs.jsonl`、`logs/` は Git に含めないでください。
 
 ## 配布前クリーンアップ
 ```bash
