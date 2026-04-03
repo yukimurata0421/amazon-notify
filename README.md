@@ -1,6 +1,6 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
-[![Coverage](https://img.shields.io/badge/coverage-88%25-success?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/yukimurata0421/amazon-notify/branch/main/graph/badge.svg)](https://codecov.io/gh/yukimurata0421/amazon-notify)
 [![Lint](https://img.shields.io/badge/lint-ruff-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
 [![Types](https://img.shields.io/badge/types-mypy-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
 
