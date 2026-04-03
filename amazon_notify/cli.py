@@ -10,6 +10,8 @@ from .discord_client import send_discord_alert, send_discord_test
 from .gmail_client import run_oauth_flow
 from .notifier import run_once
 
+DEFAULT_LOG_FILE_RELATIVE = "logs/amazon_mail_notifier.log"
+
 
 def compile_optional_pattern(pattern: str | None, config_key: str) -> re.Pattern[str] | None:
     if not pattern:
@@ -26,7 +28,7 @@ def compile_optional_pattern(pattern: str | None, config_key: str) -> re.Pattern
 def build_runtime(config: dict, dry_run: bool = False) -> dict:
     return {
         "discord_webhook_url": config["discord_webhook_url"],
-        "amazon_pattern": config.get("amazon_from_pattern", r"amazon\\.co\\.jp"),
+        "amazon_pattern": config.get("amazon_from_pattern", r"amazon\.co\.jp"),
         "state_file": app_config.resolve_runtime_path(config.get("state_file", "state.json")),
         "max_messages": int(config.get("max_messages", 50)),
         "dry_run": dry_run,
@@ -104,9 +106,12 @@ def validate_config(config: dict) -> list[str]:
         except re.error as exc:
             errors.append(f"amazon_subject_pattern の正規表現が不正です: {exc}")
 
-    for key, default_value in (("state_file", "state.json"), ("log_file", str(app_config.DEFAULT_LOG_PATH))):
+    for key, default_value in (("state_file", "state.json"), ("log_file", DEFAULT_LOG_FILE_RELATIVE)):
         value = config.get(key, default_value)
-        if not isinstance(value, str) or not value.strip():
+        if not isinstance(value, str):
+            errors.append(f"{key} は空文字以外の文字列で指定してください。")
+            continue
+        if not value.strip():
             errors.append(f"{key} は空文字以外の文字列で指定してください。")
 
     return errors
@@ -169,6 +174,20 @@ def run_health_check(config: dict | None, validation_errors: list[str]) -> int:
 def print_validation_errors(errors: list[str]) -> None:
     for err in errors:
         _stderr_error(err)
+
+
+def run_once_with_guard(runtime: dict) -> bool:
+    try:
+        run_once(runtime)
+        return True
+    except Exception as exc:
+        app_config.LOGGER.exception("RUN_ONCE_UNHANDLED_EXCEPTION: %s", exc)
+        if runtime["discord_webhook_url"] and not runtime["dry_run"]:
+            send_discord_alert(
+                runtime["discord_webhook_url"],
+                f"未処理例外を検知しました。次周期で再試行します。\nエラー: {exc}",
+            )
+        return False
 
 
 def main() -> None:
@@ -247,8 +266,10 @@ def main() -> None:
         _stderr_error("interval は 1 以上を指定してください。")
         sys.exit(1)
 
-    run_once(runtime)
+    first_run_ok = run_once_with_guard(runtime)
     if args.once:
+        if not first_run_ok:
+            sys.exit(1)
         return
 
     app_config.LOGGER.info(
@@ -258,12 +279,4 @@ def main() -> None:
     )
     while True:
         time.sleep(poll_interval)
-        try:
-            run_once(runtime)
-        except Exception as exc:
-            app_config.LOGGER.exception("RUN_ONCE_UNHANDLED_EXCEPTION: %s", exc)
-            if runtime["discord_webhook_url"] and not runtime["dry_run"]:
-                send_discord_alert(
-                    runtime["discord_webhook_url"],
-                    f"未処理例外を検知しました。次周期で再試行します。\nエラー: {exc}",
-                )
+        run_once_with_guard(runtime)

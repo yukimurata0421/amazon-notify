@@ -243,6 +243,32 @@ def test_main_exits_when_interval_is_not_positive(monkeypatch, tmp_path: Path) -
     assert exc_info.value.code == 1
 
 
+def test_main_once_exits_nonzero_when_first_run_once_raises(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(cli, "run_once", lambda _runtime: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    alerts: list[str] = []
+    monkeypatch.setattr(cli, "send_discord_alert", lambda _webhook, message: alerts.append(message) or True)
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--once"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    assert alerts
+
+
 def test_main_loop_handles_unhandled_exception_and_alerts(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -290,3 +316,8 @@ def test_main_exits_when_config_invalid_in_normal_mode(monkeypatch, tmp_path: Pa
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
     assert exc_info.value.code == 1
+
+
+def test_build_runtime_uses_consistent_default_amazon_pattern() -> None:
+    runtime = cli.build_runtime({"discord_webhook_url": "https://discord.invalid/webhook"})
+    assert runtime["amazon_pattern"] == r"amazon\.co\.jp"

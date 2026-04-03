@@ -35,19 +35,21 @@ def run_once(runtime: dict) -> None:
 
     try:
         messages = list_recent_messages(service, query="in:inbox", max_results=max_messages)
-    except HttpError as exc:
-        LOGGER.error("GMAIL_API_HTTP_ERROR: %s", exc)
-        if discord_webhook_url and not dry_run:
-            send_discord_alert(discord_webhook_url, f"Gmail API 呼び出しエラー: {exc}")
-        return
     except Exception as exc:
+        if isinstance(exc, HttpError):
+            LOGGER.error("GMAIL_API_HTTP_ERROR: %s", exc)
+            if discord_webhook_url and not dry_run:
+                send_discord_alert(discord_webhook_url, f"Gmail API 呼び出しエラー: {exc}")
+            return
         if is_transient_network_error(exc):
             LOGGER.warning("GMAIL_API_TRANSIENT_ERROR: %s", exc)
             if discord_webhook_url and not dry_run:
-                send_discord_alert(
+                sent = send_discord_alert(
                     discord_webhook_url,
                     f"Gmail API 取得で一時的な通信障害が発生しました。次周期で再試行します。\nエラー: {exc}",
                 )
+                if not sent:
+                    LOGGER.warning("GMAIL_API_TRANSIENT_ALERT_FAILED")
             if not dry_run:
                 mark_transient_network_issue(state, state_file, exc)
             return

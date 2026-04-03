@@ -21,31 +21,34 @@ except ModuleNotFoundError as exc:
     class Credentials:  # type: ignore[no-redef]
         valid = False
         expired = False
-        refresh_token = None
+        refresh_token: str | None = None
 
         @classmethod
-        def from_authorized_user_file(cls, *_args, **_kwargs):
+        def from_authorized_user_file(cls, *_args, **_kwargs) -> NoReturn:
             _raise_google_import_error()
 
-        def refresh(self, *_args, **_kwargs):
+        def __getattr__(self, _name: str) -> NoReturn:
+            _raise_google_import_error()
+
+        def refresh(self, *_args, **_kwargs) -> NoReturn:
             _raise_google_import_error()
 
         def to_json(self) -> str:
             _raise_google_import_error()
 
-    class _InstalledAppFlowStub:
+    class InstalledAppFlow:  # type: ignore[no-redef]
         @staticmethod
-        def from_client_secrets_file(*_args, **_kwargs):
+        def from_client_secrets_file(*_args, **_kwargs) -> NoReturn:
             _raise_google_import_error()
 
-    def build(*_args, **_kwargs):  # type: ignore[no-redef]
+    def build(*_args, **_kwargs) -> NoReturn:  # type: ignore[no-redef]
+        _raise_google_import_error()
+
+    def Request(*_args, **_kwargs) -> NoReturn:  # type: ignore[no-redef]
         _raise_google_import_error()
 
     class HttpError(Exception):  # type: ignore[no-redef]
         """Fallback error type when googleapiclient is unavailable."""
-
-    Request = Any  # type: ignore[misc,assignment]
-    InstalledAppFlow = _InstalledAppFlowStub  # type: ignore[assignment]
 
 from . import config as app_config
 from .config import LOGGER, save_state
@@ -210,117 +213,158 @@ def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2
     return last_exc
 
 
-def get_gmail_service(
-    webhook_url: str | None = None,
-    state: dict | None = None,
-    state_file: Path | None = None,
-    allow_oauth_interactive: bool = False,
-):
-    creds = None
-    try:
-        ensure_google_dependencies()
-    except ModuleNotFoundError as exc:
-        LOGGER.error("DEPENDENCY_MISSING: %s", exc)
-        return None
+def _record_token_issue_and_maybe_alert(
+    webhook_url: str | None,
+    state: dict | None,
+    state_file: Path | None,
+    reason: str,
+    alert_message: str,
+) -> None:
+    # token 問題は state を使って重複通知を抑制する。
+    if not webhook_url or state is None or state_file is None:
+        return
+    should_alert = mark_token_issue(state, state_file, reason)
+    if should_alert:
+        send_discord_alert(webhook_url, alert_message)
 
+
+def _record_transient_issue(
+    webhook_url: str | None,
+    state: dict | None,
+    state_file: Path | None,
+    error: Exception | str,
+    alert_message: str,
+) -> None:
+    # transient 問題は発生のたびに通知し、運用監視で検知しやすくする。
+    if webhook_url:
+        send_discord_alert(webhook_url, alert_message)
+    if state is not None and state_file is not None:
+        mark_transient_network_issue(state, state_file, error)
+
+
+def _load_initial_credentials(
+    webhook_url: str | None,
+    state: dict | None,
+    state_file: Path | None,
+    allow_oauth_interactive: bool,
+) -> Credentials | None:
     if not app_config.TOKEN_PATH.exists():
         if allow_oauth_interactive:
             LOGGER.info("TOKEN_MISSING_INTERACTIVE_AUTH_START")
-            creds = run_oauth_flow()
-            if not creds:
-                return None
-        else:
-            reason = f"token.json が見つかりません: {app_config.TOKEN_PATH}"
-            LOGGER.error("TOKEN_MISSING: %s", reason)
-            if webhook_url and state is not None and state_file is not None:
-                should_alert = mark_token_issue(state, state_file, reason)
-                if should_alert:
-                    send_discord_alert(
-                        webhook_url,
-                        "token.json が存在しないため Gmail API に接続できません。"
-                        " `amazon-notify --reauth` で再認証してください。",
-                    )
+            return run_oauth_flow()
+
+        reason = f"token.json が見つかりません: {app_config.TOKEN_PATH}"
+        LOGGER.error("TOKEN_MISSING: %s", reason)
+        _record_token_issue_and_maybe_alert(
+            webhook_url,
+            state,
+            state_file,
+            reason,
+            "token.json が存在しないため Gmail API に接続できません。"
+            " `amazon-notify --reauth` で再認証してください。",
+        )
+        return None
+
+    try:
+        return Credentials.from_authorized_user_file(str(app_config.TOKEN_PATH), SCOPES)
+    except Exception as exc:
+        reason = f"token.json の読み込みに失敗: {exc}"
+        LOGGER.error("TOKEN_INVALID: %s", reason)
+        if allow_oauth_interactive:
+            LOGGER.info("TOKEN_INVALID_INTERACTIVE_AUTH_START")
+            return run_oauth_flow()
+
+        _record_token_issue_and_maybe_alert(
+            webhook_url,
+            state,
+            state_file,
+            reason,
+            "token.json の読み込みに失敗しました。"
+            " `amazon-notify --reauth` で再認証してください。",
+        )
+        return None
+
+
+def _ensure_usable_credentials(
+    creds: Credentials,
+    webhook_url: str | None,
+    state: dict | None,
+    state_file: Path | None,
+    allow_oauth_interactive: bool,
+) -> Credentials | None:
+    if creds.valid:
+        return creds
+
+    if creds.expired and creds.refresh_token:
+        LOGGER.info("TOKEN_REFRESH_START")
+        refresh_error = refresh_with_retry(creds)
+        if refresh_error is None:
+            with app_config.TOKEN_PATH.open("w", encoding="utf-8") as token_file:
+                token_file.write(creds.to_json())
+            LOGGER.info("TOKEN_REFRESH_SUCCESS: %s", app_config.TOKEN_PATH)
+            return creds
+
+        if is_transient_network_error(refresh_error):
+            error_msg = (
+                "トークン更新時に一時的な通信障害が発生しました。"
+                "今回の実行はスキップし、次周期で自動復旧を待ちます。\n"
+                f"エラー: {refresh_error}"
+            )
+            LOGGER.warning("TOKEN_REFRESH_TRANSIENT_FAILURE: %s", refresh_error)
+            _record_transient_issue(
+                webhook_url,
+                state,
+                state_file,
+                refresh_error,
+                error_msg,
+            )
             return None
-    else:
-        try:
-            creds = Credentials.from_authorized_user_file(str(app_config.TOKEN_PATH), SCOPES)
-        except Exception as exc:
-            reason = f"token.json の読み込みに失敗: {exc}"
-            LOGGER.error("TOKEN_INVALID: %s", reason)
-            if allow_oauth_interactive:
-                LOGGER.info("TOKEN_INVALID_INTERACTIVE_AUTH_START")
-                creds = run_oauth_flow()
-            else:
-                if webhook_url and state is not None and state_file is not None:
-                    should_alert = mark_token_issue(state, state_file, reason)
-                    if should_alert:
-                        send_discord_alert(
-                            webhook_url,
-                            "token.json の読み込みに失敗しました。"
-                            " `amazon-notify --reauth` で再認証してください。",
-                        )
-                return None
 
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            LOGGER.info("TOKEN_REFRESH_START")
-            refresh_error = refresh_with_retry(creds)
-            if refresh_error is None:
-                with app_config.TOKEN_PATH.open("w", encoding="utf-8") as token_file:
-                    token_file.write(creds.to_json())
-                LOGGER.info("TOKEN_REFRESH_SUCCESS: %s", app_config.TOKEN_PATH)
-            elif is_transient_network_error(refresh_error):
-                error_msg = (
-                    "トークン更新時に一時的な通信障害が発生しました。"
-                    "今回の実行はスキップし、次周期で自動復旧を待ちます。\n"
-                    f"エラー: {refresh_error}"
-                )
-                LOGGER.warning("TOKEN_REFRESH_TRANSIENT_FAILURE: %s", refresh_error)
-                if webhook_url:
-                    send_discord_alert(webhook_url, error_msg)
-                if state is not None and state_file is not None:
-                    mark_transient_network_issue(state, state_file, refresh_error)
-                return None
-            else:
-                reason = f"トークンの自動更新に失敗: {refresh_error}"
-                error_msg = (
-                    "トークンの自動更新に失敗しました。"
-                    " `amazon-notify --reauth` で再認証してください。\n"
-                    f"エラー: {refresh_error}"
-                )
-                LOGGER.error("TOKEN_REFRESH_FAILED: %s", reason)
-                LOGGER.error("TOKEN_REFRESH_FATAL_FAILURE: %s", refresh_error)
-                if allow_oauth_interactive:
-                    if webhook_url:
-                        send_discord_alert(webhook_url, error_msg)
-                    creds = run_oauth_flow()
-                    if not creds:
-                        return None
-                else:
-                    if webhook_url and state is not None and state_file is not None:
-                        should_alert = mark_token_issue(state, state_file, reason)
-                        if should_alert:
-                            send_discord_alert(webhook_url, error_msg)
-                    return None
-        else:
-            reason = "token が無効で refresh_token も利用できません"
-            LOGGER.error("TOKEN_INVALID_NO_REFRESH: %s", reason)
-            if allow_oauth_interactive:
-                LOGGER.info("TOKEN_INVALID_NO_REFRESH_INTERACTIVE_AUTH_START")
-                creds = run_oauth_flow()
-                if not creds:
-                    return None
-            else:
-                if webhook_url and state is not None and state_file is not None:
-                    should_alert = mark_token_issue(state, state_file, reason)
-                    if should_alert:
-                        send_discord_alert(
-                            webhook_url,
-                            "token が無効で自動更新できません。"
-                            " `amazon-notify --reauth` で再認証してください。",
-                        )
-                return None
+        reason = f"トークンの自動更新に失敗: {refresh_error}"
+        error_msg = (
+            "トークンの自動更新に失敗しました。"
+            " `amazon-notify --reauth` で再認証してください。\n"
+            f"エラー: {refresh_error}"
+        )
+        LOGGER.error("TOKEN_REFRESH_FAILED: %s", reason)
+        LOGGER.error("TOKEN_REFRESH_FATAL_FAILURE: %s", refresh_error)
+        if allow_oauth_interactive:
+            if webhook_url:
+                send_discord_alert(webhook_url, error_msg)
+            return run_oauth_flow()
 
+        _record_token_issue_and_maybe_alert(
+            webhook_url,
+            state,
+            state_file,
+            reason,
+            error_msg,
+        )
+        return None
+
+    reason = "token が無効で refresh_token も利用できません"
+    LOGGER.error("TOKEN_INVALID_NO_REFRESH: %s", reason)
+    if allow_oauth_interactive:
+        LOGGER.info("TOKEN_INVALID_NO_REFRESH_INTERACTIVE_AUTH_START")
+        return run_oauth_flow()
+
+    _record_token_issue_and_maybe_alert(
+        webhook_url,
+        state,
+        state_file,
+        reason,
+        "token が無効で自動更新できません。"
+        " `amazon-notify --reauth` で再認証してください。",
+    )
+    return None
+
+
+def _build_gmail_service(
+    creds: Credentials,
+    webhook_url: str | None,
+    state: dict | None,
+    state_file: Path | None,
+):
     try:
         service = build("gmail", "v1", credentials=creds)
         if state is not None and state_file is not None:
@@ -334,13 +378,55 @@ def get_gmail_service(
                 f"エラー: {exc}"
             )
             LOGGER.warning("GMAIL_SERVICE_TRANSIENT_FAILURE: %s", exc)
-            if webhook_url:
-                send_discord_alert(webhook_url, error_msg)
-            if state is not None and state_file is not None:
-                mark_transient_network_issue(state, state_file, exc)
+            _record_transient_issue(
+                webhook_url,
+                state,
+                state_file,
+                exc,
+                error_msg,
+            )
             return None
         LOGGER.error("GMAIL_SERVICE_BUILD_FAILED: %s", exc)
         return None
+
+
+def get_gmail_service(
+    webhook_url: str | None = None,
+    state: dict | None = None,
+    state_file: Path | None = None,
+    allow_oauth_interactive: bool = False,
+):
+    try:
+        ensure_google_dependencies()
+    except ModuleNotFoundError as exc:
+        LOGGER.error("DEPENDENCY_MISSING: %s", exc)
+        return None
+
+    creds = _load_initial_credentials(
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=allow_oauth_interactive,
+    )
+    if not creds:
+        return None
+
+    usable_creds = _ensure_usable_credentials(
+        creds,
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=allow_oauth_interactive,
+    )
+    if not usable_creds:
+        return None
+
+    return _build_gmail_service(
+        creds=usable_creds,
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+    )
 
 
 def list_recent_messages(service: Any, query: str, max_results: int) -> list[dict[str, str]]:

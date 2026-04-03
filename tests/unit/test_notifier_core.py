@@ -317,3 +317,110 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch,
     assert saved["transient_network_issue_active"] is True
     assert "timed out" in saved["last_transient_error"]
     assert alerts
+
+
+def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = {
+        "discord_webhook_url": "https://discord.invalid/webhook",
+        "amazon_pattern": r"amazon\.co\.jp",
+        "state_file": state_file,
+        "max_messages": 10,
+        "subject_pattern": None,
+    }
+
+    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+
+    class DummyHttpError(Exception):
+        pass
+
+    monkeypatch.setattr(notifier, "HttpError", DummyHttpError)
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DummyHttpError("http error")),
+    )
+
+    alerts: list[str] = []
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_alert",
+        lambda _webhook_url, message: alerts.append(message) or True,
+    )
+
+    notifier.run_once(runtime)
+
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "old-id"
+    assert alerts
+    assert "Gmail API 呼び出しエラー" in alerts[0]
+
+
+def test_run_once_breaks_when_message_detail_fetch_fails(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = {
+        "discord_webhook_url": "https://discord.invalid/webhook",
+        "amazon_pattern": r"amazon\.co\.jp",
+        "state_file": state_file,
+        "max_messages": 10,
+        "subject_pattern": None,
+    }
+
+    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages",
+        lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}],
+    )
+    monkeypatch.setattr(
+        notifier,
+        "get_message_detail",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("detail failed")),
+    )
+
+    alerts: list[str] = []
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_alert",
+        lambda _webhook_url, message: alerts.append(message) or True,
+    )
+
+    notifier.run_once(runtime)
+
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "old-id"
+    assert alerts
+    assert "メッセージ詳細の取得に失敗" in alerts[0]
+
+
+def test_run_once_no_messages_logs_and_keeps_state(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = {
+        "discord_webhook_url": "https://discord.invalid/webhook",
+        "amazon_pattern": r"amazon\.co\.jp",
+        "state_file": state_file,
+        "max_messages": 10,
+        "subject_pattern": None,
+    }
+
+    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [])
+
+    logs: list[str] = []
+
+    def fake_info(message: str, *args) -> None:
+        logs.append(message % args if args else message)
+
+    monkeypatch.setattr(notifier.LOGGER, "info", fake_info)
+
+    notifier.run_once(runtime)
+
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "old-id"
+    assert any("RUN_ONCE_NO_MESSAGES" in message for message in logs)
