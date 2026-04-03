@@ -52,9 +52,20 @@ except ModuleNotFoundError as exc:
 
 from . import config as app_config
 from .config import LOGGER, save_state
+from .domain import AuthStatus
 from .discord_client import send_discord_alert, send_discord_recovery
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+LAST_AUTH_STATUS = AuthStatus.READY
+
+
+def get_last_auth_status() -> AuthStatus:
+    return LAST_AUTH_STATUS
+
+
+def _set_last_auth_status(status: AuthStatus) -> None:
+    global LAST_AUTH_STATUS
+    LAST_AUTH_STATUS = status
 
 
 def ensure_google_dependencies() -> None:
@@ -221,10 +232,10 @@ def _record_token_issue_and_maybe_alert(
     alert_message: str,
 ) -> None:
     # token 問題は state を使って重複通知を抑制する。
-    if not webhook_url or state is None or state_file is None:
+    if state is None or state_file is None:
         return
     should_alert = mark_token_issue(state, state_file, reason)
-    if should_alert:
+    if webhook_url and should_alert:
         send_discord_alert(webhook_url, alert_message)
 
 
@@ -247,11 +258,11 @@ def _load_initial_credentials(
     state: dict | None,
     state_file: Path | None,
     allow_oauth_interactive: bool,
-) -> Credentials | None:
+) -> tuple[Credentials | None, AuthStatus]:
     if not app_config.TOKEN_PATH.exists():
         if allow_oauth_interactive:
             LOGGER.info("TOKEN_MISSING_INTERACTIVE_AUTH_START")
-            return run_oauth_flow()
+            return run_oauth_flow(), AuthStatus.TOKEN_MISSING
 
         reason = f"token.json が見つかりません: {app_config.TOKEN_PATH}"
         LOGGER.error("TOKEN_MISSING: %s", reason)
@@ -263,16 +274,21 @@ def _load_initial_credentials(
             "token.json が存在しないため Gmail API に接続できません。"
             " `amazon-notify --reauth` で再認証してください。",
         )
-        return None
+        return None, AuthStatus.TOKEN_MISSING
 
     try:
-        return Credentials.from_authorized_user_file(str(app_config.TOKEN_PATH), SCOPES)
+        creds = Credentials.from_authorized_user_file(str(app_config.TOKEN_PATH), SCOPES)
+        if creds.valid:
+            return creds, AuthStatus.TOKEN_VALID
+        if creds.expired and creds.refresh_token:
+            return creds, AuthStatus.TOKEN_EXPIRED_REFRESHABLE
+        return creds, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
     except Exception as exc:
         reason = f"token.json の読み込みに失敗: {exc}"
         LOGGER.error("TOKEN_INVALID: %s", reason)
         if allow_oauth_interactive:
             LOGGER.info("TOKEN_INVALID_INTERACTIVE_AUTH_START")
-            return run_oauth_flow()
+            return run_oauth_flow(), AuthStatus.TOKEN_CORRUPTED
 
         _record_token_issue_and_maybe_alert(
             webhook_url,
@@ -282,7 +298,7 @@ def _load_initial_credentials(
             "token.json の読み込みに失敗しました。"
             " `amazon-notify --reauth` で再認証してください。",
         )
-        return None
+        return None, AuthStatus.TOKEN_CORRUPTED
 
 
 def _ensure_usable_credentials(
@@ -291,9 +307,9 @@ def _ensure_usable_credentials(
     state: dict | None,
     state_file: Path | None,
     allow_oauth_interactive: bool,
-) -> Credentials | None:
+) -> tuple[Credentials | None, AuthStatus]:
     if creds.valid:
-        return creds
+        return creds, AuthStatus.TOKEN_VALID
 
     if creds.expired and creds.refresh_token:
         LOGGER.info("TOKEN_REFRESH_START")
@@ -302,7 +318,7 @@ def _ensure_usable_credentials(
             with app_config.TOKEN_PATH.open("w", encoding="utf-8") as token_file:
                 token_file.write(creds.to_json())
             LOGGER.info("TOKEN_REFRESH_SUCCESS: %s", app_config.TOKEN_PATH)
-            return creds
+            return creds, AuthStatus.TOKEN_VALID
 
         if is_transient_network_error(refresh_error):
             error_msg = (
@@ -318,7 +334,7 @@ def _ensure_usable_credentials(
                 refresh_error,
                 error_msg,
             )
-            return None
+            return None, AuthStatus.REFRESH_TRANSIENT_FAILURE
 
         reason = f"トークンの自動更新に失敗: {refresh_error}"
         error_msg = (
@@ -331,7 +347,7 @@ def _ensure_usable_credentials(
         if allow_oauth_interactive:
             if webhook_url:
                 send_discord_alert(webhook_url, error_msg)
-            return run_oauth_flow()
+            return run_oauth_flow(), AuthStatus.REFRESH_PERMANENT_FAILURE
 
         _record_token_issue_and_maybe_alert(
             webhook_url,
@@ -340,13 +356,13 @@ def _ensure_usable_credentials(
             reason,
             error_msg,
         )
-        return None
+        return None, AuthStatus.REFRESH_PERMANENT_FAILURE
 
     reason = "token が無効で refresh_token も利用できません"
     LOGGER.error("TOKEN_INVALID_NO_REFRESH: %s", reason)
     if allow_oauth_interactive:
         LOGGER.info("TOKEN_INVALID_NO_REFRESH_INTERACTIVE_AUTH_START")
-        return run_oauth_flow()
+        return run_oauth_flow(), AuthStatus.INTERACTIVE_REAUTH_REQUIRED
 
     _record_token_issue_and_maybe_alert(
         webhook_url,
@@ -356,7 +372,7 @@ def _ensure_usable_credentials(
         "token が無効で自動更新できません。"
         " `amazon-notify --reauth` で再認証してください。",
     )
-    return None
+    return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
 
 
 def _build_gmail_service(
@@ -364,12 +380,12 @@ def _build_gmail_service(
     webhook_url: str | None,
     state: dict | None,
     state_file: Path | None,
-):
+) -> tuple[Any | None, AuthStatus]:
     try:
         service = build("gmail", "v1", credentials=creds)
         if state is not None and state_file is not None:
             notify_token_recovery_if_needed(webhook_url, state, state_file)
-        return service
+        return service, AuthStatus.READY
     except Exception as exc:
         if is_transient_network_error(exc):
             error_msg = (
@@ -385,9 +401,53 @@ def _build_gmail_service(
                 exc,
                 error_msg,
             )
-            return None
+            return None, AuthStatus.SERVICE_BUILD_TRANSIENT_FAILURE
         LOGGER.error("GMAIL_SERVICE_BUILD_FAILED: %s", exc)
-        return None
+        return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
+
+
+def get_gmail_service_with_status(
+    webhook_url: str | None = None,
+    state: dict | None = None,
+    state_file: Path | None = None,
+    allow_oauth_interactive: bool = False,
+) -> tuple[Any | None, AuthStatus]:
+    try:
+        ensure_google_dependencies()
+    except ModuleNotFoundError as exc:
+        LOGGER.error("DEPENDENCY_MISSING: %s", exc)
+        _set_last_auth_status(AuthStatus.INTERACTIVE_REAUTH_REQUIRED)
+        return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
+
+    creds, initial_status = _load_initial_credentials(
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=allow_oauth_interactive,
+    )
+    if not creds:
+        _set_last_auth_status(initial_status)
+        return None, initial_status
+
+    usable_creds, usable_status = _ensure_usable_credentials(
+        creds,
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=allow_oauth_interactive,
+    )
+    if not usable_creds:
+        _set_last_auth_status(usable_status)
+        return None, usable_status
+
+    service, service_status = _build_gmail_service(
+        creds=usable_creds,
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+    )
+    _set_last_auth_status(service_status)
+    return service, service_status
 
 
 def get_gmail_service(
@@ -396,37 +456,13 @@ def get_gmail_service(
     state_file: Path | None = None,
     allow_oauth_interactive: bool = False,
 ):
-    try:
-        ensure_google_dependencies()
-    except ModuleNotFoundError as exc:
-        LOGGER.error("DEPENDENCY_MISSING: %s", exc)
-        return None
-
-    creds = _load_initial_credentials(
+    service, _status = get_gmail_service_with_status(
         webhook_url=webhook_url,
         state=state,
         state_file=state_file,
         allow_oauth_interactive=allow_oauth_interactive,
     )
-    if not creds:
-        return None
-
-    usable_creds = _ensure_usable_credentials(
-        creds,
-        webhook_url=webhook_url,
-        state=state,
-        state_file=state_file,
-        allow_oauth_interactive=allow_oauth_interactive,
-    )
-    if not usable_creds:
-        return None
-
-    return _build_gmail_service(
-        creds=usable_creds,
-        webhook_url=webhook_url,
-        state=state,
-        state_file=state_file,
-    )
+    return service
 
 
 def list_recent_messages(service: Any, query: str, max_results: int) -> list[dict[str, str]]:

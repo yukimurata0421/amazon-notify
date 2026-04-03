@@ -6,11 +6,15 @@ import time
 from pathlib import Path
 
 from . import config as app_config
+from .checkpoint_store import JsonlCheckpointStore
 from .discord_client import send_discord_alert, send_discord_test
 from .gmail_client import run_oauth_flow
 from .notifier import run_once
 
 DEFAULT_LOG_FILE_RELATIVE = "logs/amazon_mail_notifier.log"
+DEFAULT_EVENTS_FILE_RELATIVE = "events.jsonl"
+DEFAULT_RUNS_FILE_RELATIVE = "runs.jsonl"
+MIN_POLL_INTERVAL_SECONDS = 10
 
 
 def compile_optional_pattern(pattern: str | None, config_key: str) -> re.Pattern[str] | None:
@@ -30,6 +34,8 @@ def build_runtime(config: dict, dry_run: bool = False) -> dict:
         "discord_webhook_url": config["discord_webhook_url"],
         "amazon_pattern": config.get("amazon_from_pattern", r"amazon\.co\.jp"),
         "state_file": app_config.resolve_runtime_path(config.get("state_file", "state.json")),
+        "events_file": app_config.resolve_runtime_path(config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE)),
+        "runs_file": app_config.resolve_runtime_path(config.get("runs_file", DEFAULT_RUNS_FILE_RELATIVE)),
         "max_messages": int(config.get("max_messages", 50)),
         "dry_run": dry_run,
         "subject_pattern": compile_optional_pattern(
@@ -92,6 +98,11 @@ def validate_config(config: dict) -> list[str]:
             continue
         if value <= 0:
             errors.append(f"{key} は 1 以上を指定してください。")
+        if key == "poll_interval_seconds" and value < MIN_POLL_INTERVAL_SECONDS:
+            errors.append(
+                f"poll_interval_seconds は {MIN_POLL_INTERVAL_SECONDS} 以上を推奨します。"
+                f"({value} は短すぎます)"
+            )
 
     amazon_from_pattern = config.get("amazon_from_pattern", r"amazon\.co\.jp")
     try:
@@ -106,13 +117,23 @@ def validate_config(config: dict) -> list[str]:
         except re.error as exc:
             errors.append(f"amazon_subject_pattern の正規表現が不正です: {exc}")
 
-    for key, default_value in (("state_file", "state.json"), ("log_file", DEFAULT_LOG_FILE_RELATIVE)):
+    for key, default_value in (
+        ("state_file", "state.json"),
+        ("log_file", DEFAULT_LOG_FILE_RELATIVE),
+        ("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
+        ("runs_file", DEFAULT_RUNS_FILE_RELATIVE),
+    ):
         value = config.get(key, default_value)
         if not isinstance(value, str):
             errors.append(f"{key} は空文字以外の文字列で指定してください。")
             continue
         if not value.strip():
             errors.append(f"{key} は空文字以外の文字列で指定してください。")
+            continue
+        try:
+            app_config.resolve_runtime_path(value)
+        except Exception as exc:
+            errors.append(f"{key} を runtime パスとして解決できません: {exc}")
 
     return errors
 
@@ -151,11 +172,24 @@ def run_health_check(config: dict | None, validation_errors: list[str]) -> int:
 
     state_file: Path | None = None
     log_file: Path | None = None
+    events_file: Path | None = None
+    runs_file: Path | None = None
+    last_run_summary: dict | None = None
+    active_incident: dict | None = None
     if config is not None:
         state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"))
         log_file = app_config.resolve_runtime_path(
             config.get("log_file", str(app_config.DEFAULT_LOG_PATH))
         )
+        events_file = app_config.resolve_runtime_path(config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE))
+        runs_file = app_config.resolve_runtime_path(config.get("runs_file", DEFAULT_RUNS_FILE_RELATIVE))
+        checkpoint_store = JsonlCheckpointStore(
+            state_file=state_file,
+            events_file=events_file,
+            runs_file=runs_file,
+        )
+        last_run_summary = checkpoint_store.load_last_run_summary()
+        active_incident = checkpoint_store.load_incident_state()
 
     status = "ok" if all(bool(check["ok"]) for check in checks) else "degraded"
     report = {
@@ -165,6 +199,17 @@ def run_health_check(config: dict | None, validation_errors: list[str]) -> int:
         "config_path": str(app_config.CONFIG_PATH),
         "state_file": str(state_file) if state_file else None,
         "log_file": str(log_file) if log_file else None,
+        "events_file": str(events_file) if events_file else None,
+        "runs_file": str(runs_file) if runs_file else None,
+        "runtime_status": {
+            "last_run_status": (last_run_summary or {}).get("last_run_status"),
+            "last_failure_kind": (last_run_summary or {}).get("last_failure_kind"),
+            "checkpoint_before": (last_run_summary or {}).get("checkpoint_before"),
+            "checkpoint_after": (last_run_summary or {}).get("checkpoint_after"),
+            "last_success_at": (last_run_summary or {}).get("last_success_at"),
+            "auth_status": (last_run_summary or {}).get("auth_status"),
+            "active_incident": active_incident,
+        },
         "checks": checks,
     }
     sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
@@ -262,8 +307,8 @@ def main() -> None:
 
     runtime = build_runtime(config, dry_run=args.dry_run)
     poll_interval = args.interval or int(config.get("poll_interval_seconds", 60))
-    if poll_interval <= 0:
-        _stderr_error("interval は 1 以上を指定してください。")
+    if poll_interval < MIN_POLL_INTERVAL_SECONDS:
+        _stderr_error(f"interval は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。")
         sys.exit(1)
 
     first_run_ok = run_once_with_guard(runtime)

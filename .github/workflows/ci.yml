@@ -78,7 +78,7 @@ jobs:
         run: amazon-notify --help
 
       - name: Run tests with coverage
-        run: pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml
+        run: pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
 
       - name: Generate coverage badge JSON
         if: matrix.python-version == '3.11'

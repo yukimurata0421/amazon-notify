@@ -21,7 +21,7 @@ test:
 	$(PYTHON) -m pytest -q
 
 coverage:
-	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml
+	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
 
 lint:
 	$(PYTHON) -m compileall -q amazon_notify

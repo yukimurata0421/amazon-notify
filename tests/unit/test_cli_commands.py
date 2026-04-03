@@ -44,6 +44,16 @@ def test_validate_config_detects_invalid_values() -> None:
     assert any("log_file" in err for err in errors)
 
 
+def test_validate_config_rejects_too_short_poll_interval() -> None:
+    errors = cli.validate_config(
+        {
+            "discord_webhook_url": "https://discord.invalid/webhook",
+            "poll_interval_seconds": 5,
+        }
+    )
+    assert any("短すぎます" in err for err in errors)
+
+
 def test_main_validate_config_exits_nonzero_for_invalid_config(monkeypatch, tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -175,6 +185,71 @@ def test_main_health_check_outputs_json_when_config_is_missing(monkeypatch, tmp_
     assert config_check["ok"] is False
 
 
+def test_main_health_check_includes_runtime_status_summary(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "credentials.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "token.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "state.json").write_text(
+        json.dumps(
+            {
+                "last_message_id": "x",
+                "active_incident_kind": "delivery_failed",
+                "active_incident_at": "2026-04-04 09:00:00",
+                "incident_suppressed_count": 3,
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-1",
+                "started_at": "2026-04-04 08:00:00",
+                "ended_at": "2026-04-04 08:00:10",
+                "checkpoint_before": "a",
+                "checkpoint_after": "b",
+                "processed_count": 1,
+                "matched_count": 1,
+                "notified_count": 0,
+                "non_target_count": 0,
+                "failure_kind": "delivery_failed",
+                "failure_message": "failed",
+                "failure_message_id": "mid-1",
+                "should_retry": True,
+                "should_alert": True,
+                "auth_status": "READY",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--health-check"])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 0
+
+    report = json.loads(capsys.readouterr().out)
+    runtime_status = report["runtime_status"]
+    assert runtime_status["last_run_status"] == "error"
+    assert runtime_status["last_failure_kind"] == "delivery_failed"
+    assert runtime_status["active_incident"]["kind"] == "delivery_failed"
+
+
 def test_load_config_or_exit_exits_for_missing_json_and_oserror(monkeypatch, tmp_path: Path) -> None:
     missing = tmp_path / "missing.json"
     monkeypatch.setattr(config, "CONFIG_PATH", missing)
@@ -276,7 +351,7 @@ def test_main_loop_handles_unhandled_exception_and_alerts(monkeypatch, tmp_path:
             {
                 "discord_webhook_url": "https://discord.invalid/webhook",
                 "max_messages": 10,
-                "poll_interval_seconds": 1,
+                "poll_interval_seconds": 10,
             }
         ),
         encoding="utf-8",
@@ -321,3 +396,5 @@ def test_main_exits_when_config_invalid_in_normal_mode(monkeypatch, tmp_path: Pa
 def test_build_runtime_uses_consistent_default_amazon_pattern() -> None:
     runtime = cli.build_runtime({"discord_webhook_url": "https://discord.invalid/webhook"})
     assert runtime["amazon_pattern"] == r"amazon\.co\.jp"
+    assert runtime["events_file"].name == "events.jsonl"
+    assert runtime["runs_file"].name == "runs.jsonl"

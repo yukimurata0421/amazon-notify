@@ -5,5 +5,7 @@
   "max_messages": 50,
   "poll_interval_seconds": 60,
   "state_file": "state.json",
+  "events_file": "events.jsonl",
+  "runs_file": "runs.jsonl",
   "log_file": "logs/amazon_mail_notifier.log"
 }

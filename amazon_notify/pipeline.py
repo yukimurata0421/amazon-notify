@@ -1,0 +1,167 @@
+from __future__ import annotations
+
+import time
+import uuid
+
+from .config import LOGGER
+from .domain import (
+    AuthStatus,
+    Checkpoint,
+    CheckpointStore,
+    Classifier,
+    FailureKind,
+    MailSource,
+    Notifier,
+    RunResult,
+)
+from .errors import CheckpointError, DeliveryError, PipelineError, PermanentAuthError, TransientSourceError
+
+
+class NotificationPipeline:
+    def __init__(
+        self,
+        source: MailSource,
+        classifier: Classifier,
+        notifier: Notifier,
+        checkpoint_store: CheckpointStore,
+        *,
+        max_messages: int,
+        dry_run: bool = False,
+    ):
+        self.source = source
+        self.classifier = classifier
+        self.notifier = notifier
+        self.checkpoint_store = checkpoint_store
+        self.max_messages = max_messages
+        self.dry_run = dry_run
+
+    def run_once(self) -> RunResult:
+        run_id = uuid.uuid4().hex
+        started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        checkpoint_before = self.checkpoint_store.load_checkpoint()
+        checkpoint_after = checkpoint_before
+
+        processed_count = 0
+        matched_count = 0
+        notified_count = 0
+        non_target_count = 0
+        failure_kind: FailureKind | None = None
+        failure_message: str | None = None
+        failure_message_id: str | None = None
+        should_retry = False
+        should_alert = False
+        auth_status: AuthStatus | None = self.source.get_auth_status()
+
+        try:
+            self.source.notify_recovery_if_needed()
+
+            for envelope in self.source.iter_new_messages(checkpoint_before, self.max_messages):
+                processed_count += 1
+                candidate = self.classifier.classify(envelope)
+                if candidate is None:
+                    non_target_count += 1
+                    checkpoint_after = self._commit_if_needed(
+                        run_id=run_id,
+                        checkpoint=Checkpoint(message_id=envelope.message_id),
+                        dry_run=self.dry_run,
+                    )
+                    continue
+
+                matched_count += 1
+                sent = self.notifier.notify(candidate)
+                if not sent:
+                    raise DeliveryError(
+                        "Amazon メールの Discord 通知に失敗しました。",
+                        envelope.message_id,
+                    )
+
+                notified_count += 1
+                checkpoint_after = self._commit_if_needed(
+                    run_id=run_id,
+                    checkpoint=Checkpoint(message_id=envelope.message_id),
+                    dry_run=self.dry_run,
+                )
+
+        except PipelineError as exc:
+            failure_kind = exc.kind
+            failure_message = str(exc)
+            failure_message_id = exc.message_id
+            should_retry = exc.should_retry
+            should_alert = exc.should_alert
+            self._record_failure(run_id, exc)
+            if isinstance(exc, TransientSourceError):
+                self.source.mark_transient_issue(exc)
+            if isinstance(exc, PermanentAuthError):
+                auth_status = self.source.get_auth_status()
+        except Exception as exc:
+            failure_kind = FailureKind.SOURCE_FAILED
+            failure_message = str(exc)
+            should_retry = True
+            should_alert = True
+            self.checkpoint_store.append_event(
+                "source_failed",
+                run_id,
+                {"error": str(exc)},
+            )
+            self.source.mark_transient_issue(exc)
+
+        ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        result = RunResult(
+            run_id=run_id,
+            started_at=started_at,
+            ended_at=ended_at,
+            checkpoint_before=checkpoint_before.message_id,
+            checkpoint_after=checkpoint_after.message_id,
+            processed_count=processed_count,
+            matched_count=matched_count,
+            notified_count=notified_count,
+            non_target_count=non_target_count,
+            failure_kind=failure_kind,
+            failure_message=failure_message,
+            failure_message_id=failure_message_id,
+            should_retry=should_retry,
+            should_alert=should_alert,
+            auth_status=auth_status,
+        )
+        self.checkpoint_store.append_run_result(result)
+        self._log_result(result)
+        return result
+
+    def _commit_if_needed(self, *, run_id: str, checkpoint: Checkpoint, dry_run: bool) -> Checkpoint:
+        if dry_run:
+            return checkpoint
+        try:
+            self.checkpoint_store.advance_checkpoint(checkpoint, run_id)
+            return checkpoint
+        except CheckpointError as exc:
+            self._record_failure(run_id, exc)
+            raise
+
+    def _record_failure(self, run_id: str, exc: PipelineError) -> None:
+        event_type = {
+            FailureKind.DELIVERY_FAILED: "delivery_failed",
+            FailureKind.MESSAGE_DETAIL_FAILED: "message_detail_failed",
+            FailureKind.AUTH_FAILED: "auth_failed",
+            FailureKind.CHECKPOINT_FAILED: "checkpoint_failed",
+            FailureKind.SOURCE_FAILED: "source_failed",
+            FailureKind.CONFIG_FAILED: "config_failed",
+        }.get(exc.kind, "source_failed")
+        payload = {"error": str(exc)}
+        if exc.message_id:
+            payload["message_id"] = exc.message_id
+        self.checkpoint_store.append_event(event_type, run_id, payload)
+
+    def _log_result(self, result: RunResult) -> None:
+        LOGGER.info(
+            "RUN_RESULT: run_id=%s processed=%s matched=%s notified=%s non_target=%s "
+            "checkpoint_before=%s checkpoint_after=%s failure_kind=%s should_retry=%s",
+            result.run_id,
+            result.processed_count,
+            result.matched_count,
+            result.notified_count,
+            result.non_target_count,
+            result.checkpoint_before,
+            result.checkpoint_after,
+            result.failure_kind.value if result.failure_kind else None,
+            result.should_retry,
+        )

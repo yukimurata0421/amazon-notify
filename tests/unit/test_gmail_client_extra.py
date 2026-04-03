@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from amazon_notify import config, gmail_client
+from amazon_notify.domain import AuthStatus
 
 
 class _DummyCreds:
@@ -293,6 +294,24 @@ def test_get_gmail_service_build_error_paths(monkeypatch, tmp_path: Path) -> Non
     monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fatal")))
     fatal = gmail_client.get_gmail_service()
     assert fatal is None
+
+
+def test_get_gmail_service_exposes_auth_status(monkeypatch, tmp_path: Path) -> None:
+    token_path = tmp_path / "token.json"
+    token_path.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
+    monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
+    monkeypatch.setattr(
+        gmail_client.Credentials,
+        "from_authorized_user_file",
+        lambda *_args, **_kwargs: _DummyCreds(valid=True),
+    )
+    monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: object())
+
+    service, status = gmail_client.get_gmail_service_with_status()
+    assert service is not None
+    assert status == AuthStatus.READY
+    assert gmail_client.get_last_auth_status() == AuthStatus.READY
 
 
 def test_list_and_get_message_helpers() -> None:

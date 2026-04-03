@@ -23,7 +23,15 @@
 - 設定ファイル変更: `amazon-notify --config /opt/amazon-notify/config.json`
 - モジュール実行: `python -m amazon_notify.cli`
 - `amazon_subject_pattern` が不正な正規表現なら、起動時にエラーを表示して終了します。
-- `state_file` と `log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
+- `state_file`、`events_file`、`runs_file`、`log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
+
+## v0.2.0 移行仕様
+- checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
+- `state.json` は互換スナップショット（派生物）として更新されます。
+- 初回起動時に `events.jsonl` が空で `state.json.last_message_id` がある場合のみ、bootstrap 用 `checkpoint_advanced` を 1 回記録します。
+- rollback 観点:
+  - `state.json` は継続更新されるため、0.1 系の境界情報は保持されます。
+  - ただし 0.2 系の監査情報（events/runs）は 0.1 系では参照されません。
 
 ## 認証エラー時の挙動
 - `token.json` が存在しない場合は自動 OAuth を起動せず、警告のみ送信します。
@@ -39,6 +47,21 @@
 - メッセージ詳細取得に失敗した場合、そのメッセージ以降の処理を止めて次周期で再試行します。
 - Discord 通知に失敗した場合は `state.json` を進めません。
 - そのため、通知に失敗したメールは次周期で再試行されます。
+
+## 障害時の見方（v0.2.0）
+- 優先確認先:
+  - `events.jsonl`: 失敗種別と checkpoint 進行
+  - `runs.jsonl`: 実行単位の要約（before/after, counts, failure_kind）
+  - `logs/amazon_mail_notifier.log`: 補助ログ
+- `delivery_failed` が出たら:
+  - Discord Webhook 疎通を確認
+  - `checkpoint_after` が進んでいないことを確認（仕様どおり）
+- `auth_failed` が出たら:
+  - `amazon-notify --reauth`
+  - `token.json` と `credentials.json` の配置を確認
+- checkpoint が進まないとき:
+  - `events.jsonl` の `message_detail_failed` / `delivery_failed` を確認
+  - ordered frontier 仕様で中断している可能性を確認
 
 ## ログ
 - 既定の保存先: `logs/amazon_mail_notifier.log`
