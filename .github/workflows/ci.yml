@@ -5,8 +5,7 @@ on:
   pull_request:
 
 permissions:
-  contents: read
-  id-token: write
+  contents: write
 
 jobs:
   lint:
@@ -81,10 +80,45 @@ jobs:
       - name: Run tests with coverage
         run: pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml
 
-      - name: Upload coverage report to Codecov
+      - name: Generate coverage badge JSON
         if: matrix.python-version == '3.11'
-        uses: codecov/codecov-action@v5
+        run: |
+          python - <<'PY'
+          import json
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          root = ET.parse("coverage.xml").getroot()
+          line_rate = float(root.attrib.get("line-rate", 0.0))
+          coverage = round(line_rate * 100)
+
+          if coverage >= 90:
+              color = "brightgreen"
+          elif coverage >= 80:
+              color = "green"
+          elif coverage >= 70:
+              color = "yellowgreen"
+          elif coverage >= 60:
+              color = "yellow"
+          elif coverage >= 50:
+              color = "orange"
+          else:
+              color = "red"
+
+          payload = {
+              "schemaVersion": 1,
+              "label": "coverage",
+              "message": f"{coverage}%",
+              "color": color,
+          }
+          badge_path = Path(".github/badges/coverage.json")
+          badge_path.parent.mkdir(parents=True, exist_ok=True)
+          badge_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Commit coverage badge
+        if: matrix.python-version == '3.11' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          files: ./coverage.xml
-          use_oidc: true
-          fail_ci_if_error: false
+          commit_message: "chore(ci): update coverage badge [skip ci]"
+          file_pattern: .github/badges/coverage.json
