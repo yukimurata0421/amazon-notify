@@ -311,7 +311,6 @@ def test_get_gmail_service_exposes_auth_status(monkeypatch, tmp_path: Path) -> N
     service, status = gmail_client.get_gmail_service_with_status()
     assert service is not None
     assert status == AuthStatus.READY
-    assert gmail_client.get_last_auth_status() == AuthStatus.READY
 
 
 def test_list_and_get_message_helpers() -> None:

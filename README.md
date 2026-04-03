@@ -149,6 +149,7 @@ amazon-notify --test-discord
 - `log_file`: ログファイルの保存先
 
 `max_messages` は 1 監視周期の間に受信しうるメール件数より十分大きくしてください。短時間に大量のメールが流れる運用では、この値が小さいと古い未処理メールを拾いきれません。
+`amazon_from_pattern` は JSON 文字列として書くため、バックスラッシュは `\\` でエスケープします（例: `amazon\\.co\\.jp`）。
 `amazon_subject_pattern` は Python 正規表現として評価されます。不正な正規表現が設定されている場合は、起動時にエラーを表示して終了します。
 `state_file`、`events_file`、`runs_file`、`log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。保存先ディレクトリが未作成でも自動作成します。
 `poll_interval_seconds` は意味検証で下限（10秒）をチェックします。
@@ -267,6 +268,8 @@ GitHub Actions では以下を実行します。
 - `token.json`
 - `config.json`
 - `state.json`
+- `events.jsonl`
+- `runs.jsonl`
 - `logs/`
 
 `.gitignore` で除外しています。

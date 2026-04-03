@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from dataclasses import field
 from pathlib import Path
 from re import Pattern
 
 from .checkpoint_store import JsonlCheckpointStore
-from .config import LOGGER, load_state, save_state
+from .config import LOGGER, load_state
 from .discord_client import send_discord_alert, send_discord_notification, send_discord_recovery
 from .domain import AuthStatus, Checkpoint, MailEnvelope, NotificationCandidate, RunResult
 from .errors import MessageDecodeError, PermanentAuthError, SourceError, TransientSourceError
 from .gmail_client import (
     HttpError,
-    get_gmail_service,
-    get_last_auth_status,
+    get_gmail_service_with_status,
     get_message_detail,
     is_transient_network_error,
     list_recent_messages,
@@ -30,9 +30,10 @@ class GmailMailSource:
     state: dict
     state_file: Path
     dry_run: bool
+    auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
 
     def get_auth_status(self) -> AuthStatus:
-        return get_last_auth_status()
+        return self.auth_status
 
     def notify_recovery_if_needed(self) -> None:
         if self.dry_run:
@@ -45,22 +46,23 @@ class GmailMailSource:
         mark_transient_network_issue(self.state, self.state_file, err)
 
     def iter_new_messages(self, checkpoint: Checkpoint, max_messages: int) -> Iterable[MailEnvelope]:
-        service = get_gmail_service(
+        # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
+        service, status = get_gmail_service_with_status(
             webhook_url=None,  # alert は incident lifecycle 側で一元管理する
             state=None if self.dry_run else self.state,
             state_file=None if self.dry_run else self.state_file,
         )
+        self.auth_status = status
         if service is None:
-            auth_status = self.get_auth_status()
-            if auth_status in {
+            if status in {
                 AuthStatus.REFRESH_TRANSIENT_FAILURE,
                 AuthStatus.SERVICE_BUILD_TRANSIENT_FAILURE,
             }:
                 raise TransientSourceError(
-                    f"Gmail service 一時障害: auth_status={auth_status.value}"
+                    f"Gmail service 一時障害: auth_status={status.value}"
                 )
             raise PermanentAuthError(
-                f"Gmail service が利用できません。auth_status={auth_status.value}"
+                f"Gmail service が利用できません。auth_status={status.value}"
             )
 
         try:
@@ -153,27 +155,21 @@ class DiscordNotifier:
 def _handle_incident_lifecycle(
     *,
     checkpoint_store: JsonlCheckpointStore,
-    state: dict,
-    state_file: Path,
     discord_webhook_url: str,
     dry_run: bool,
     result: RunResult,
 ) -> None:
-    active_kind = state.get("active_incident_kind")
+    active_incident = checkpoint_store.load_incident_state()
+    active_kind = active_incident["kind"] if active_incident else None
     failure_kind = result.failure_kind.value if result.failure_kind else None
 
     if result.failure_kind is not None and result.should_alert and not dry_run and discord_webhook_url:
+        assert failure_kind is not None
         # 同一インシデント継続時は抑制して連投を避ける。
         if active_kind == failure_kind:
-            state["incident_suppressed_count"] = int(state.get("incident_suppressed_count", 0)) + 1
-            save_state(state_file, state)
-            checkpoint_store.append_event(
-                "incident_suppressed",
-                result.run_id,
-                {
-                    "kind": failure_kind,
-                    "suppressed_count": state["incident_suppressed_count"],
-                },
+            checkpoint_store.suppress_incident(
+                kind=failure_kind,
+                run_id=result.run_id,
             )
             return
 
@@ -182,41 +178,25 @@ def _handle_incident_lifecycle(
             message = f"{message}\nmessage_id: {result.failure_message_id}"
         sent = send_discord_alert(discord_webhook_url, message)
         if sent:
-            state["active_incident_kind"] = failure_kind
-            state["active_incident_message"] = result.failure_message
-            state["active_incident_at"] = result.ended_at
-            state["incident_suppressed_count"] = 0
-            save_state(state_file, state)
-            checkpoint_store.append_event(
-                "incident_opened",
-                result.run_id,
-                {
-                    "kind": failure_kind,
-                },
+            checkpoint_store.open_incident(
+                kind=failure_kind,
+                message=result.failure_message,
+                opened_at=result.ended_at,
+                run_id=result.run_id,
             )
         return
 
     # 正常化したら close 通知して incident を解消する。
     if result.failure_kind is None and active_kind and not dry_run and discord_webhook_url:
+        assert active_incident is not None
         recovery_msg = (
             "障害状態から復旧しました。\n"
             f"kind: {active_kind}\n"
-            f"suppressed_count: {state.get('incident_suppressed_count', 0)}"
+            f"suppressed_count: {active_incident['suppressed_count']}"
         )
         sent = send_discord_recovery(discord_webhook_url, recovery_msg)
         if sent:
-            checkpoint_store.append_event(
-                "incident_recovered",
-                result.run_id,
-                {
-                    "kind": active_kind,
-                },
-            )
-            state.pop("active_incident_kind", None)
-            state.pop("active_incident_message", None)
-            state.pop("active_incident_at", None)
-            state.pop("incident_suppressed_count", None)
-            save_state(state_file, state)
+            checkpoint_store.recover_incident(run_id=result.run_id)
 
 
 def run_once(runtime: dict) -> RunResult:
@@ -263,8 +243,6 @@ def run_once(runtime: dict) -> RunResult:
     result = pipeline.run_once()
     _handle_incident_lifecycle(
         checkpoint_store=checkpoint_store,
-        state=state,
-        state_file=state_file,
         discord_webhook_url=discord_webhook_url,
         dry_run=dry_run,
         result=result,

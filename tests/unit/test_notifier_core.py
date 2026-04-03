@@ -100,7 +100,11 @@ def test_run_once_sends_amazon_notification_and_updates_state(monkeypatch, tmp_p
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
     monkeypatch.setattr(
         notifier,
         "list_recent_messages",
@@ -153,7 +157,11 @@ def test_run_once_does_not_advance_state_when_notification_fails(monkeypatch, tm
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
     monkeypatch.setattr(
         notifier,
         "list_recent_messages",
@@ -204,7 +212,11 @@ def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch
         "dry_run": True,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
     monkeypatch.setattr(
         notifier,
         "list_recent_messages",
@@ -247,7 +259,11 @@ def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(monkeypatch,
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
     monkeypatch.setattr(
         notifier,
         "list_recent_messages",
@@ -297,7 +313,11 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch,
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
 
     def raise_timeout(service, query, max_results):
         raise TimeoutError("timed out")
@@ -331,7 +351,11 @@ def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> 
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
 
     class DummyHttpError(Exception):
         pass
@@ -370,7 +394,11 @@ def test_run_once_breaks_when_message_detail_fetch_fails(monkeypatch, tmp_path: 
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
     monkeypatch.setattr(
         notifier,
         "list_recent_messages",
@@ -409,7 +437,11 @@ def test_run_once_no_messages_logs_and_keeps_state(monkeypatch, tmp_path: Path) 
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
     monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [])
 
     logs: list[str] = []

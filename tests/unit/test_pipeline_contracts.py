@@ -32,7 +32,11 @@ def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatc
     runtime = _runtime(tmp_path)
     runtime["state_file"].write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
     monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
     monkeypatch.setattr(
         notifier,
@@ -61,7 +65,11 @@ def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatc
     runtime = _runtime(tmp_path)
     runtime["state_file"].write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
     monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
     monkeypatch.setattr(
         notifier,
@@ -95,7 +103,11 @@ def test_ordered_frontier_message_detail_failure_preserves_frontier(monkeypatch,
     runtime = _runtime(tmp_path)
     runtime["state_file"].write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
     monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
     monkeypatch.setattr(
         notifier,
@@ -115,8 +127,11 @@ def test_contract_auth_failure_records_auth_failed_event(monkeypatch, tmp_path: 
     runtime = _runtime(tmp_path)
     runtime["state_file"].write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: None)
-    monkeypatch.setattr(notifier, "get_last_auth_status", lambda: AuthStatus.TOKEN_MISSING)
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (None, AuthStatus.TOKEN_MISSING),
+    )
 
     result = notifier.run_once(runtime)
 
@@ -144,7 +159,11 @@ def test_ordered_frontier_stops_processing_newer_messages_after_midstream_failur
             {"id": "old-id"},
         ],
     )
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
 
     def fake_detail(_service, message_id: str) -> dict:
         if message_id == "msg-b":
@@ -182,7 +201,11 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
     runtime = _runtime(tmp_path)
     runtime["state_file"].write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
     monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
     monkeypatch.setattr(
         notifier,

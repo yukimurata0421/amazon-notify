@@ -374,6 +374,40 @@ def test_main_loop_handles_unhandled_exception_and_alerts(monkeypatch, tmp_path:
         cli.main()
 
 
+def test_main_loop_continues_after_guard_returns_false(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    calls = {"count": 0}
+
+    def fake_run_once_with_guard(_runtime: dict) -> bool:
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return True
+        if calls["count"] == 2:
+            return False
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(cli, "run_once_with_guard", fake_run_once_with_guard)
+    monkeypatch.setattr(cli.time, "sleep", lambda _sec: None)
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path)])
+
+    with pytest.raises(KeyboardInterrupt):
+        cli.main()
+
+    assert calls["count"] == 3
+
+
 def test_main_exits_when_config_invalid_in_normal_mode(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(

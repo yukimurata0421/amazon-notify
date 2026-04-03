@@ -56,16 +56,6 @@ from .domain import AuthStatus
 from .discord_client import send_discord_alert, send_discord_recovery
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-LAST_AUTH_STATUS = AuthStatus.READY
-
-
-def get_last_auth_status() -> AuthStatus:
-    return LAST_AUTH_STATUS
-
-
-def _set_last_auth_status(status: AuthStatus) -> None:
-    global LAST_AUTH_STATUS
-    LAST_AUTH_STATUS = status
 
 
 def ensure_google_dependencies() -> None:
@@ -416,7 +406,6 @@ def get_gmail_service_with_status(
         ensure_google_dependencies()
     except ModuleNotFoundError as exc:
         LOGGER.error("DEPENDENCY_MISSING: %s", exc)
-        _set_last_auth_status(AuthStatus.INTERACTIVE_REAUTH_REQUIRED)
         return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
 
     creds, initial_status = _load_initial_credentials(
@@ -426,7 +415,6 @@ def get_gmail_service_with_status(
         allow_oauth_interactive=allow_oauth_interactive,
     )
     if not creds:
-        _set_last_auth_status(initial_status)
         return None, initial_status
 
     usable_creds, usable_status = _ensure_usable_credentials(
@@ -437,7 +425,6 @@ def get_gmail_service_with_status(
         allow_oauth_interactive=allow_oauth_interactive,
     )
     if not usable_creds:
-        _set_last_auth_status(usable_status)
         return None, usable_status
 
     service, service_status = _build_gmail_service(
@@ -446,7 +433,6 @@ def get_gmail_service_with_status(
         state=state,
         state_file=state_file,
     )
-    _set_last_auth_status(service_status)
     return service, service_status
 
 

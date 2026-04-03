@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from amazon_notify.checkpoint_store import JsonlCheckpointStore
 from amazon_notify.domain import Checkpoint, RunResult
+from amazon_notify.errors import CheckpointError
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -180,3 +183,22 @@ def test_advance_checkpoint_updates_state_snapshot(tmp_path: Path) -> None:
 
     state = json.loads(state_file.read_text(encoding="utf-8"))
     assert state["last_message_id"] == "new"
+
+
+def test_advance_checkpoint_raises_checkpoint_error_on_oserror(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    monkeypatch.setattr(
+        "amazon_notify.checkpoint_store.save_state",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    with pytest.raises(CheckpointError) as exc_info:
+        store.advance_checkpoint(Checkpoint(message_id="new"), "run-1")
+
+    assert exc_info.value.message_id == "new"

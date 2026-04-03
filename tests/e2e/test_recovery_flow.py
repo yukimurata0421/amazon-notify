@@ -20,7 +20,11 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
         "subject_pattern": None,
     }
 
-    monkeypatch.setattr(notifier, "get_gmail_service", lambda **_: object())
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), notifier.AuthStatus.READY),
+    )
 
     sequence = [TimeoutError("timed out"), []]
 
