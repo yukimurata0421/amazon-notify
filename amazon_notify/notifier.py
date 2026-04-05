@@ -48,6 +48,8 @@ from .text import (
 )
 
 T = TypeVar("T")
+_INCIDENT_MEMORY_SUPPRESSION_SECONDS = 1800.0
+_INCIDENT_MEMORY_SUPPRESSED_UNTIL: dict[str, float] = {}
 
 
 @dataclass
@@ -257,12 +259,33 @@ def _handle_incident_lifecycle(
 
     if result.failure_kind is not None and result.should_alert and not dry_run and discord_webhook_url:
         assert failure_kind is not None
+        now_epoch = time.time()
+        suppressed_until = _INCIDENT_MEMORY_SUPPRESSED_UNTIL.get(failure_kind)
+        if suppressed_until is not None and now_epoch < suppressed_until:
+            LOGGER.warning(
+                "INCIDENT_ALERT_SUPPRESSED_IN_MEMORY: kind=%s remaining=%.1fs",
+                failure_kind,
+                suppressed_until - now_epoch,
+            )
+            return
         # 同一インシデント継続時は抑制して連投を避ける。
         if active_kind == failure_kind:
-            checkpoint_store.suppress_incident(
-                kind=failure_kind,
-                run_id=result.run_id,
-            )
+            try:
+                checkpoint_store.suppress_incident(
+                    kind=failure_kind,
+                    run_id=result.run_id,
+                )
+                _INCIDENT_MEMORY_SUPPRESSED_UNTIL.pop(failure_kind, None)
+            except OSError as exc:
+                LOGGER.error(
+                    "INCIDENT_SUPPRESS_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
+                    result.run_id,
+                    failure_kind,
+                    exc,
+                )
+                _INCIDENT_MEMORY_SUPPRESSED_UNTIL[failure_kind] = (
+                    now_epoch + _INCIDENT_MEMORY_SUPPRESSION_SECONDS
+                )
             return
 
         message = result.failure_message or failure_kind or "unknown failure"
@@ -270,12 +293,24 @@ def _handle_incident_lifecycle(
             message = f"{message}\nmessage_id: {result.failure_message_id}"
         sent = send_discord_alert(discord_webhook_url, message)
         if sent:
-            checkpoint_store.open_incident(
-                kind=failure_kind,
-                message=result.failure_message,
-                opened_at=result.ended_at,
-                run_id=result.run_id,
-            )
+            try:
+                checkpoint_store.open_incident(
+                    kind=failure_kind,
+                    message=result.failure_message,
+                    opened_at=result.ended_at,
+                    run_id=result.run_id,
+                )
+                _INCIDENT_MEMORY_SUPPRESSED_UNTIL.pop(failure_kind, None)
+            except OSError as exc:
+                LOGGER.error(
+                    "INCIDENT_OPEN_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
+                    result.run_id,
+                    failure_kind,
+                    exc,
+                )
+                _INCIDENT_MEMORY_SUPPRESSED_UNTIL[failure_kind] = (
+                    now_epoch + _INCIDENT_MEMORY_SUPPRESSION_SECONDS
+                )
         return
 
     # 正常化したら close 通知して incident を解消する。
@@ -288,7 +323,15 @@ def _handle_incident_lifecycle(
         )
         sent = send_discord_recovery(discord_webhook_url, recovery_msg)
         if sent:
-            checkpoint_store.recover_incident(run_id=result.run_id)
+            try:
+                checkpoint_store.recover_incident(run_id=result.run_id)
+            except OSError as exc:
+                LOGGER.error(
+                    "INCIDENT_RECOVER_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
+                    result.run_id,
+                    active_kind,
+                    exc,
+                )
 
 
 def run_once(runtime: RuntimeConfig) -> RunResult:

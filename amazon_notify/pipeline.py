@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 
 from .config import LOGGER
 from .domain import (
@@ -104,11 +105,18 @@ class NotificationPipeline:
             failure_message = str(exc)
             should_retry = True
             should_alert = True
-            self.checkpoint_store.append_event(
-                "source_failed",
-                run_id,
-                {"error": str(exc)},
-            )
+            try:
+                self.checkpoint_store.append_event(
+                    "source_failed",
+                    run_id,
+                    {"error": str(exc)},
+                )
+            except OSError as record_exc:
+                LOGGER.error(
+                    "SOURCE_FAILURE_EVENT_PERSIST_FAILED: run_id=%s error=%s",
+                    run_id,
+                    record_exc,
+                )
             self.source.mark_transient_issue(exc)
 
         ended_at = utc_now_iso()
@@ -129,7 +137,18 @@ class NotificationPipeline:
             should_alert=should_alert,
             auth_status=auth_status,
         )
-        self.checkpoint_store.append_run_result(result)
+        try:
+            self.checkpoint_store.append_run_result(result)
+        except CheckpointError as exc:
+            LOGGER.error("RUN_RESULT_PERSIST_FAILED: run_id=%s error=%s", run_id, exc)
+            result = replace(
+                result,
+                failure_kind=FailureKind.CHECKPOINT_FAILED,
+                failure_message=str(exc),
+                failure_message_id=exc.message_id,
+                should_retry=False,
+                should_alert=True,
+            )
         self._log_result(result)
         return result
 
@@ -155,7 +174,15 @@ class NotificationPipeline:
         payload = {"error": str(exc)}
         if exc.message_id:
             payload["message_id"] = exc.message_id
-        self.checkpoint_store.append_event(event_type, run_id, payload)
+        try:
+            self.checkpoint_store.append_event(event_type, run_id, payload)
+        except OSError as record_exc:
+            LOGGER.error(
+                "FAILURE_EVENT_PERSIST_FAILED: run_id=%s event=%s error=%s",
+                run_id,
+                event_type,
+                record_exc,
+            )
 
     def _log_result(self, result: RunResult) -> None:
         LOGGER.info(

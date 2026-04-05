@@ -3,6 +3,7 @@ from pathlib import Path
 
 from amazon_notify import notifier
 from amazon_notify.domain import AuthStatus, FailureKind
+from amazon_notify.errors import CheckpointError
 from amazon_notify.runtime import RuntimeConfig
 
 
@@ -243,3 +244,125 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
     state_after_recovery = _read_json(runtime.state_file)
     assert "active_incident_kind" not in state_after_recovery
     assert len(recoveries) == 1
+
+
+def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
+    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "get_message_detail",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "配達済み: テスト注文"},
+                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                ]
+            },
+            "snippet": "配達済みのお知らせ",
+        },
+    )
+    monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: True)
+    alerts: list[str] = []
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m: alerts.append(m) or True)
+    monkeypatch.setattr(
+        notifier.JsonlCheckpointStore,
+        "append_run_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(CheckpointError("run result 保存に失敗しました: disk full")),
+    )
+
+    result = notifier.run_once(runtime)
+
+    assert result.failure_kind == FailureKind.CHECKPOINT_FAILED
+    assert result.should_alert is True
+    assert len(alerts) == 1
+
+
+def test_run_once_does_not_crash_when_failure_event_persist_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.events_file.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "bootstrap",
+                "at": "2026-04-05 00:00:00",
+                "checkpoint": "old-id",
+                "source": "seed",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (None, AuthStatus.TOKEN_MISSING),
+    )
+    monkeypatch.setattr(
+        notifier.JsonlCheckpointStore,
+        "append_event",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("events disk full")),
+    )
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda *_args, **_kwargs: True)
+
+    result = notifier.run_once(runtime)
+    assert result.failure_kind == FailureKind.AUTH_FAILED
+
+
+def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_write_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
+    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "get_message_detail",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "配達済み: テスト注文"},
+                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                ]
+            },
+            "snippet": "配達済みのお知らせ",
+        },
+    )
+    monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: False)
+    alerts: list[str] = []
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m: alerts.append(m) or True)
+    monkeypatch.setattr(
+        notifier.JsonlCheckpointStore,
+        "open_incident",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("state disk full")),
+    )
+    monkeypatch.setattr(notifier.time, "time", lambda: 1_000.0)
+    monkeypatch.setattr(notifier, "_INCIDENT_MEMORY_SUPPRESSED_UNTIL", {})
+
+    notifier.run_once(runtime)
+    notifier.run_once(runtime)
+
+    assert len(alerts) == 1

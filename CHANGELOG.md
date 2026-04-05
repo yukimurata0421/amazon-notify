@@ -57,6 +57,10 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
 - Added operator docs for portability and reproducible hybrid setup:
   - `docs/HYBRID_QUICKSTART_JA.md`
   - `docs/PORTABILITY_PARAMS_JA.md`.
+- Hardened persistence-failure handling around JSONL/state writes:
+  - explicit `ENOSPC` hinting in checkpoint/run-result write errors
+  - failover-safe handling when failure-event persistence itself fails
+  - in-memory incident suppression fallback when incident state writes fail.
 
 ### Tests
 - Expanded unit/e2e tests for new streaming/failover/backoff flows.

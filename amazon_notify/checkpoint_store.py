@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from errno import ENOSPC
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,20 @@ from .time_utils import utc_now_iso
 
 SCHEMA_VERSION = 1
 MIGRATION_RUN_ID = "migration-bootstrap"
+
+
+def _is_disk_full_error(exc: OSError) -> bool:
+    errno_value = getattr(exc, "errno", None)
+    if errno_value == ENOSPC:
+        return True
+    return "no space left on device" in str(exc).lower()
+
+
+def _format_storage_write_error(context: str, path: Path, exc: OSError) -> str:
+    message = f"{context}に失敗しました: {exc} (path={path})"
+    if _is_disk_full_error(exc):
+        message += " / ディスク容量不足(ENOSPC)の可能性があります。"
+    return message
 
 
 class JsonlCheckpointStore:
@@ -60,7 +75,11 @@ class JsonlCheckpointStore:
             )
         except OSError as exc:
             raise CheckpointError(
-                f"checkpoint event 保存に失敗しました: {exc}",
+                _format_storage_write_error(
+                    "checkpoint event 保存",
+                    self.events_file,
+                    exc,
+                ),
                 checkpoint.message_id,
             ) from exc
 
@@ -91,7 +110,17 @@ class JsonlCheckpointStore:
             "schema_version": SCHEMA_VERSION,
             **result.to_json_dict(),
         }
-        self._append_jsonl(self.runs_file, payload)
+        try:
+            self._append_jsonl(self.runs_file, payload)
+        except OSError as exc:
+            raise CheckpointError(
+                _format_storage_write_error(
+                    "run result 保存",
+                    self.runs_file,
+                    exc,
+                ),
+                result.checkpoint_after,
+            ) from exc
 
     def load_last_run_summary(self) -> dict[str, Any] | None:
         runs = self._load_jsonl_records(self.runs_file)
@@ -190,11 +219,15 @@ class JsonlCheckpointStore:
         }
 
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
-            handle.flush()
-            os.fsync(handle.fileno())
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+        except OSError as exc:
+            LOGGER.error("JSONL_WRITE_FAILED: path=%s error=%s", path, exc)
+            raise
 
     def _load_jsonl_records(self, path: Path) -> list[dict[str, Any]]:
         if not path.exists():

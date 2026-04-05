@@ -72,6 +72,30 @@
   - `events.jsonl` の `message_detail_failed` / `delivery_failed` を確認
   - ordered frontier 仕様で中断している可能性を確認
 
+## ディスク容量枯渇時（ENOSPC）の運用
+- 兆候:
+  - ログに `JSONL_WRITE_FAILED` が出る
+  - `checkpoint_failed` かつエラー文に `ENOSPC` / `No space left on device` が含まれる
+- 挙動:
+  - checkpoint 進行は安全側で止まる（整合性優先）
+  - run result 保存失敗は `checkpoint_failed` として障害通知対象になる
+  - incident 状態保存に失敗した場合、同種通知の一時メモリ抑制が動く
+- 一次対応:
+  - `df -h` と `df -i` で容量/inode を確認
+  - `logs/`, `events.jsonl`, `runs.jsonl` の肥大を確認
+  - 不要ファイル整理後に service を再起動し、`checkpoint_failed` が解消するか確認
+
+```bash
+df -h
+df -i
+du -sh logs events.jsonl runs.jsonl
+sudo systemctl restart amazon-notify-pubsub.service
+```
+
+- 参考:
+  - 本実装は単体ホストのローカル情報（`OSError`）を根拠に判定します。
+  - 別端末の監視系（例: node exporter）を併用している場合は、そちらの容量アラートを優先して相互確認してください。
+
 ## ログ
 - 既定の保存先: `logs/amazon_mail_notifier.log`
 - ローテーション: 2MB x 5 世代
