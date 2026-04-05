@@ -107,6 +107,7 @@ pip install -e .[dev]
 - Operations runbook: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - Hybrid architecture and failover design (detailed): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - Engineering decisions and design rationale: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
+- Implementation rationale (why these choices were made): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - Japanese full README: [README.ja.md](./README.ja.md)
 - Language policy: operations runbook and hybrid architecture article are currently Japanese.
 - Optional structured logging (`structured_logging=true`) is supported.

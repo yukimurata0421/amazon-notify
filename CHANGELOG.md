@@ -47,6 +47,7 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
 - Updated README release badge link to `releases/latest` and strengthened top-level architecture intent text.
 - Aligned README language policy with actual docs language and added a note that `main` may be ahead of the latest GitHub release.
 - Moved `engineering-decisions.md` under `docs/` and linked it from both README variants.
+- Added `docs/IMPLEMENTATION_RATIONALE_JA.md` to document senior-level decision intent and adoption/non-adoption rationale.
 - Added transient-alert boundary controls (`transient_alert_min_duration_seconds`, `transient_alert_cooldown_seconds`) so short self-healing failures do not page operators.
 - Added optional JSON structured logging via `structured_logging=true`.
 - Added `deployment/systemd/install-systemd.sh` and `make install-systemd` for one-command systemd bootstrap.

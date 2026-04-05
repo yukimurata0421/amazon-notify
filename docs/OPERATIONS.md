@@ -3,6 +3,7 @@
 最短導入（コピペ手順）は `docs/HYBRID_QUICKSTART_JA.md` を参照してください。  
 環境依存値の一覧は `docs/PORTABILITY_PARAMS_JA.md` を参照してください。  
 設計背景を含む詳細解説は `docs/HYBRID_ARCHITECTURE_JA.md` を参照してください。
+実装判断の意図（採用/非採用の理由）は `docs/IMPLEMENTATION_RATIONALE_JA.md` を参照してください。
 
 ## 初回セットアップ
 1. `python3 -m venv .venv && source .venv/bin/activate`

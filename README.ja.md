@@ -106,6 +106,7 @@ pip install -e .[dev]
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - 設計判断と根拠: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
+- 実装判断の意図（なぜこの選択をしたか）: [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - 英語版 README: [README.md](./README.md)
 - 言語ポリシー: 現在の運用手順とハイブリッド設計記事は日本語です。
 - `structured_logging=true` で JSON 構造化ログを有効化できます。
