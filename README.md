@@ -8,12 +8,10 @@
 # Amazon Notify
 
 Self-hosted Gmail->Discord notification pipeline for Amazon.co.jp delivery emails.
-Designed around ordered-frontier checkpoint consistency, with Gmail inbox state as the recovery source of truth.
+Built for operational reliability over notification speed.
+Design priority: ordered-frontier checkpoint consistency with Gmail inbox state as the recovery source of truth.
 
 Note: the `main` branch may be ahead of the latest GitHub Release.
-
-Current versions use `events.jsonl` as the checkpoint source of truth and keep
-`state.json` as a compatibility snapshot.
 
 Two operating modes are supported:
 - simple polling for single-host setups

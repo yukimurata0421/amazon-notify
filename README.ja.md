@@ -7,12 +7,10 @@
 # Amazon Notify (日本語)
 
 Amazon.co.jp の配送関連メールを Gmail API で検出し、Discord Webhook に通知する自己ホスト向けツールです。
-通知速度より checkpoint/frontier の整合性維持を優先する設計です。
+通知速度より運用上の一貫性と復旧容易性を優先しています。
+設計上の最優先は checkpoint/frontier の整合性維持です。
 
 補足: `main` ブランチは最新 GitHub Release より先行している場合があります。
-
-現行バージョンでは checkpoint の正本を `events.jsonl`（`checkpoint_advanced`）とし、
-`state.json` は互換スナップショットとして扱います。
 
 運用モードは 2 つあります。
 - 単純な定期ポーリング

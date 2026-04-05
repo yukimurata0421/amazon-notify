@@ -33,7 +33,7 @@ pubsub = [
 amazon-notify = "amazon_notify.cli:main"
 
 [tool.setuptools]
-packages = ["amazon_notify"]
+packages = ["amazon_notify", "amazon_notify.commands"]
 
 [tool.ruff]
 target-version = "py311"

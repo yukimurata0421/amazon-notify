@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from re import Pattern
-from typing import Any, TypeVar, overload
+from typing import TypeVar
 
 from .backoff import next_delay_seconds
 from .checkpoint_store import JsonlCheckpointStore
@@ -30,8 +29,6 @@ from .errors import (
     TransientSourceError,
 )
 from .gmail_client import (
-    DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
-    DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS,
     HttpError,
     get_gmail_service_with_status,
     get_message_detail,
@@ -51,7 +48,6 @@ from .text import (
 )
 
 T = TypeVar("T")
-_MISSING = object()
 
 
 @dataclass
@@ -295,41 +291,16 @@ def _handle_incident_lifecycle(
             checkpoint_store.recover_incident(run_id=result.run_id)
 
 
-@overload
-def _runtime_value(runtime: RuntimeConfig | dict[str, Any], key: str) -> Any:
-    ...
-
-
-@overload
-def _runtime_value(runtime: RuntimeConfig | dict[str, Any], key: str, default: T) -> Any | T:
-    ...
-
-
-def _runtime_value(runtime: RuntimeConfig | dict[str, Any], key: str, default: object = _MISSING) -> Any:
-    # TODO(v0.4.x): runtime dict 互換を廃止し RuntimeConfig に統一してこの互換レイヤを削除する。
-    if isinstance(runtime, RuntimeConfig):
-        return getattr(runtime, key)
-    if default is _MISSING:
-        return runtime[key]
-    return runtime.get(key, default)
-
-
-def run_once(runtime: RuntimeConfig | dict) -> RunResult:
-    discord_webhook_url = _runtime_value(runtime, "discord_webhook_url")
-    amazon_pattern_raw = _runtime_value(runtime, "amazon_pattern")
-    state_file: Path = _runtime_value(runtime, "state_file")
-    max_messages = _runtime_value(runtime, "max_messages")
-    subject_pattern: Pattern[str] | None = _runtime_value(runtime, "subject_pattern")
-    dry_run = bool(_runtime_value(runtime, "dry_run", False))
-    events_file: Path | None = _runtime_value(runtime, "events_file", None)
-    runs_file: Path | None = _runtime_value(runtime, "runs_file", None)
-    runtime_paths_raw = _runtime_value(runtime, "runtime_paths", get_runtime_paths())
-
-    amazon_pattern: Pattern[str]
-    if isinstance(amazon_pattern_raw, Pattern):
-        amazon_pattern = amazon_pattern_raw
-    else:
-        amazon_pattern = re.compile(str(amazon_pattern_raw))
+def run_once(runtime: RuntimeConfig) -> RunResult:
+    discord_webhook_url = runtime.discord_webhook_url
+    amazon_pattern = runtime.amazon_pattern
+    state_file = runtime.state_file
+    max_messages = runtime.max_messages
+    subject_pattern = runtime.subject_pattern
+    dry_run = runtime.dry_run
+    events_file = runtime.events_file
+    runs_file = runtime.runs_file
+    runtime_paths_raw = runtime.runtime_paths
 
     state = load_state(state_file)
     LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
@@ -345,16 +316,12 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
         state=state,
         state_file=state_file,
         dry_run=dry_run,
-        gmail_api_max_retries=int(_runtime_value(runtime, "gmail_api_max_retries", 4)),
-        gmail_api_base_delay_seconds=float(_runtime_value(runtime, "gmail_api_base_delay_seconds", 1.0)),
-        gmail_api_max_delay_seconds=float(_runtime_value(runtime, "gmail_api_max_delay_seconds", 30.0)),
+        gmail_api_max_retries=runtime.gmail_api_max_retries,
+        gmail_api_base_delay_seconds=runtime.gmail_api_base_delay_seconds,
+        gmail_api_max_delay_seconds=runtime.gmail_api_max_delay_seconds,
         runtime_paths=runtime_paths,
-        transient_alert_min_duration_seconds=float(
-            _runtime_value(runtime, "transient_alert_min_duration_seconds", DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS)
-        ),
-        transient_alert_cooldown_seconds=float(
-            _runtime_value(runtime, "transient_alert_cooldown_seconds", DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS)
-        ),
+        transient_alert_min_duration_seconds=runtime.transient_alert_min_duration_seconds,
+        transient_alert_cooldown_seconds=runtime.transient_alert_cooldown_seconds,
     )
     classifier = RegexClassifier(
         amazon_pattern=amazon_pattern,
@@ -363,9 +330,9 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
     notifier = DiscordNotifier(
         webhook_url=discord_webhook_url,
         dry_run=dry_run,
-        max_attempts=int(_runtime_value(runtime, "discord_max_retries", 4)),
-        base_delay_seconds=float(_runtime_value(runtime, "discord_base_delay_seconds", 1.0)),
-        max_delay_seconds=float(_runtime_value(runtime, "discord_max_delay_seconds", 30.0)),
+        max_attempts=runtime.discord_max_retries,
+        base_delay_seconds=runtime.discord_base_delay_seconds,
+        max_delay_seconds=runtime.discord_max_delay_seconds,
     )
     checkpoint_store = JsonlCheckpointStore(
         state_file=state_file,

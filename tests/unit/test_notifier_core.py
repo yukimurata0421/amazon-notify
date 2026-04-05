@@ -2,10 +2,29 @@ import json
 from pathlib import Path
 
 from amazon_notify import config, gmail_client, notifier
+from amazon_notify.runtime import RuntimeConfig
 
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _runtime(
+    tmp_path: Path,
+    *,
+    dry_run: bool = False,
+    **overrides: object,
+) -> RuntimeConfig:
+    config_data: dict[str, object] = {
+        "discord_webhook_url": "https://discord.invalid/webhook",
+        "amazon_from_pattern": r"amazon\.co\.jp",
+        "state_file": tmp_path / "state.json",
+        "events_file": tmp_path / "events.jsonl",
+        "runs_file": tmp_path / "runs.jsonl",
+        "max_messages": 10,
+    }
+    config_data.update(overrides)
+    return RuntimeConfig.from_mapping(config_data, dry_run=dry_run)
 
 
 def test_is_transient_network_error_for_timeout_and_hostname_mismatch() -> None:
@@ -125,13 +144,7 @@ def test_run_once_sends_amazon_notification_and_updates_state(monkeypatch, tmp_p
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file)
 
     monkeypatch.setattr(
         notifier,
@@ -182,13 +195,7 @@ def test_run_once_does_not_advance_state_when_notification_fails(monkeypatch, tm
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file)
 
     monkeypatch.setattr(
         notifier,
@@ -236,14 +243,7 @@ def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-        "dry_run": True,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file, dry_run=True)
 
     monkeypatch.setattr(
         notifier,
@@ -284,13 +284,7 @@ def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(monkeypatch,
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file)
 
     monkeypatch.setattr(
         notifier,
@@ -338,15 +332,12 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch,
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "id-1"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-        "transient_alert_min_duration_seconds": 0.0,
-        "transient_alert_cooldown_seconds": 0.0,
-    }
+    runtime = _runtime(
+        tmp_path,
+        state_file=state_file,
+        transient_alert_min_duration_seconds=0.0,
+        transient_alert_cooldown_seconds=0.0,
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -379,13 +370,7 @@ def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> 
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file)
 
     monkeypatch.setattr(
         notifier,
@@ -422,13 +407,7 @@ def test_run_once_breaks_when_message_detail_fetch_fails(monkeypatch, tmp_path: 
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file)
 
     monkeypatch.setattr(
         notifier,
@@ -465,13 +444,7 @@ def test_run_once_no_messages_logs_and_keeps_state(monkeypatch, tmp_path: Path) 
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 10,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path, state_file=state_file)
 
     monkeypatch.setattr(
         notifier,

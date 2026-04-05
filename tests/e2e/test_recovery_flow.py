@@ -2,26 +2,34 @@ import json
 from pathlib import Path
 
 from amazon_notify import gmail_client, notifier
+from amazon_notify.runtime import RuntimeConfig
 
 
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _runtime(tmp_path: Path) -> RuntimeConfig:
+    return RuntimeConfig.from_mapping(
+        {
+            "discord_webhook_url": "https://discord.invalid/webhook",
+            "amazon_from_pattern": r"amazon\.co\.jp",
+            "state_file": tmp_path / "state.json",
+            "events_file": tmp_path / "events.jsonl",
+            "runs_file": tmp_path / "runs.jsonl",
+            "max_messages": 20,
+            "gmail_api_max_retries": 1,
+            "transient_alert_min_duration_seconds": 0.0,
+            "transient_alert_cooldown_seconds": 0.0,
+        }
+    )
+
+
 def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "baseline"}), encoding="utf-8")
 
-    runtime = {
-        "discord_webhook_url": "https://discord.invalid/webhook",
-        "amazon_pattern": r"amazon\.co\.jp",
-        "state_file": state_file,
-        "max_messages": 20,
-        "gmail_api_max_retries": 1,
-        "transient_alert_min_duration_seconds": 0.0,
-        "transient_alert_cooldown_seconds": 0.0,
-        "subject_pattern": None,
-    }
+    runtime = _runtime(tmp_path)
 
     monkeypatch.setattr(
         notifier,
