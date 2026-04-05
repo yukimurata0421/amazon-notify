@@ -1,0 +1,17 @@
+[Unit]
+Description=Amazon Notify (Pub/Sub StreamingPull realtime)
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+OnFailure=amazon-notify-alert@%n.service
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/opt/amazon-notify
+ExecStart=/opt/amazon-notify/.venv/bin/amazon-notify --config /opt/amazon-notify/config.json --streaming-pull --heartbeat-file /opt/amazon-notify/runtime/pubsub-heartbeat.txt --heartbeat-interval-seconds 30
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

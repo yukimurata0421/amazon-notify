@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from amazon_notify import cli, config
+from amazon_notify.domain import AuthStatus
 
 
 @pytest.fixture(autouse=True)
@@ -32,6 +33,9 @@ def test_validate_config_detects_invalid_values() -> None:
             "amazon_subject_pattern": "(",
             "state_file": "",
             "log_file": "",
+            "gmail_api_max_retries": 0,
+            "discord_base_delay_seconds": 0,
+            "pubsub_subscription": "",
         }
     )
 
@@ -42,6 +46,9 @@ def test_validate_config_detects_invalid_values() -> None:
     assert any("amazon_subject_pattern" in err for err in errors)
     assert any("state_file" in err for err in errors)
     assert any("log_file" in err for err in errors)
+    assert any("gmail_api_max_retries" in err for err in errors)
+    assert any("discord_base_delay_seconds" in err for err in errors)
+    assert any("pubsub_subscription" in err for err in errors)
 
 
 def test_validate_config_rejects_too_short_poll_interval() -> None:
@@ -250,6 +257,41 @@ def test_main_health_check_includes_runtime_status_summary(monkeypatch, tmp_path
     assert runtime_status["active_incident"]["kind"] == "delivery_failed"
 
 
+def test_main_health_check_reports_corrupted_runtime_records(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "credentials.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "token.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "state.json").write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
+    (tmp_path / "runs.jsonl").write_text(
+        '{"schema_version":1,"run_id":"ok"}\n'
+        '{"broken":\n'
+        '{"schema_version":1,"run_id":"ok-2"}\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--health-check"])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+    report = json.loads(capsys.readouterr().out)
+    runtime_check = next(item for item in report["checks"] if item["name"] == "runtime_records_valid")
+    assert runtime_check["ok"] is False
+
+
 def test_load_config_or_exit_exits_for_missing_json_and_oserror(monkeypatch, tmp_path: Path) -> None:
     missing = tmp_path / "missing.json"
     monkeypatch.setattr(config, "CONFIG_PATH", missing)
@@ -432,3 +474,433 @@ def test_build_runtime_uses_consistent_default_amazon_pattern() -> None:
     assert runtime["amazon_pattern"] == r"amazon\.co\.jp"
     assert runtime["events_file"].name == "events.jsonl"
     assert runtime["runs_file"].name == "runs.jsonl"
+
+
+def test_main_streaming_pull_requires_subscription(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--streaming-pull"])
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_streaming_pull_runs_with_subscription(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "pubsub_subscription": "projects/p/subscriptions/s",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "run_once_with_guard", lambda _runtime: True)
+    calls: list[dict] = []
+    monkeypatch.setattr(
+        cli,
+        "run_streaming_pull",
+        lambda **kwargs: calls.append(kwargs),
+    )
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--streaming-pull"])
+
+    cli.main()
+    assert len(calls) == 1
+    assert calls[0]["subscription_path"] == "projects/p/subscriptions/s"
+    assert "heartbeat_file" in calls[0]
+    assert "heartbeat_interval_seconds" in calls[0]
+
+
+def test_main_streaming_pull_reconnects_in_process_before_giving_up(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "pubsub_subscription": "projects/p/subscriptions/s",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "run_once_with_guard", lambda _runtime: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _sec: None)
+
+    calls = {"count": 0}
+
+    def fake_run_streaming_pull(**_kwargs):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("transient stream failure")
+        return None
+
+    monkeypatch.setattr(cli, "run_streaming_pull", fake_run_streaming_pull)
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--streaming-pull"])
+
+    cli.main()
+    assert calls["count"] == 2
+
+
+def test_main_setup_watch_registers_topic(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.app_config, "load_state", lambda *_args, **_kwargs: {"last_message_id": None})
+    monkeypatch.setattr(
+        cli,
+        "get_gmail_service_with_status",
+        lambda **_kwargs: (object(), AuthStatus.READY),
+    )
+    monkeypatch.setattr(
+        cli,
+        "start_gmail_watch_with_retry",
+        lambda *_args, **_kwargs: {"historyId": "123"},
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--setup-watch",
+            "--pubsub-topic",
+            "projects/p/topics/t",
+        ],
+    )
+
+    cli.main()
+    assert json.loads(capsys.readouterr().out)["historyId"] == "123"
+
+
+def test_main_setup_watch_requires_topic(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--setup-watch"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_setup_watch_exits_when_gmail_service_unavailable(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.app_config, "load_state", lambda *_args, **_kwargs: {"last_message_id": None})
+    monkeypatch.setattr(
+        cli,
+        "get_gmail_service_with_status",
+        lambda **_kwargs: (None, AuthStatus.TOKEN_MISSING),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--setup-watch",
+            "--pubsub-topic",
+            "projects/p/topics/t",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_setup_watch_exits_when_watch_registration_fails(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli.app_config, "load_state", lambda *_args, **_kwargs: {"last_message_id": None})
+    monkeypatch.setattr(
+        cli,
+        "get_gmail_service_with_status",
+        lambda **_kwargs: (object(), AuthStatus.READY),
+    )
+    monkeypatch.setattr(
+        cli,
+        "start_gmail_watch_with_retry",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("watch failed")),
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--setup-watch",
+            "--pubsub-topic",
+            "projects/p/topics/t",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_fallback_watchdog_requires_once(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--fallback-watchdog"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_fallback_watchdog_skips_polling_when_main_healthy(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "evaluate_failover_watchdog", lambda **_kwargs: False)
+    run_calls: list[dict] = []
+    monkeypatch.setattr(cli, "run_once_with_guard", lambda runtime: run_calls.append(runtime) or True)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--once", "--fallback-watchdog"],
+    )
+
+    cli.main()
+    assert not run_calls
+
+
+def test_main_fallback_watchdog_runs_polling_when_main_unhealthy(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "evaluate_failover_watchdog", lambda **_kwargs: True)
+    run_calls: list[dict] = []
+    monkeypatch.setattr(cli, "run_once_with_guard", lambda runtime: run_calls.append(runtime) or True)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--once", "--fallback-watchdog"],
+    )
+
+    cli.main()
+    assert len(run_calls) == 1
+
+
+def test_main_streaming_pull_rejects_conflicting_fallback_watchdog(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "pubsub_subscription": "projects/p/subscriptions/s",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--streaming-pull",
+            "--fallback-watchdog",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_streaming_pull_rejects_once_and_interval(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "pubsub_subscription": "projects/p/subscriptions/s",
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--streaming-pull", "--once"],
+    )
+    with pytest.raises(SystemExit) as once_exc:
+        cli.main()
+    assert once_exc.value.code == 1
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--streaming-pull", "--interval", "30"],
+    )
+    with pytest.raises(SystemExit) as interval_exc:
+        cli.main()
+    assert interval_exc.value.code == 1
+
+
+def test_main_exits_for_invalid_heartbeat_arguments(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--once",
+            "--heartbeat-interval-seconds",
+            "0",
+        ],
+    )
+    with pytest.raises(SystemExit) as interval_exc:
+        cli.main()
+    assert interval_exc.value.code == 1
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--once",
+            "--heartbeat-max-age-seconds",
+            "0",
+        ],
+    )
+    with pytest.raises(SystemExit) as max_age_exc:
+        cli.main()
+    assert max_age_exc.value.code == 1
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--once",
+            "--main-service-name",
+            "   ",
+        ],
+    )
+    with pytest.raises(SystemExit) as service_exc:
+        cli.main()
+    assert service_exc.value.code == 1

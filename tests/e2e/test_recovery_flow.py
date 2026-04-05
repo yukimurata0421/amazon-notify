@@ -17,6 +17,7 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
         "amazon_pattern": r"amazon\.co\.jp",
         "state_file": state_file,
         "max_messages": 20,
+        "gmail_api_max_retries": 1,
         "subject_pattern": None,
     }
 

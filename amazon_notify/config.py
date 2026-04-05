@@ -1,6 +1,9 @@
 import json
 import logging
+import os
 import sys
+import tempfile
+from dataclasses import dataclass
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -9,6 +12,15 @@ CONFIG_PATH = RUNTIME_DIR / "config.json"
 CREDENTIALS_PATH = RUNTIME_DIR / "credentials.json"
 TOKEN_PATH = RUNTIME_DIR / "token.json"
 DEFAULT_LOG_PATH = RUNTIME_DIR / "logs" / "amazon_mail_notifier.log"
+
+
+@dataclass(frozen=True)
+class RuntimePaths:
+    runtime_dir: Path
+    config: Path
+    credentials: Path
+    token: Path
+    default_log: Path
 
 LOGGER = logging.getLogger("amazon_mail_notifier")
 
@@ -52,8 +64,23 @@ def load_state(path: Path) -> dict:
 
 def save_state(path: Path, state: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as file:
-        json.dump(state, file, ensure_ascii=False, indent=2)
+    fd, tmp_path = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=str(path.parent),
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as file:
+            json.dump(state, file, ensure_ascii=False, indent=2)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(tmp_path, path)
+    except Exception:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def configure_runtime_paths(config_path: str | Path) -> Path:
@@ -68,6 +95,16 @@ def configure_runtime_paths(config_path: str | Path) -> Path:
     TOKEN_PATH = runtime_dir / "token.json"
     DEFAULT_LOG_PATH = runtime_dir / "logs" / "amazon_mail_notifier.log"
     return runtime_dir
+
+
+def get_runtime_paths() -> RuntimePaths:
+    return RuntimePaths(
+        runtime_dir=RUNTIME_DIR,
+        config=CONFIG_PATH,
+        credentials=CREDENTIALS_PATH,
+        token=TOKEN_PATH,
+        default_log=DEFAULT_LOG_PATH,
+    )
 
 
 def resolve_runtime_path(path_value: str | Path, base_dir: Path | None = None) -> Path:

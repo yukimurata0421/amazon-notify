@@ -2,6 +2,57 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Hardened StreamingPull to reduce reliance on `systemd` restarts:
+  - replaced queue-drop behavior with latest-event aggregation (no `ack`+drop on local queue full)
+  - added trigger failure backoff and consecutive-failure circuit breaker
+  - added in-process stream reconnect loop with exponential backoff in CLI runtime.
+- Extended heartbeat model to include worker progress timestamps and surfaced worker-stale detection in fallback watchdog health checks.
+- Added new runtime config knobs for trigger failure handling and stream reconnect behavior.
+- Refined token refresh retry design by allowing `request_factory` injection in `refresh_with_retry` to isolate retry logic from Google dependency initialization.
+- Made checkpoint writes align with the source-of-truth contract:
+  - write `checkpoint_advanced` event first
+  - update `state.json` snapshot as best-effort.
+- Tightened JSONL corruption handling:
+  - keep tolerating only tail-line corruption
+  - fail fast on corrupted middle lines.
+- Switched `state.json` persistence to atomic write (`tempfile + os.replace`) to reduce partial-write risk.
+- Clarified README guarantees/non-goals and added README language-policy/license notes.
+- Updated config validation wording so `poll_interval_seconds` minimum behaves as a required lower bound.
+- Standardized operational timestamps to UTC ISO 8601 across pipeline runs, checkpoint events, token/transient markers, and failover state.
+
+### Tests
+- Added CLI reconnect behavior regression test.
+- Added watchdog regression test for worker heartbeat stale detection.
+- Added focused `runtime.py` unit tests and restored CI coverage gate compliance (`--cov-fail-under=90`).
+
+## [0.3.0] - 2026-04-04
+
+### Added
+- Added Pub/Sub StreamingPull runtime mode (`--streaming-pull`) with realtime trigger processing.
+- Added Gmail watch setup command (`--setup-watch --pubsub-topic ...`) with retry handling.
+- Added watchdog-based fallback mode (`--fallback-watchdog`) to skip polling when main streaming service is healthy.
+- Added heartbeat-driven silent-failure detection for StreamingPull (`--heartbeat-file`, `--heartbeat-interval-seconds`, `--heartbeat-max-age-seconds`).
+- Added new deployment templates for hybrid operation:
+  - `deployment/systemd/amazon-notify-pubsub.service`
+  - `deployment/systemd/amazon-notify-fallback.service`
+  - `deployment/systemd/amazon-notify-fallback.timer`
+
+### Changed
+- Upgraded Discord Webhook retry behavior to exponential backoff with `429/5xx` awareness and `Retry-After` support.
+- Upgraded Gmail API retry behavior to exponential backoff for transient/retryable failures.
+- Expanded CLI/config validation to include pubsub/heartbeat/failover settings.
+- Reorganized README structure:
+  - concise `README.md` (entrypoint)
+  - concise Japanese `README.ja.md`
+  - detailed architecture article in `docs/HYBRID_ARCHITECTURE_JA.md`.
+
+### Tests
+- Expanded unit/e2e tests for new streaming/failover/backoff flows.
+- Kept coverage gate (`--cov-fail-under=90`) passing with latest implementation.
+
 ## [0.2.0] - 2026-04-04
 
 ### Added

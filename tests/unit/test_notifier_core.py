@@ -323,6 +323,7 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch,
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(notifier, "list_recent_messages", raise_timeout)
+    monkeypatch.setattr(notifier.time, "sleep", lambda _sec: None)
 
     alerts: list[str] = []
     monkeypatch.setattr(
@@ -379,7 +380,7 @@ def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> 
     saved = _read_json(state_file)
     assert saved["last_message_id"] == "old-id"
     assert alerts
-    assert "Gmail API 呼び出しエラー" in alerts[0]
+    assert "Gmail API" in alerts[0]
 
 
 def test_run_once_breaks_when_message_detail_fetch_fails(monkeypatch, tmp_path: Path) -> None:

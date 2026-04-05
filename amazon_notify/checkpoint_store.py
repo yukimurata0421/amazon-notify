@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 import os
-import time
 from pathlib import Path
 from typing import Any
 
 from .config import LOGGER, load_state, save_state
 from .domain import Checkpoint, RunResult
 from .errors import CheckpointError
+from .time_utils import utc_now_iso
 
 SCHEMA_VERSION = 1
 MIGRATION_RUN_ID = "migration-bootstrap"
@@ -26,7 +26,7 @@ class JsonlCheckpointStore:
         self.runs_file = runs_file or state_file.with_name("runs.jsonl")
 
     def load_checkpoint(self) -> Checkpoint:
-        # v0.2.0 以降は events.jsonl を正本とする。
+        # v0.3.0 以降は events.jsonl を正本とする。
         events = self._load_jsonl_records(self.events_file)
         checkpoint_event = self._find_last_checkpoint_event(events)
         if checkpoint_event is not None:
@@ -50,10 +50,6 @@ class JsonlCheckpointStore:
 
     def advance_checkpoint(self, checkpoint: Checkpoint, run_id: str) -> None:
         try:
-            # 互換 snapshot: state.json は派生物として更新する。
-            state = load_state(self.state_file)
-            state["last_message_id"] = checkpoint.message_id
-            save_state(self.state_file, state)
             self.append_event(
                 "checkpoint_advanced",
                 run_id,
@@ -63,14 +59,29 @@ class JsonlCheckpointStore:
                 },
             )
         except OSError as exc:
-            raise CheckpointError(f"checkpoint 保存に失敗しました: {exc}", checkpoint.message_id) from exc
+            raise CheckpointError(
+                f"checkpoint event 保存に失敗しました: {exc}",
+                checkpoint.message_id,
+            ) from exc
+
+        try:
+            # 互換 snapshot: state.json は派生物としてベストエフォートで更新する。
+            state = load_state(self.state_file)
+            state["last_message_id"] = checkpoint.message_id
+            save_state(self.state_file, state)
+        except OSError as exc:
+            LOGGER.warning(
+                "STATE_SNAPSHOT_UPDATE_FAILED: checkpoint=%s error=%s",
+                checkpoint.message_id,
+                exc,
+            )
 
     def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None:
         event = {
             "schema_version": SCHEMA_VERSION,
             "event": event_type,
             "run_id": run_id,
-            "at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "at": utc_now_iso(),
             **payload,
         }
         self._append_jsonl(self.events_file, event)
@@ -202,8 +213,9 @@ class JsonlCheckpointStore:
                 if idx == total - 1:
                     LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, idx + 1)
                     continue
-                LOGGER.warning("JSONL_CORRUPTED_LINE_IGNORED: %s line=%s", path, idx + 1)
-                continue
+                raise CheckpointError(
+                    f"JSONL の途中行が破損しています: path={path} line={idx + 1}"
+                )
             if isinstance(payload, dict):
                 records.append(payload)
         return records
