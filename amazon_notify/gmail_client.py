@@ -4,6 +4,16 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn
 
 try:
+    from requests import exceptions as requests_exceptions
+except ModuleNotFoundError:
+    requests_exceptions = None  # type: ignore[assignment]
+
+try:
+    from urllib3 import exceptions as urllib3_exceptions
+except ModuleNotFoundError:
+    urllib3_exceptions = None  # type: ignore[assignment]
+
+try:
     from google.auth.transport.requests import Request
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
@@ -61,6 +71,40 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 600.0
 DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 1800.0
+
+
+def _collect_exception_types(module: Any, names: tuple[str, ...]) -> tuple[type[BaseException], ...]:
+    collected: list[type[BaseException]] = []
+    for name in names:
+        candidate = getattr(module, name, None)
+        if isinstance(candidate, type) and issubclass(candidate, BaseException):
+            collected.append(candidate)
+    return tuple(collected)
+
+
+_LIBRARY_TRANSIENT_EXCEPTION_TYPES: tuple[type[BaseException], ...] = ()
+if requests_exceptions is not None:
+    _LIBRARY_TRANSIENT_EXCEPTION_TYPES += _collect_exception_types(
+        requests_exceptions,
+        (
+            "ConnectionError",
+            "Timeout",
+            "ReadTimeout",
+            "ConnectTimeout",
+            "SSLError",
+        ),
+    )
+if urllib3_exceptions is not None:
+    _LIBRARY_TRANSIENT_EXCEPTION_TYPES += _collect_exception_types(
+        urllib3_exceptions,
+        (
+            "ProtocolError",
+            "ReadTimeoutError",
+            "ConnectTimeoutError",
+            "NewConnectionError",
+            "MaxRetryError",
+        ),
+    )
 
 
 def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:
@@ -240,6 +284,8 @@ def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_
 
 def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
     if isinstance(exc, (TimeoutError, socket.timeout, socket.gaierror)):
+        return True
+    if _LIBRARY_TRANSIENT_EXCEPTION_TYPES and isinstance(exc, _LIBRARY_TRANSIENT_EXCEPTION_TYPES):
         return True
 
     transient_keywords = (

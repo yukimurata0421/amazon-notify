@@ -49,6 +49,18 @@ def test_is_transient_network_error_respects_max_depth() -> None:
     assert gmail_client.is_transient_network_error(root, max_depth=20)
 
 
+def test_is_transient_network_error_for_library_exception_types(monkeypatch) -> None:
+    class FakeLibraryConnectionError(Exception):
+        pass
+
+    monkeypatch.setattr(
+        gmail_client,
+        "_LIBRARY_TRANSIENT_EXCEPTION_TYPES",
+        (FakeLibraryConnectionError,),
+    )
+    assert gmail_client.is_transient_network_error(FakeLibraryConnectionError("no keyword required"))
+
+
 def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "msg-1"}
