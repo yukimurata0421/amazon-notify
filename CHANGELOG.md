@@ -54,6 +54,7 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
 - Expanded `deployment/systemd/install-systemd.sh` with explicit environment-boundary options (`--base-dir`, `--system-user`, `--config-path`, `--heartbeat-path`) and automatic unit rendering.
 - Updated config validation wording so `poll_interval_seconds` minimum behaves as a required lower bound.
 - Standardized operational timestamps to UTC ISO 8601 across pipeline runs, checkpoint events, token/transient markers, and failover state.
+- Aligned package metadata version with the consolidated release narrative (`version = "0.3.0"` in `pyproject.toml`).
 - Enabled Ruff import-order lint (`I`) and normalized imports across the project.
 - Added operator docs for portability and reproducible hybrid setup:
   - `docs/HYBRID_QUICKSTART_JA.md`
@@ -62,6 +63,8 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
   - explicit `ENOSPC` hinting in checkpoint/run-result write errors
   - failover-safe handling when failure-event persistence itself fails
   - in-memory incident suppression fallback when incident state writes fail.
+- Added exception trace payload support to `JsonLogFormatter` for structured logs.
+- Added cross-language documentation links between English/Japanese README variants.
 
 ### Tests
 - Expanded unit/e2e tests for new streaming/failover/backoff flows.
@@ -70,6 +73,7 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
 - Added watchdog regression test for worker heartbeat stale detection.
 - Added transient-alert threshold/cooldown behavior tests and recovery-notification boundary tests.
 - Added focused `runtime.py` unit tests and restored CI coverage gate compliance (`--cov-fail-under=90`).
+- Added fixture-level reset for in-memory incident suppression state to avoid cross-test leakage.
 
 ## [0.2.0] - 2026-04-04
 

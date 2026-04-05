@@ -3,6 +3,7 @@ import logging
 import os
 import sys
 import tempfile
+import traceback
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
@@ -35,6 +36,8 @@ class JsonLogFormatter(logging.Formatter):
             "message": record.getMessage(),
             "module": record.module,
         }
+        if record.exc_info:
+            payload["exception"] = "".join(traceback.format_exception(*record.exc_info)).rstrip()
         return json.dumps(payload, ensure_ascii=False)
 
 

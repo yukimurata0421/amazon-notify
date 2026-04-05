@@ -105,8 +105,10 @@ pip install -e .[dev]
 - Hybrid quickstart (copy/paste, common failures): [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
 - Portability parameters (environment-dependent values): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
 - Operations runbook (English): [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
+- Operations runbook (Japanese): [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - Hybrid architecture and failover design (detailed): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - Engineering decisions and design rationale (English): [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
+- Engineering decisions and design rationale (Japanese): [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - Implementation rationale (why these choices were made): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - Japanese full README: [README.ja.md](./README.ja.md)
 - Language policy: this README links to English runbook/decision docs; Japanese deep-dive docs are linked separately.
