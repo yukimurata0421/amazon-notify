@@ -4,7 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-This unreleased set focuses on aligning StreamingPull recovery and checkpoint durability with the frontier-consistency contract.
+## [0.3.1] - 2026-04-05
+
+This release focuses on aligning StreamingPull recovery and checkpoint durability with the frontier-consistency contract.
 
 ### Changed
 - Hardened StreamingPull to reduce reliance on `systemd` restarts:
@@ -33,9 +35,13 @@ This unreleased set focuses on aligning StreamingPull recovery and checkpoint du
 - Added transient-alert boundary controls (`transient_alert_min_duration_seconds`, `transient_alert_cooldown_seconds`) so short self-healing failures do not page operators.
 - Added optional JSON structured logging via `structured_logging=true`.
 - Added `deployment/systemd/install-systemd.sh` and `make install-systemd` for one-command systemd bootstrap.
+- Expanded `deployment/systemd/install-systemd.sh` with explicit environment-boundary options (`--base-dir`, `--system-user`, `--config-path`, `--heartbeat-path`) and automatic unit rendering.
 - Updated config validation wording so `poll_interval_seconds` minimum behaves as a required lower bound.
 - Standardized operational timestamps to UTC ISO 8601 across pipeline runs, checkpoint events, token/transient markers, and failover state.
 - Enabled Ruff import-order lint (`I`) and normalized imports across the project.
+- Added operator docs for portability and reproducible hybrid setup:
+  - `docs/HYBRID_QUICKSTART_JA.md`
+  - `docs/PORTABILITY_PARAMS_JA.md`.
 
 ### Tests
 - Added CLI reconnect behavior regression test.

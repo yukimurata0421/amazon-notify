@@ -1,5 +1,7 @@
 # Operations Guide
 
+最短導入（コピペ手順）は `docs/HYBRID_QUICKSTART_JA.md` を参照してください。  
+環境依存値の一覧は `docs/PORTABILITY_PARAMS_JA.md` を参照してください。  
 設計背景を含む詳細解説は `docs/HYBRID_ARCHITECTURE_JA.md` を参照してください。
 
 ## 初回セットアップ
@@ -111,10 +113,17 @@ sudo journalctl -u amazon-notify.service -f
 手順をまとめて実行したい場合は、以下を利用できます。
 
 ```bash
-sudo deployment/systemd/install-systemd.sh --mode hybrid
+sudo bash deployment/systemd/install-systemd.sh \
+  --mode hybrid \
+  --base-dir /path/to/amazon-notify \
+  --system-user your_user \
+  --config-path /path/to/amazon-notify/config.json \
+  --heartbeat-path /path/to/amazon-notify/runtime/pubsub-heartbeat.txt
 ```
 
 - `--mode standard` で polling only 構成をインストールします。
+- `--base-dir` を指定しない場合は `install-systemd.sh` の配置元リポジトリルートを使用します。
+- `--system-user` を指定しない場合は `SUDO_USER`（または現在ユーザー）を使用します。
 - `--no-enable-now` で unit 配置のみ行います。
 - `--no-install-deps` で venv/pip の更新をスキップします。
 

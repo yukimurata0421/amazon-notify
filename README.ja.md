@@ -101,6 +101,8 @@ pip install -e .[dev]
 
 ## ドキュメント
 
+- ハイブリッド最短導入（コピペ手順・詰まりどころ集）: [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+- 環境依存パラメータ一覧（移植チェックリスト）: [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - 設計判断と根拠: [docs/engineering-decisions.md](./docs/engineering-decisions.md)

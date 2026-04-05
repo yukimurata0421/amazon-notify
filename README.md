@@ -102,6 +102,8 @@ pip install -e .[dev]
 
 ## Documentation
 
+- Hybrid quickstart (copy/paste, common failures): [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+- Portability parameters (environment-dependent values): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
 - Operations runbook: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - Hybrid architecture and failover design (detailed): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - Engineering decisions and design rationale: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
