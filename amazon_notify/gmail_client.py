@@ -59,8 +59,8 @@ from .time_utils import utc_now_iso
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 300.0
-DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 300.0
+DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 600.0
+DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 1800.0
 
 
 def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:

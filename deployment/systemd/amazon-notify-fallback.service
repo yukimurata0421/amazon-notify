@@ -6,4 +6,4 @@ After=network-online.target
 Type=oneshot
 User=YOUR_USER
 WorkingDirectory=/opt/amazon-notify
-ExecStart=/opt/amazon-notify/.venv/bin/amazon-notify --config /opt/amazon-notify/config.json --once --fallback-watchdog --main-service-name amazon-notify-pubsub.service --heartbeat-file /opt/amazon-notify/runtime/pubsub-heartbeat.txt --heartbeat-max-age-seconds 120
+ExecStart=/opt/amazon-notify/.venv/bin/amazon-notify --config /opt/amazon-notify/config.json --once --fallback-watchdog --main-service-name amazon-notify-pubsub.service --heartbeat-file /opt/amazon-notify/runtime/pubsub-heartbeat.txt --heartbeat-max-age-seconds 300

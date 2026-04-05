@@ -90,7 +90,7 @@ class RuntimeConfig:
             pubsub_heartbeat_interval_seconds=float(
                 config.get("pubsub_heartbeat_interval_seconds", 30.0)
             ),
-            pubsub_heartbeat_max_age_seconds=float(config.get("pubsub_heartbeat_max_age_seconds", 120.0)),
+            pubsub_heartbeat_max_age_seconds=float(config.get("pubsub_heartbeat_max_age_seconds", 300.0)),
             pubsub_trigger_failure_max_consecutive=int(
                 config.get("pubsub_trigger_failure_max_consecutive", 5)
             ),
@@ -110,10 +110,10 @@ class RuntimeConfig:
                 config.get("pubsub_stream_reconnect_max_attempts", 0)
             ),
             transient_alert_min_duration_seconds=float(
-                config.get("transient_alert_min_duration_seconds", 300.0)
+                config.get("transient_alert_min_duration_seconds", 600.0)
             ),
             transient_alert_cooldown_seconds=float(
-                config.get("transient_alert_cooldown_seconds", 300.0)
+                config.get("transient_alert_cooldown_seconds", 1800.0)
             ),
             runtime_paths=runtime_paths,
             subject_pattern=compile_optional_pattern(config.get("amazon_subject_pattern"), "amazon_subject_pattern"),

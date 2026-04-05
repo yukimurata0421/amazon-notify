@@ -108,7 +108,7 @@ gcloud pubsub subscriptions list --format='value(name)' | grep '/subscriptions/a
   "pubsub_main_service_name": "amazon-notify-pubsub.service",
   "pubsub_heartbeat_file": "runtime/pubsub-heartbeat.txt",
   "pubsub_heartbeat_interval_seconds": 30,
-  "pubsub_heartbeat_max_age_seconds": 120,
+  "pubsub_heartbeat_max_age_seconds": 300,
   "pubsub_trigger_failure_max_consecutive": 5,
   "pubsub_trigger_failure_base_delay_seconds": 1.0,
   "pubsub_trigger_failure_max_delay_seconds": 60.0,
