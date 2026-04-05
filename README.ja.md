@@ -110,7 +110,7 @@ pip install -e .[dev]
 - 設計判断と根拠（英語）: [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - 実装判断の意図（なぜこの選択をしたか）: [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - 英語版 README: [README.md](./README.md)
-- 言語ポリシー: 現在の運用手順とハイブリッド設計記事は日本語です。
+- 言語ポリシー: 運用/設計ドキュメントは英語版（`*.en.md`）と日本語版（`*.md`）を併記しています。この README では日本語版を優先しつつ英語版も併記しています。
 - `structured_logging=true` で JSON 構造化ログを有効化できます。
 
 ## セキュリティ

@@ -111,7 +111,7 @@ pip install -e .[dev]
 - Engineering decisions and design rationale (Japanese): [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - Implementation rationale (why these choices were made): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - Japanese full README: [README.ja.md](./README.ja.md)
-- Language policy: this README links to English runbook/decision docs; Japanese deep-dive docs are linked separately.
+- Language policy: operations and engineering-decision docs are maintained in both English (`*.en.md`) and Japanese (`*.md`). This README prioritizes English links and also includes Japanese counterparts.
 - Optional structured logging (`structured_logging=true`) is supported.
 
 ## Security
