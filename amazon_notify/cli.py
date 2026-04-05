@@ -2,24 +2,36 @@ import argparse
 import json
 import sys
 import time
+from pathlib import Path
 
 from . import config as app_config
 from .backoff import next_delay_seconds
 from .discord_client import send_discord_alert, send_discord_test
 from .failover import evaluate_failover_watchdog
-from .gmail_client import get_gmail_service_with_status, run_oauth_flow, start_gmail_watch_with_retry
+from .gmail_client import (
+    get_gmail_service_with_status,
+    run_oauth_flow,
+    start_gmail_watch_with_retry,
+)
 from .health import load_config_for_health_check as load_config_for_health_check_impl
 from .health import run_health_check as run_health_check_impl
 from .notifier import run_once
 from .runtime import (
     MIN_POLL_INTERVAL_SECONDS,
     RuntimeConfig,
-    build_runtime as build_runtime_impl,
-    compile_optional_pattern as compile_optional_pattern_impl,
     looks_like_discord_webhook_url,
+)
+from .runtime import (
+    build_runtime as build_runtime_impl,
+)
+from .runtime import (
+    compile_optional_pattern as compile_optional_pattern_impl,
+)
+from .runtime import (
     validate_config as validate_config_impl,
 )
 from .streaming_pull import run_streaming_pull
+
 
 def compile_optional_pattern(pattern: str | None, config_key: str):
     try:
@@ -95,6 +107,205 @@ def run_once_with_guard(runtime: RuntimeConfig) -> bool:
         return False
 
 
+def handle_setup_watch(args: argparse.Namespace, config: dict) -> None:
+    topic_name = (args.pubsub_topic or "").strip()
+    if not topic_name:
+        _stderr_error("--setup-watch には --pubsub-topic が必要です。")
+        sys.exit(1)
+
+    state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"))
+    state = app_config.load_state(state_file)
+    service, status = get_gmail_service_with_status(
+        webhook_url=config["discord_webhook_url"],
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=False,
+        paths=app_config.get_runtime_paths(),
+    )
+    if service is None:
+        _stderr_error(f"Gmail service を初期化できませんでした。auth_status={status.value}")
+        sys.exit(1)
+
+    label_ids = [item.strip() for item in args.watch_label_ids.split(",") if item.strip()]
+    try:
+        watch_response = start_gmail_watch_with_retry(
+            service,
+            topic_name=topic_name,
+            label_ids=label_ids,
+            label_filter_action=args.watch_label_filter_action,
+            retries=args.watch_retries,
+            base_delay=args.watch_base_delay,
+            max_delay=args.watch_max_delay,
+        )
+    except Exception as exc:
+        app_config.LOGGER.error("GMAIL_WATCH_SETUP_FAILED: %s", exc)
+        _stderr_error(f"Gmail watch 登録に失敗しました: {exc}")
+        sys.exit(1)
+
+    sys.stdout.write(json.dumps(watch_response, ensure_ascii=False, indent=2) + "\n")
+
+
+def resolve_watchdog_options(
+    args: argparse.Namespace,
+    runtime: RuntimeConfig,
+) -> tuple[Path, float, float, str]:
+    heartbeat_file = (
+        app_config.resolve_runtime_path(args.heartbeat_file)
+        if args.heartbeat_file
+        else runtime.pubsub_heartbeat_file
+    )
+    heartbeat_interval_seconds = (
+        float(args.heartbeat_interval_seconds)
+        if args.heartbeat_interval_seconds is not None
+        else float(runtime.pubsub_heartbeat_interval_seconds)
+    )
+    heartbeat_max_age_seconds = (
+        float(args.heartbeat_max_age_seconds)
+        if args.heartbeat_max_age_seconds is not None
+        else float(runtime.pubsub_heartbeat_max_age_seconds)
+    )
+    main_service_name = (
+        args.main_service_name.strip()
+        if args.main_service_name
+        else str(runtime.pubsub_main_service_name)
+    )
+    return heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name
+
+
+def validate_watchdog_options(
+    heartbeat_interval_seconds: float,
+    heartbeat_max_age_seconds: float,
+    main_service_name: str,
+) -> None:
+    if heartbeat_interval_seconds <= 0:
+        _stderr_error("heartbeat-interval-seconds は 0 より大きい値を指定してください。")
+        sys.exit(1)
+    if heartbeat_max_age_seconds <= 0:
+        _stderr_error("heartbeat-max-age-seconds は 0 より大きい値を指定してください。")
+        sys.exit(1)
+    if not main_service_name:
+        _stderr_error("main-service-name は空文字にできません。")
+        sys.exit(1)
+
+
+def handle_streaming_pull_mode(
+    args: argparse.Namespace,
+    config: dict,
+    runtime: RuntimeConfig,
+    heartbeat_file: Path,
+    heartbeat_interval_seconds: float,
+) -> bool:
+    if not args.streaming_pull:
+        return False
+
+    if args.fallback_watchdog:
+        _stderr_error("--streaming-pull と --fallback-watchdog は同時に指定できません。")
+        sys.exit(1)
+    if args.once:
+        _stderr_error("--streaming-pull と --once は同時に指定できません。")
+        sys.exit(1)
+    if args.interval is not None:
+        _stderr_error("--streaming-pull と --interval は同時に指定できません。")
+        sys.exit(1)
+    subscription = (args.pubsub_subscription or config.get("pubsub_subscription", "")).strip()
+    if not subscription:
+        _stderr_error("StreamingPull には pubsub subscription が必要です。")
+        sys.exit(1)
+
+    app_config.LOGGER.info("STREAMING_PULL_MODE_START: subscription=%s", subscription)
+    run_once_with_guard(runtime)
+    reconnect_attempt = 0
+    reconnect_max_attempts = runtime.pubsub_stream_reconnect_max_attempts
+    reconnect_base_delay = runtime.pubsub_stream_reconnect_base_delay_seconds
+    reconnect_max_delay = runtime.pubsub_stream_reconnect_max_delay_seconds
+
+    while True:
+        try:
+            run_streaming_pull(
+                subscription_path=subscription,
+                on_trigger=lambda: run_once_with_guard(runtime),
+                pending_warn_threshold=args.pubsub_pending_warn_threshold,
+                flow_control_max_messages=args.pubsub_flow_max_messages,
+                heartbeat_file=heartbeat_file,
+                heartbeat_interval_seconds=heartbeat_interval_seconds,
+                trigger_failure_max_consecutive=runtime.pubsub_trigger_failure_max_consecutive,
+                trigger_failure_base_delay_seconds=runtime.pubsub_trigger_failure_base_delay_seconds,
+                trigger_failure_max_delay_seconds=runtime.pubsub_trigger_failure_max_delay_seconds,
+            )
+            return True
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            reconnect_attempt += 1
+            app_config.LOGGER.exception(
+                "STREAMING_PULL_SESSION_FAILED: attempt=%s error=%s",
+                reconnect_attempt,
+                exc,
+            )
+            if reconnect_max_attempts > 0 and reconnect_attempt >= reconnect_max_attempts:
+                _stderr_error(
+                    "StreamingPull の再接続試行回数が上限に達しました。"
+                    f" attempts={reconnect_attempt}"
+                )
+                sys.exit(1)
+
+            delay = next_delay_seconds(
+                reconnect_attempt,
+                base_delay=reconnect_base_delay,
+                max_delay=reconnect_max_delay,
+            )
+            app_config.LOGGER.warning(
+                "STREAMING_PULL_RECONNECT_RETRY: attempt=%s wait=%.2fs",
+                reconnect_attempt,
+                delay,
+            )
+            time.sleep(delay)
+
+
+def should_run_fallback_polling(
+    args: argparse.Namespace,
+    runtime: RuntimeConfig,
+    heartbeat_file: Path,
+    heartbeat_max_age_seconds: float,
+    main_service_name: str,
+) -> bool:
+    if not args.fallback_watchdog:
+        return True
+    if not args.once:
+        _stderr_error("--fallback-watchdog は --once と併用してください。")
+        sys.exit(1)
+    return evaluate_failover_watchdog(
+        state_file=runtime.state_file,
+        discord_webhook_url=runtime.discord_webhook_url,
+        service_name=main_service_name,
+        heartbeat_file=heartbeat_file,
+        heartbeat_max_age_seconds=heartbeat_max_age_seconds,
+        dry_run=runtime.dry_run,
+    )
+
+
+def run_polling_mode(args: argparse.Namespace, config: dict, runtime: RuntimeConfig) -> None:
+    poll_interval = args.interval or int(config.get("poll_interval_seconds", 60))
+    if poll_interval < MIN_POLL_INTERVAL_SECONDS:
+        _stderr_error(f"interval は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。")
+        sys.exit(1)
+
+    first_run_ok = run_once_with_guard(runtime)
+    if args.once:
+        if not first_run_ok:
+            sys.exit(1)
+        return
+
+    app_config.LOGGER.info(
+        "LOOP_MODE_START: interval=%ss dry_run=%s",
+        poll_interval,
+        runtime.dry_run,
+    )
+    while True:
+        time.sleep(poll_interval)
+        run_once_with_guard(runtime)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Amazon配送メールを監視してDiscordに通知")
     parser.add_argument(
@@ -129,7 +340,7 @@ def main() -> None:
         type=int,
         dest="pubsub_pending_warn_threshold",
         default=256,
-        help="StreamingPull の pending backlog 警告しきい値。",
+        help="StreamingPull の pending backlog 警告しきい値（旧名 --pubsub-trigger-queue-size 互換）。",
     )
     parser.add_argument(
         "--heartbeat-file",
@@ -180,7 +391,7 @@ def main() -> None:
         log_path = app_config.resolve_runtime_path(args.log_file) if args.log_file else app_config.DEFAULT_LOG_PATH
         app_config.setup_logging(log_path)
         app_config.LOGGER.info("MANUAL_REAUTH_START")
-        creds = run_oauth_flow()
+        creds = run_oauth_flow(paths=app_config.get_runtime_paths())
         if not creds:
             app_config.LOGGER.error("MANUAL_REAUTH_FAILED")
             sys.exit(1)
@@ -233,169 +444,35 @@ def main() -> None:
         return
 
     if args.setup_watch:
-        topic_name = (args.pubsub_topic or "").strip()
-        if not topic_name:
-            _stderr_error("--setup-watch には --pubsub-topic が必要です。")
-            sys.exit(1)
-
-        state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"))
-        state = app_config.load_state(state_file)
-        service, status = get_gmail_service_with_status(
-            webhook_url=config["discord_webhook_url"],
-            state=state,
-            state_file=state_file,
-            allow_oauth_interactive=False,
-        )
-        if service is None:
-            _stderr_error(f"Gmail service を初期化できませんでした。auth_status={status.value}")
-            sys.exit(1)
-
-        label_ids = [item.strip() for item in args.watch_label_ids.split(",") if item.strip()]
-        try:
-            watch_response = start_gmail_watch_with_retry(
-                service,
-                topic_name=topic_name,
-                label_ids=label_ids,
-                label_filter_action=args.watch_label_filter_action,
-                retries=args.watch_retries,
-                base_delay=args.watch_base_delay,
-                max_delay=args.watch_max_delay,
-            )
-        except Exception as exc:
-            app_config.LOGGER.error("GMAIL_WATCH_SETUP_FAILED: %s", exc)
-            _stderr_error(f"Gmail watch 登録に失敗しました: {exc}")
-            sys.exit(1)
-
-        sys.stdout.write(json.dumps(watch_response, ensure_ascii=False, indent=2) + "\n")
+        handle_setup_watch(args, config)
         return
 
     runtime = build_runtime(config, dry_run=args.dry_run)
-    heartbeat_file = (
-        app_config.resolve_runtime_path(args.heartbeat_file)
-        if args.heartbeat_file
-        else runtime.pubsub_heartbeat_file
+    heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name = (
+        resolve_watchdog_options(args, runtime)
     )
-    heartbeat_interval_seconds = (
-        float(args.heartbeat_interval_seconds)
-        if args.heartbeat_interval_seconds is not None
-        else float(runtime.pubsub_heartbeat_interval_seconds)
+    validate_watchdog_options(
+        heartbeat_interval_seconds,
+        heartbeat_max_age_seconds,
+        main_service_name,
     )
-    heartbeat_max_age_seconds = (
-        float(args.heartbeat_max_age_seconds)
-        if args.heartbeat_max_age_seconds is not None
-        else float(runtime.pubsub_heartbeat_max_age_seconds)
-    )
-    main_service_name = (
-        args.main_service_name.strip()
-        if args.main_service_name
-        else str(runtime.pubsub_main_service_name)
-    )
-    if heartbeat_interval_seconds <= 0:
-        _stderr_error("heartbeat-interval-seconds は 0 より大きい値を指定してください。")
-        sys.exit(1)
-    if heartbeat_max_age_seconds <= 0:
-        _stderr_error("heartbeat-max-age-seconds は 0 より大きい値を指定してください。")
-        sys.exit(1)
-    if not main_service_name:
-        _stderr_error("main-service-name は空文字にできません。")
-        sys.exit(1)
 
-    if args.streaming_pull:
-        if args.fallback_watchdog:
-            _stderr_error("--streaming-pull と --fallback-watchdog は同時に指定できません。")
-            sys.exit(1)
-        if args.once:
-            _stderr_error("--streaming-pull と --once は同時に指定できません。")
-            sys.exit(1)
-        if args.interval is not None:
-            _stderr_error("--streaming-pull と --interval は同時に指定できません。")
-            sys.exit(1)
-        subscription = (args.pubsub_subscription or config.get("pubsub_subscription", "")).strip()
-        if not subscription:
-            _stderr_error("StreamingPull には pubsub subscription が必要です。")
-            sys.exit(1)
-
-        app_config.LOGGER.info("STREAMING_PULL_MODE_START: subscription=%s", subscription)
-        run_once_with_guard(runtime)
-        reconnect_attempt = 0
-        reconnect_max_attempts = runtime.pubsub_stream_reconnect_max_attempts
-        reconnect_base_delay = runtime.pubsub_stream_reconnect_base_delay_seconds
-        reconnect_max_delay = runtime.pubsub_stream_reconnect_max_delay_seconds
-
-        while True:
-            try:
-                run_streaming_pull(
-                    subscription_path=subscription,
-                    on_trigger=lambda: run_once_with_guard(runtime),
-                    pending_warn_threshold=args.pubsub_pending_warn_threshold,
-                    flow_control_max_messages=args.pubsub_flow_max_messages,
-                    heartbeat_file=heartbeat_file,
-                    heartbeat_interval_seconds=heartbeat_interval_seconds,
-                    trigger_failure_max_consecutive=runtime.pubsub_trigger_failure_max_consecutive,
-                    trigger_failure_base_delay_seconds=runtime.pubsub_trigger_failure_base_delay_seconds,
-                    trigger_failure_max_delay_seconds=runtime.pubsub_trigger_failure_max_delay_seconds,
-                )
-                return
-            except KeyboardInterrupt:
-                raise
-            except Exception as exc:
-                reconnect_attempt += 1
-                app_config.LOGGER.exception(
-                    "STREAMING_PULL_SESSION_FAILED: attempt=%s error=%s",
-                    reconnect_attempt,
-                    exc,
-                )
-                if reconnect_max_attempts > 0 and reconnect_attempt >= reconnect_max_attempts:
-                    _stderr_error(
-                        "StreamingPull の再接続試行回数が上限に達しました。"
-                        f" attempts={reconnect_attempt}"
-                    )
-                    sys.exit(1)
-
-                delay = next_delay_seconds(
-                    reconnect_attempt,
-                    base_delay=reconnect_base_delay,
-                    max_delay=reconnect_max_delay,
-                )
-                app_config.LOGGER.warning(
-                    "STREAMING_PULL_RECONNECT_RETRY: attempt=%s wait=%.2fs",
-                    reconnect_attempt,
-                    delay,
-                )
-                time.sleep(delay)
+    if handle_streaming_pull_mode(
+        args,
+        config,
+        runtime,
+        heartbeat_file,
+        heartbeat_interval_seconds,
+    ):
         return
 
-    if args.fallback_watchdog:
-        if not args.once:
-            _stderr_error("--fallback-watchdog は --once と併用してください。")
-            sys.exit(1)
-        should_run_fallback = evaluate_failover_watchdog(
-            state_file=runtime.state_file,
-            discord_webhook_url=runtime.discord_webhook_url,
-            service_name=main_service_name,
-            heartbeat_file=heartbeat_file,
-            heartbeat_max_age_seconds=heartbeat_max_age_seconds,
-            dry_run=runtime.dry_run,
-        )
-        if not should_run_fallback:
-            return
-
-    poll_interval = args.interval or int(config.get("poll_interval_seconds", 60))
-    if poll_interval < MIN_POLL_INTERVAL_SECONDS:
-        _stderr_error(f"interval は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。")
-        sys.exit(1)
-
-    first_run_ok = run_once_with_guard(runtime)
-    if args.once:
-        if not first_run_ok:
-            sys.exit(1)
+    if not should_run_fallback_polling(
+        args,
+        runtime,
+        heartbeat_file,
+        heartbeat_max_age_seconds,
+        main_service_name,
+    ):
         return
 
-    app_config.LOGGER.info(
-        "LOOP_MODE_START: interval=%ss dry_run=%s",
-        poll_interval,
-        runtime.dry_run,
-    )
-    while True:
-        time.sleep(poll_interval)
-        run_once_with_guard(runtime)
+    run_polling_mode(args, config, runtime)

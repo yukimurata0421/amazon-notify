@@ -1,5 +1,6 @@
 import re
 from email.header import decode_header, make_header
+from re import Pattern
 
 
 def decode_mime_words(value: str) -> str:
@@ -18,9 +19,9 @@ def extract_email_address(value: str) -> str:
     return match.group(0) if match else decoded
 
 
-def is_amazon_mail(from_header: str, pattern: str) -> bool:
+def is_amazon_mail(from_header: str, pattern: Pattern[str]) -> bool:
     email = extract_email_address(from_header).lower()
-    return re.search(pattern, email) is not None
+    return pattern.search(email) is not None
 
 
 def build_gmail_message_url(message_id: str) -> str:

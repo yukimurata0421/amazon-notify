@@ -22,11 +22,23 @@ def test_build_runtime_defaults_and_mapping_api(tmp_path: Path) -> None:
 
     built = runtime.build_runtime(config, dry_run=True, paths=paths)
 
-    assert built["amazon_pattern"] == r"amazon\.co\.jp"
+    assert built["amazon_pattern"].pattern == r"amazon\.co\.jp"
     assert built.get("missing_key", "fallback") == "fallback"
     assert built.events_file == tmp_path / "events.jsonl"
     assert built.runs_file == tmp_path / "runs.jsonl"
     assert built.subject_pattern is None
+
+
+def test_build_runtime_raises_for_invalid_amazon_from_pattern(tmp_path: Path) -> None:
+    with pytest.raises(ValueError):
+        runtime.build_runtime(
+            {
+                "discord_webhook_url": "https://discord.com/api/webhooks/1/token",
+                "amazon_from_pattern": "[",
+            },
+            dry_run=True,
+            paths=_runtime_paths(tmp_path),
+        )
 
 
 def test_compile_optional_pattern_and_discord_webhook_shape() -> None:

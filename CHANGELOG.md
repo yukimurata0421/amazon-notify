@@ -4,14 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+This unreleased set focuses on aligning StreamingPull recovery and checkpoint durability with the frontier-consistency contract.
+
 ### Changed
 - Hardened StreamingPull to reduce reliance on `systemd` restarts:
   - replaced queue-drop behavior with latest-event aggregation (no `ack`+drop on local queue full)
   - added trigger failure backoff and consecutive-failure circuit breaker
   - added in-process stream reconnect loop with exponential backoff in CLI runtime.
+  - kept `--pubsub-trigger-queue-size` as a backward-compatible alias of `--pubsub-pending-warn-threshold`.
+- Refactored CLI mode handlers into smaller units (`handle_setup_watch`, `handle_streaming_pull_mode`, `run_polling_mode`) to reduce `main()` branching complexity.
 - Extended heartbeat model to include worker progress timestamps and surfaced worker-stale detection in fallback watchdog health checks.
 - Added new runtime config knobs for trigger failure handling and stream reconnect behavior.
 - Refined token refresh retry design by allowing `request_factory` injection in `refresh_with_retry` to isolate retry logic from Google dependency initialization.
+- Added optional `RuntimePaths` injection to Gmail client auth/service construction paths to reduce direct global-path coupling.
+- Compiled `amazon_pattern` once at runtime initialization and unified sender matching to use compiled regex patterns.
+- Disabled Gmail discovery cache (`cache_discovery=False`) when building the Google API client to avoid environment-dependent cache warnings.
 - Made checkpoint writes align with the source-of-truth contract:
   - write `checkpoint_advanced` event first
   - update `state.json` snapshot as best-effort.
@@ -20,8 +27,10 @@ All notable changes to this project will be documented in this file.
   - fail fast on corrupted middle lines.
 - Switched `state.json` persistence to atomic write (`tempfile + os.replace`) to reduce partial-write risk.
 - Clarified README guarantees/non-goals and added README language-policy/license notes.
+- Updated README release badge link to `releases/latest` and strengthened top-level architecture intent text.
 - Updated config validation wording so `poll_interval_seconds` minimum behaves as a required lower bound.
 - Standardized operational timestamps to UTC ISO 8601 across pipeline runs, checkpoint events, token/transient markers, and failover state.
+- Enabled Ruff import-order lint (`I`) and normalized imports across the project.
 
 ### Tests
 - Added CLI reconnect behavior regression test.

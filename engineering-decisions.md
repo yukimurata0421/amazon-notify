@@ -1,7 +1,7 @@
-# Engineering Decisions (v0.3.0)
+# Engineering Decisions
 
 このドキュメントは、`amazon-notify` で採用している設計・技術選定の理由をまとめたものです。  
-対象は v0.3.0 時点の実装です。
+対象は `main` ブランチ時点の実装です。
 
 ## 1. プロダクト前提
 
@@ -43,6 +43,12 @@
 - source of truth を 1 つに絞り、静かな不整合を防ぐ
 - append-only で監査可能な履歴を残せる
 - rollback 時の互換性確保のため `state.json` は継続更新する
+
+### 書き込み順序
+- `checkpoint_advanced` を先に `events.jsonl` へ追記する
+- `state.json` 更新はベストエフォート（失敗時は warning のみ）
+
+これにより「正本が更新されず派生だけ進む」状態を避ける。
 
 ### 移行戦略
 - `events.jsonl` が空で `state.json.last_message_id` がある初回のみ bootstrap
@@ -105,11 +111,14 @@
 ### 採用
 - 1 レコードごとに `flush + fsync`
 - `schema_version` を各レコードに付与
-- 起動時に JSONL 末尾破損 1 行を無視して復元
+- 起動時に JSONL 末尾破損 1 行のみを無視して復元
+- JSONL 中間行破損は fail-fast（`CheckpointError`）
+- `state.json` は `tempfile + os.replace` で atomic write
 
 ### 理由
 - 低コストでファイル破損耐性を上げる
 - 将来のフォーマット変更時にマイグレーションしやすくする
+- 途中行破損を無視すると checkpoint の解釈が不確定になるため、契約優先で停止する
 
 ## 9. 設定検証を「意味」まで広げた理由
 

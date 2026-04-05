@@ -1,5 +1,5 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/yukimurata0421/amazon-notify?sort=semver)](https://github.com/yukimurata0421/amazon-notify/releases/tag/v0.2.0)
+[![Release](https://img.shields.io/github/v/release/yukimurata0421/amazon-notify?sort=semver)](https://github.com/yukimurata0421/amazon-notify/releases/latest)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yukimurata0421/amazon-notify/main/.github/badges/coverage.json)](https://github.com/yukimurata0421/amazon-notify/blob/main/.github/badges/coverage.json)
 [![Lint](https://img.shields.io/badge/lint-ruff-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
@@ -9,6 +9,7 @@
 
 Self-hosted notifier for Amazon.co.jp delivery emails:
 Gmail API -> filtering -> Discord Webhook.
+Built around ordered-frontier checkpoint consistency rather than raw realtime throughput.
 
 Current versions use `events.jsonl` as the checkpoint source of truth and keep
 `state.json` as a compatibility snapshot.

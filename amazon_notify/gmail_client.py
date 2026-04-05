@@ -52,13 +52,17 @@ except ModuleNotFoundError as exc:
 
 from . import config as app_config
 from .backoff import next_delay_seconds
-from .config import LOGGER, save_state
-from .domain import AuthStatus
+from .config import LOGGER, RuntimePaths, save_state
 from .discord_client import send_discord_alert, send_discord_recovery
+from .domain import AuthStatus
 from .time_utils import utc_now_iso
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+
+
+def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:
+    return app_config.get_runtime_paths() if paths is None else paths
 
 
 def ensure_google_dependencies() -> None:
@@ -69,11 +73,12 @@ def ensure_google_dependencies() -> None:
         ) from GOOGLE_IMPORT_ERROR
 
 
-def run_oauth_flow() -> Credentials | None:
+def run_oauth_flow(paths: RuntimePaths | None = None) -> Credentials | None:
+    runtime_paths = _resolve_runtime_paths(paths)
     try:
         ensure_google_dependencies()
         flow = InstalledAppFlow.from_client_secrets_file(
-            str(app_config.CREDENTIALS_PATH),
+            str(runtime_paths.credentials),
             SCOPES,
         )
     except Exception as exc:
@@ -90,9 +95,9 @@ def run_oauth_flow() -> Credentials | None:
             LOGGER.error("OAUTH_CONSOLE_FAILED: %s", fallback_exc)
             return None
 
-    with app_config.TOKEN_PATH.open("w", encoding="utf-8") as token_file:
+    with runtime_paths.token.open("w", encoding="utf-8") as token_file:
         token_file.write(creds.to_json())
-        LOGGER.info("TOKEN_SAVED: %s", app_config.TOKEN_PATH)
+        LOGGER.info("TOKEN_SAVED: %s", runtime_paths.token)
 
     return creds
 
@@ -278,13 +283,14 @@ def _load_initial_credentials(
     state: dict | None,
     state_file: Path | None,
     allow_oauth_interactive: bool,
+    runtime_paths: RuntimePaths,
 ) -> tuple[Credentials | None, AuthStatus]:
-    if not app_config.TOKEN_PATH.exists():
+    if not runtime_paths.token.exists():
         if allow_oauth_interactive:
             LOGGER.info("TOKEN_MISSING_INTERACTIVE_AUTH_START")
-            return run_oauth_flow(), AuthStatus.TOKEN_MISSING
+            return run_oauth_flow(runtime_paths), AuthStatus.TOKEN_MISSING
 
-        reason = f"token.json が見つかりません: {app_config.TOKEN_PATH}"
+        reason = f"token.json が見つかりません: {runtime_paths.token}"
         LOGGER.error("TOKEN_MISSING: %s", reason)
         _record_token_issue_and_maybe_alert(
             webhook_url,
@@ -297,7 +303,7 @@ def _load_initial_credentials(
         return None, AuthStatus.TOKEN_MISSING
 
     try:
-        creds = Credentials.from_authorized_user_file(str(app_config.TOKEN_PATH), SCOPES)
+        creds = Credentials.from_authorized_user_file(str(runtime_paths.token), SCOPES)
         if creds.valid:
             return creds, AuthStatus.TOKEN_VALID
         if creds.expired and creds.refresh_token:
@@ -308,7 +314,7 @@ def _load_initial_credentials(
         LOGGER.error("TOKEN_INVALID: %s", reason)
         if allow_oauth_interactive:
             LOGGER.info("TOKEN_INVALID_INTERACTIVE_AUTH_START")
-            return run_oauth_flow(), AuthStatus.TOKEN_CORRUPTED
+            return run_oauth_flow(runtime_paths), AuthStatus.TOKEN_CORRUPTED
 
         _record_token_issue_and_maybe_alert(
             webhook_url,
@@ -327,6 +333,7 @@ def _ensure_usable_credentials(
     state: dict | None,
     state_file: Path | None,
     allow_oauth_interactive: bool,
+    runtime_paths: RuntimePaths,
 ) -> tuple[Credentials | None, AuthStatus]:
     if creds.valid:
         return creds, AuthStatus.TOKEN_VALID
@@ -335,9 +342,9 @@ def _ensure_usable_credentials(
         LOGGER.info("TOKEN_REFRESH_START")
         refresh_error = refresh_with_retry(creds)
         if refresh_error is None:
-            with app_config.TOKEN_PATH.open("w", encoding="utf-8") as token_file:
+            with runtime_paths.token.open("w", encoding="utf-8") as token_file:
                 token_file.write(creds.to_json())
-            LOGGER.info("TOKEN_REFRESH_SUCCESS: %s", app_config.TOKEN_PATH)
+            LOGGER.info("TOKEN_REFRESH_SUCCESS: %s", runtime_paths.token)
             return creds, AuthStatus.TOKEN_VALID
 
         if is_transient_network_error(refresh_error):
@@ -367,7 +374,7 @@ def _ensure_usable_credentials(
         if allow_oauth_interactive:
             if webhook_url:
                 send_discord_alert(webhook_url, error_msg)
-            return run_oauth_flow(), AuthStatus.REFRESH_PERMANENT_FAILURE
+            return run_oauth_flow(runtime_paths), AuthStatus.REFRESH_PERMANENT_FAILURE
 
         _record_token_issue_and_maybe_alert(
             webhook_url,
@@ -382,7 +389,7 @@ def _ensure_usable_credentials(
     LOGGER.error("TOKEN_INVALID_NO_REFRESH: %s", reason)
     if allow_oauth_interactive:
         LOGGER.info("TOKEN_INVALID_NO_REFRESH_INTERACTIVE_AUTH_START")
-        return run_oauth_flow(), AuthStatus.INTERACTIVE_REAUTH_REQUIRED
+        return run_oauth_flow(runtime_paths), AuthStatus.INTERACTIVE_REAUTH_REQUIRED
 
     _record_token_issue_and_maybe_alert(
         webhook_url,
@@ -402,7 +409,8 @@ def _build_gmail_service(
     state_file: Path | None,
 ) -> tuple[Any | None, AuthStatus]:
     try:
-        service = build("gmail", "v1", credentials=creds)
+        # file_cache 警告を避けるため discovery cache は明示的に無効化する。
+        service = build("gmail", "v1", credentials=creds, cache_discovery=False)
         if state is not None and state_file is not None:
             notify_token_recovery_if_needed(webhook_url, state, state_file)
         return service, AuthStatus.READY
@@ -495,6 +503,7 @@ def get_gmail_service_with_status(
     state: dict | None = None,
     state_file: Path | None = None,
     allow_oauth_interactive: bool = False,
+    paths: RuntimePaths | None = None,
 ) -> tuple[Any | None, AuthStatus]:
     try:
         ensure_google_dependencies()
@@ -502,11 +511,13 @@ def get_gmail_service_with_status(
         LOGGER.error("DEPENDENCY_MISSING: %s", exc)
         return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
 
+    runtime_paths = _resolve_runtime_paths(paths)
     creds, initial_status = _load_initial_credentials(
         webhook_url=webhook_url,
         state=state,
         state_file=state_file,
         allow_oauth_interactive=allow_oauth_interactive,
+        runtime_paths=runtime_paths,
     )
     if not creds:
         return None, initial_status
@@ -517,6 +528,7 @@ def get_gmail_service_with_status(
         state=state,
         state_file=state_file,
         allow_oauth_interactive=allow_oauth_interactive,
+        runtime_paths=runtime_paths,
     )
     if not usable_creds:
         return None, usable_status
@@ -535,12 +547,14 @@ def get_gmail_service(
     state: dict | None = None,
     state_file: Path | None = None,
     allow_oauth_interactive: bool = False,
+    paths: RuntimePaths | None = None,
 ):
     service, _status = get_gmail_service_with_status(
         webhook_url=webhook_url,
         state=state,
         state_file=state_file,
         allow_oauth_interactive=allow_oauth_interactive,
+        paths=paths,
     )
     return service
 

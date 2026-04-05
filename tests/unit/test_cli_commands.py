@@ -331,10 +331,10 @@ def test_main_reauth_paths(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--reauth"])
     monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
 
-    monkeypatch.setattr(cli, "run_oauth_flow", lambda: object())
+    monkeypatch.setattr(cli, "run_oauth_flow", lambda *_args, **_kwargs: object())
     cli.main()
 
-    monkeypatch.setattr(cli, "run_oauth_flow", lambda: None)
+    monkeypatch.setattr(cli, "run_oauth_flow", lambda *_args, **_kwargs: None)
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
     assert exc_info.value.code == 1
@@ -471,7 +471,7 @@ def test_main_exits_when_config_invalid_in_normal_mode(monkeypatch, tmp_path: Pa
 
 def test_build_runtime_uses_consistent_default_amazon_pattern() -> None:
     runtime = cli.build_runtime({"discord_webhook_url": "https://discord.invalid/webhook"})
-    assert runtime["amazon_pattern"] == r"amazon\.co\.jp"
+    assert runtime["amazon_pattern"].pattern == r"amazon\.co\.jp"
     assert runtime["events_file"].name == "events.jsonl"
     assert runtime["runs_file"].name == "runs.jsonl"
 

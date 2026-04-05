@@ -1,9 +1,9 @@
 import json
 from pathlib import Path
 
-from amazon_notify import config, gmail_client
-from amazon_notify import cli
 import pytest
+
+from amazon_notify import cli, config, gmail_client
 
 
 class DummyCreds:
@@ -65,7 +65,7 @@ def test_get_gmail_service_allow_oauth_interactive_uses_run_oauth_flow(monkeypat
     missing_token_path = tmp_path / "missing-token.json"
     monkeypatch.setattr(config, "TOKEN_PATH", missing_token_path)
 
-    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda: DummyCreds(valid=True))
+    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: DummyCreds(valid=True))
     monkeypatch.setattr(gmail_client, "build", lambda *args, **kwargs: object())
 
     service = gmail_client.get_gmail_service(allow_oauth_interactive=True)
@@ -130,7 +130,7 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
     )
 
     oauth_calls: list[str] = []
-    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda: oauth_calls.append("called"))
+    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: oauth_calls.append("called"))
 
     alerts: list[str] = []
     monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message) or True)

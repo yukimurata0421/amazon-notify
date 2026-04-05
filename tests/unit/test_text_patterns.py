@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from amazon_notify import text
@@ -24,4 +26,4 @@ def test_extract_email_address_handles_multiple_formats(from_header: str, expect
     ],
 )
 def test_is_amazon_mail_regression_cases(from_header: str, pattern: str, expected: bool) -> None:
-    assert text.is_amazon_mail(from_header, pattern) is expected
+    assert text.is_amazon_mail(from_header, re.compile(pattern)) is expected

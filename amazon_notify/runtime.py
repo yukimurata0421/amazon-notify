@@ -20,7 +20,7 @@ MIN_POLL_INTERVAL_SECONDS = 10
 @dataclass(frozen=True)
 class RuntimeConfig:
     discord_webhook_url: str
-    amazon_pattern: str
+    amazon_pattern: Pattern[str]
     state_file: Path
     events_file: Path
     runs_file: Path
@@ -56,7 +56,10 @@ class RuntimeConfig:
         base_dir = runtime_paths.runtime_dir
         return cls(
             discord_webhook_url=config["discord_webhook_url"],
-            amazon_pattern=config.get("amazon_from_pattern", r"amazon\.co\.jp"),
+            amazon_pattern=compile_required_pattern(
+                str(config.get("amazon_from_pattern", r"amazon\.co\.jp")),
+                "amazon_from_pattern",
+            ),
             state_file=app_config.resolve_runtime_path(config.get("state_file", "state.json"), base_dir=base_dir),
             events_file=app_config.resolve_runtime_path(
                 config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
@@ -110,6 +113,14 @@ class RuntimeConfig:
 def compile_optional_pattern(pattern: str | None, config_key: str) -> Pattern[str] | None:
     if not pattern:
         return None
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        app_config.LOGGER.error("CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc)
+        raise ValueError(f"config.json の {config_key} が不正な正規表現です: {exc}") from exc
+
+
+def compile_required_pattern(pattern: str, config_key: str) -> Pattern[str]:
     try:
         return re.compile(pattern)
     except re.error as exc:

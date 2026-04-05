@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from amazon_notify import config, gmail_client
+from amazon_notify.config import RuntimePaths
 from amazon_notify.domain import AuthStatus
 
 
@@ -204,11 +205,18 @@ def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: P
     monkeypatch.setattr(gmail_client.Credentials, "from_authorized_user_file", lambda *_args, **_kwargs: creds)
     monkeypatch.setattr(gmail_client, "refresh_with_retry", lambda *_args, **_kwargs: None)
     service_obj = object()
-    monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: service_obj)
+    captured_kwargs: dict = {}
+
+    def fake_build(*_args, **kwargs):
+        captured_kwargs.update(kwargs)
+        return service_obj
+
+    monkeypatch.setattr(gmail_client, "build", fake_build)
 
     service = gmail_client.get_gmail_service()
     assert service is service_obj
     assert token_path.read_text(encoding="utf-8") == '{"new":"token"}'
+    assert captured_kwargs["cache_discovery"] is False
 
 
 def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_path: Path) -> None:
@@ -247,7 +255,7 @@ def test_get_gmail_service_refresh_fatal_with_interactive_recovers(monkeypatch, 
     creds = _DummyCreds(valid=False, expired=True, refresh_token="r")
     monkeypatch.setattr(gmail_client.Credentials, "from_authorized_user_file", lambda *_args, **_kwargs: creds)
     monkeypatch.setattr(gmail_client, "refresh_with_retry", lambda *_args, **_kwargs: RuntimeError("fatal"))
-    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda: _DummyCreds(valid=True))
+    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: _DummyCreds(valid=True))
     monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: object())
 
     alerts: list[str] = []
@@ -399,3 +407,34 @@ def test_start_gmail_watch_with_retry_retries_transient_errors(monkeypatch) -> N
     )
     assert response["historyId"] == "123"
     assert sleeps == [0.5]
+
+
+def test_get_gmail_service_uses_explicit_runtime_paths(monkeypatch, tmp_path: Path) -> None:
+    token_path = tmp_path / "runtime" / "token.json"
+    token_path.parent.mkdir(parents=True, exist_ok=True)
+    token_path.write_text("{}", encoding="utf-8")
+    runtime_paths = RuntimePaths(
+        runtime_dir=token_path.parent,
+        config=token_path.parent / "config.json",
+        credentials=token_path.parent / "credentials.json",
+        token=token_path,
+        default_log=token_path.parent / "logs" / "amazon_mail_notifier.log",
+    )
+
+    monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
+    captured_path: dict[str, str] = {}
+
+    def fake_from_authorized_user_file(path: str, *_args, **_kwargs):
+        captured_path["token_path"] = path
+        return _DummyCreds(valid=True)
+
+    monkeypatch.setattr(
+        gmail_client.Credentials,
+        "from_authorized_user_file",
+        fake_from_authorized_user_file,
+    )
+    monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: object())
+
+    service = gmail_client.get_gmail_service(paths=runtime_paths)
+    assert service is not None
+    assert captured_path["token_path"] == str(token_path)

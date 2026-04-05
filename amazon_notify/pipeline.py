@@ -13,7 +13,13 @@ from .domain import (
     Notifier,
     RunResult,
 )
-from .errors import CheckpointError, DeliveryError, PipelineError, PermanentAuthError, TransientSourceError
+from .errors import (
+    CheckpointError,
+    DeliveryError,
+    PermanentAuthError,
+    PipelineError,
+    TransientSourceError,
+)
 from .time_utils import utc_now_iso
 
 

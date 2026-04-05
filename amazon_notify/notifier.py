@@ -1,19 +1,34 @@
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-from dataclasses import field
+from dataclasses import dataclass, field
 from pathlib import Path
 from re import Pattern
-from typing import TypeVar
+from typing import Any, TypeVar, overload
 
-from .checkpoint_store import JsonlCheckpointStore
 from .backoff import next_delay_seconds
-from .config import LOGGER, load_state
-from .discord_client import send_discord_alert, send_discord_notification, send_discord_recovery
-from .domain import AuthStatus, Checkpoint, MailEnvelope, NotificationCandidate, RunResult
-from .errors import MessageDecodeError, PermanentAuthError, SourceError, TransientSourceError
+from .checkpoint_store import JsonlCheckpointStore
+from .config import LOGGER, RuntimePaths, get_runtime_paths, load_state
+from .discord_client import (
+    send_discord_alert,
+    send_discord_notification,
+    send_discord_recovery,
+)
+from .domain import (
+    AuthStatus,
+    Checkpoint,
+    MailEnvelope,
+    NotificationCandidate,
+    RunResult,
+)
+from .errors import (
+    MessageDecodeError,
+    PermanentAuthError,
+    SourceError,
+    TransientSourceError,
+)
 from .gmail_client import (
     HttpError,
     get_gmail_service_with_status,
@@ -26,7 +41,12 @@ from .gmail_client import (
 )
 from .pipeline import NotificationPipeline
 from .runtime import RuntimeConfig
-from .text import build_gmail_message_url, decode_mime_words, extract_email_address, is_amazon_mail
+from .text import (
+    build_gmail_message_url,
+    decode_mime_words,
+    extract_email_address,
+    is_amazon_mail,
+)
 
 T = TypeVar("T")
 _MISSING = object()
@@ -41,6 +61,7 @@ class GmailMailSource:
     gmail_api_max_retries: int
     gmail_api_base_delay_seconds: float
     gmail_api_max_delay_seconds: float
+    runtime_paths: RuntimePaths
     auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
 
     def get_auth_status(self) -> AuthStatus:
@@ -93,6 +114,7 @@ class GmailMailSource:
             webhook_url=None,  # alert は incident lifecycle 側で一元管理する
             state=None if self.dry_run else self.state,
             state_file=None if self.dry_run else self.state_file,
+            paths=self.runtime_paths,
         )
         self.auth_status = status
         if service is None:
@@ -162,7 +184,7 @@ class GmailMailSource:
 
 @dataclass
 class RegexClassifier:
-    amazon_pattern: str
+    amazon_pattern: Pattern[str]
     subject_pattern: Pattern[str] | None
 
     def classify(self, envelope: MailEnvelope) -> NotificationCandidate | None:
@@ -255,7 +277,18 @@ def _handle_incident_lifecycle(
             checkpoint_store.recover_incident(run_id=result.run_id)
 
 
-def _runtime_value(runtime: RuntimeConfig | dict, key: str, default: object = _MISSING):
+@overload
+def _runtime_value(runtime: RuntimeConfig | dict[str, Any], key: str) -> Any:
+    ...
+
+
+@overload
+def _runtime_value(runtime: RuntimeConfig | dict[str, Any], key: str, default: T) -> Any | T:
+    ...
+
+
+def _runtime_value(runtime: RuntimeConfig | dict[str, Any], key: str, default: object = _MISSING) -> Any:
+    # TODO(v0.4.x): runtime dict 互換を廃止し RuntimeConfig に統一してこの互換レイヤを削除する。
     if isinstance(runtime, RuntimeConfig):
         return getattr(runtime, key)
     if default is _MISSING:
@@ -265,13 +298,19 @@ def _runtime_value(runtime: RuntimeConfig | dict, key: str, default: object = _M
 
 def run_once(runtime: RuntimeConfig | dict) -> RunResult:
     discord_webhook_url = _runtime_value(runtime, "discord_webhook_url")
-    amazon_pattern = _runtime_value(runtime, "amazon_pattern")
+    amazon_pattern_raw = _runtime_value(runtime, "amazon_pattern")
     state_file: Path = _runtime_value(runtime, "state_file")
     max_messages = _runtime_value(runtime, "max_messages")
     subject_pattern: Pattern[str] | None = _runtime_value(runtime, "subject_pattern")
     dry_run = bool(_runtime_value(runtime, "dry_run", False))
     events_file: Path | None = _runtime_value(runtime, "events_file", None)
     runs_file: Path | None = _runtime_value(runtime, "runs_file", None)
+
+    amazon_pattern: Pattern[str]
+    if isinstance(amazon_pattern_raw, Pattern):
+        amazon_pattern = amazon_pattern_raw
+    else:
+        amazon_pattern = re.compile(str(amazon_pattern_raw))
 
     state = load_state(state_file)
     LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
@@ -284,6 +323,7 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
         gmail_api_max_retries=int(_runtime_value(runtime, "gmail_api_max_retries", 4)),
         gmail_api_base_delay_seconds=float(_runtime_value(runtime, "gmail_api_base_delay_seconds", 1.0)),
         gmail_api_max_delay_seconds=float(_runtime_value(runtime, "gmail_api_max_delay_seconds", 30.0)),
+        runtime_paths=get_runtime_paths(),
     )
     classifier = RegexClassifier(
         amazon_pattern=amazon_pattern,

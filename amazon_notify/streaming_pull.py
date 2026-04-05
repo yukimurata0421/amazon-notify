@@ -127,8 +127,11 @@ def run_streaming_pull(
     trigger_failure_base_delay_seconds: float = 1.0,
     trigger_failure_max_delay_seconds: float = 60.0,
 ) -> None:
-    # Backward compatibility for previous argument name.
+    # queue_size は過去名。pending backlog 警告しきい値の互換 alias としてのみ残す。
     if queue_size is not None:
+        LOGGER.warning(
+            "PUBSUB_QUEUE_SIZE_ALIAS_DEPRECATED: use pending_warn_threshold instead of queue_size"
+        )
         pending_warn_threshold = queue_size
     if pending_warn_threshold < 1:
         raise ValueError("pending_warn_threshold must be >= 1")
