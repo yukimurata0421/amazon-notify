@@ -42,6 +42,8 @@ class RuntimeConfig:
     pubsub_stream_reconnect_base_delay_seconds: float
     pubsub_stream_reconnect_max_delay_seconds: float
     pubsub_stream_reconnect_max_attempts: int
+    transient_alert_min_duration_seconds: float
+    transient_alert_cooldown_seconds: float
     runtime_paths: RuntimePaths
     subject_pattern: Pattern[str] | None
 
@@ -106,6 +108,12 @@ class RuntimeConfig:
             ),
             pubsub_stream_reconnect_max_attempts=int(
                 config.get("pubsub_stream_reconnect_max_attempts", 0)
+            ),
+            transient_alert_min_duration_seconds=float(
+                config.get("transient_alert_min_duration_seconds", 300.0)
+            ),
+            transient_alert_cooldown_seconds=float(
+                config.get("transient_alert_cooldown_seconds", 300.0)
             ),
             runtime_paths=runtime_paths,
             subject_pattern=compile_optional_pattern(config.get("amazon_subject_pattern"), "amazon_subject_pattern"),
@@ -209,6 +217,24 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
             continue
         if delay_value <= 0:
             errors.append(f"{key} は 0 より大きい値を指定してください。")
+
+    non_negative_delay_keys = (
+        "transient_alert_min_duration_seconds",
+        "transient_alert_cooldown_seconds",
+    )
+    for key in non_negative_delay_keys:
+        if key not in config:
+            continue
+        try:
+            delay_value = float(config[key])
+        except (TypeError, ValueError):
+            errors.append(f"{key} は数値で指定してください。")
+            continue
+        if delay_value < 0:
+            errors.append(f"{key} は 0 以上の値を指定してください。")
+
+    if "structured_logging" in config and not isinstance(config.get("structured_logging"), bool):
+        errors.append("structured_logging は true/false で指定してください。")
 
     pubsub_subscription = config.get("pubsub_subscription")
     if pubsub_subscription is not None:

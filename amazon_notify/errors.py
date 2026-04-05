@@ -23,7 +23,7 @@ class TransientSourceError(PipelineError):
             message=message,
             kind=FailureKind.SOURCE_FAILED,
             should_retry=True,
-            should_alert=True,
+            should_alert=False,
         )
 
 

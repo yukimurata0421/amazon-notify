@@ -72,6 +72,7 @@ def test_validate_config_reports_numeric_and_retry_errors(tmp_path: Path) -> Non
             "pubsub_main_service_name": "   ",
             "pubsub_heartbeat_interval_seconds": "x",
             "pubsub_heartbeat_max_age_seconds": 0,
+            "structured_logging": "yes",
             "amazon_from_pattern": "[",
             "amazon_subject_pattern": "(",
             "state_file": 123,
@@ -94,6 +95,7 @@ def test_validate_config_reports_numeric_and_retry_errors(tmp_path: Path) -> Non
     assert "pubsub_main_service_name は空文字以外" in joined
     assert "pubsub_heartbeat_interval_seconds は数値" in joined
     assert "pubsub_heartbeat_max_age_seconds は 0 より大きい値" in joined
+    assert "structured_logging は true/false" in joined
     assert "amazon_from_pattern の正規表現が不正" in joined
     assert "amazon_subject_pattern の正規表現が不正" in joined
     assert "state_file は空文字以外の文字列" in joined
@@ -122,3 +124,27 @@ def test_validate_config_reports_runtime_path_resolution_failures(monkeypatch, t
     assert "pubsub_stream_reconnect_max_attempts は整数" in joined
     assert "pubsub_heartbeat_file を runtime パスとして解決できません" in joined
     assert "events_file を runtime パスとして解決できません" in joined
+
+
+def test_validate_config_transient_alert_thresholds_allow_zero_and_reject_negative(tmp_path: Path) -> None:
+    ok_errors = runtime.validate_config(
+        {
+            "discord_webhook_url": "https://discord.com/api/webhooks/1/token",
+            "transient_alert_min_duration_seconds": 0.0,
+            "transient_alert_cooldown_seconds": 0.0,
+        },
+        paths=_runtime_paths(tmp_path),
+    )
+    assert not any("transient_alert_" in err for err in ok_errors)
+
+    ng_errors = runtime.validate_config(
+        {
+            "discord_webhook_url": "https://discord.com/api/webhooks/1/token",
+            "transient_alert_min_duration_seconds": -1,
+            "transient_alert_cooldown_seconds": -2,
+        },
+        paths=_runtime_paths(tmp_path),
+    )
+    joined = "\n".join(ng_errors)
+    assert "transient_alert_min_duration_seconds は 0 以上" in joined
+    assert "transient_alert_cooldown_seconds は 0 以上" in joined

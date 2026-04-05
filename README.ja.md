@@ -9,6 +9,8 @@
 Amazon.co.jp の配送関連メールを Gmail API で検出し、Discord Webhook に通知する自己ホスト向けツールです。
 通知速度より checkpoint/frontier の整合性維持を優先する設計です。
 
+補足: `main` ブランチは最新 GitHub Release より先行している場合があります。
+
 現行バージョンでは checkpoint の正本を `events.jsonl`（`checkpoint_advanced`）とし、
 `state.json` は互換スナップショットとして扱います。
 
@@ -23,6 +25,7 @@ English README: [README.md](./README.md)
 - Ordered Frontier（oldest-first、途中失敗時はそこで停止）
 - `events.jsonl` を checkpoint 正本とし、`state.json` は互換スナップショット、`runs.jsonl` は監査ログとして運用
 - Gmail/Discord の一時障害に対するリトライと復旧通知
+- 一時障害アラートの境界制御（継続時間しきい値 + クールダウン）
 - Pub/Sub StreamingPull によるリアルタイム通知
 - StreamingPull の自己復旧（systemd 依存を最小化）:
   - trigger 失敗時の指数バックオフ + 連続失敗しきい値
@@ -102,8 +105,10 @@ pip install -e .[dev]
 
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+- 設計判断と根拠: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - 英語版 README: [README.md](./README.md)
-- 言語ポリシー: 運用手順は英語、ハイブリッド設計記事は日本語です。
+- 言語ポリシー: 現在の運用手順とハイブリッド設計記事は日本語です。
+- `structured_logging=true` で JSON 構造化ログを有効化できます。
 
 ## セキュリティ
 

@@ -1,4 +1,4 @@
-.PHONY: setup setup-dev test coverage lint ruff typecheck run-once run reauth dry-run test-discord validate-config health-check clean dist
+.PHONY: setup setup-dev test coverage lint ruff typecheck run-once run reauth dry-run test-discord validate-config health-check install-systemd clean dist
 
 VENV_BIN = .venv/bin
 PYTHON = $(VENV_BIN)/python
@@ -53,6 +53,9 @@ validate-config:
 
 health-check:
 	$(CLI) --health-check
+
+install-systemd:
+	bash deployment/systemd/install-systemd.sh --mode hybrid --no-install-deps
 
 clean:
 	find . -type d -name '__pycache__' -exec rm -rf {} +

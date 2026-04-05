@@ -433,7 +433,7 @@ def main() -> None:
         if args.log_file
         else app_config.resolve_runtime_path(config.get("log_file", str(app_config.DEFAULT_LOG_PATH)))
     )
-    app_config.setup_logging(log_path)
+    app_config.setup_logging(log_path, structured=bool(config.get("structured_logging", False)))
 
     if validation_errors:
         app_config.LOGGER.error("CONFIG_INVALID: %s", " | ".join(validation_errors))

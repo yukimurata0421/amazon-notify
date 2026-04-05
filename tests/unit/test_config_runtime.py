@@ -34,6 +34,29 @@ def test_setup_logging_is_idempotent(tmp_path: Path) -> None:
         config.LOGGER.setLevel(original_level)
 
 
+def test_setup_logging_supports_structured_json_output(tmp_path: Path) -> None:
+    original_handlers = list(config.LOGGER.handlers)
+    original_propagate = config.LOGGER.propagate
+    original_level = config.LOGGER.level
+
+    try:
+        _clear_logger_handlers()
+        log_path = tmp_path / "logs" / "structured.log"
+        config.setup_logging(log_path, structured=True)
+        config.LOGGER.info("structured message")
+
+        log_text = log_path.read_text(encoding="utf-8").strip().splitlines()[-1]
+        payload = json.loads(log_text)
+        assert payload["level"] == "INFO"
+        assert payload["message"] == "structured message"
+    finally:
+        _clear_logger_handlers()
+        for handler in original_handlers:
+            config.LOGGER.addHandler(handler)
+        config.LOGGER.propagate = original_propagate
+        config.LOGGER.setLevel(original_level)
+
+
 def test_load_config_and_state_helpers(tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(json.dumps({"discord_webhook_url": "x"}), encoding="utf-8")

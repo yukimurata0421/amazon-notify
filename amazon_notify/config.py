@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
@@ -25,14 +26,26 @@ class RuntimePaths:
 LOGGER = logging.getLogger("amazon_mail_notifier")
 
 
-def setup_logging(log_path: Path = DEFAULT_LOG_PATH) -> None:
+class JsonLogFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+        }
+        return json.dumps(payload, ensure_ascii=False)
+
+
+def setup_logging(log_path: Path = DEFAULT_LOG_PATH, *, structured: bool = False) -> None:
     """Configure stdout and rotating file logging once."""
     if LOGGER.handlers:
         return
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
     LOGGER.setLevel(logging.INFO)
-    formatter = logging.Formatter("%(asctime)s %(levelname)s %(message)s")
+    formatter = JsonLogFormatter() if structured else logging.Formatter("%(asctime)s %(levelname)s %(message)s")
 
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)

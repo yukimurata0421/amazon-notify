@@ -29,6 +29,8 @@
 - `amazon_subject_pattern` が不正な正規表現なら、起動時にエラーを表示して終了します。
 - `state_file`、`events_file`、`runs_file`、`log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
 - Pub/Sub を使う場合は追加で `pip install .[pubsub]` を実行します。
+- `transient_alert_min_duration_seconds` と `transient_alert_cooldown_seconds` で一時障害アラート境界を調整できます。
+- `structured_logging=true` にすると JSON 形式でログを出力します。
 
 ## v0.3.0 移行仕様
 - checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
@@ -104,6 +106,17 @@ sudo systemctl restart amazon-notify.service
 sudo systemctl status amazon-notify.service
 sudo journalctl -u amazon-notify.service -f
 ```
+
+### systemd セットアップ自動化
+手順をまとめて実行したい場合は、以下を利用できます。
+
+```bash
+sudo deployment/systemd/install-systemd.sh --mode hybrid
+```
+
+- `--mode standard` で polling only 構成をインストールします。
+- `--no-enable-now` で unit 配置のみ行います。
+- `--no-install-deps` で venv/pip の更新をスキップします。
 
 ## systemd ハイブリッド（推奨）
 メイン系（リアルタイム）とサブ系（フェールオーバー）を分離します。

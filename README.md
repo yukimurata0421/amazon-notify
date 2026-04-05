@@ -10,6 +10,8 @@
 Self-hosted Gmail->Discord notification pipeline for Amazon.co.jp delivery emails.
 Designed around ordered-frontier checkpoint consistency, with Gmail inbox state as the recovery source of truth.
 
+Note: the `main` branch may be ahead of the latest GitHub Release.
+
 Current versions use `events.jsonl` as the checkpoint source of truth and keep
 `state.json` as a compatibility snapshot.
 
@@ -24,6 +26,7 @@ Japanese README: [README.ja.md](./README.ja.md)
 - Ordered-frontier processing (oldest-first, stop on midstream failure)
 - Checkpoint source of truth in `events.jsonl`, with `state.json` compatibility snapshots and `runs.jsonl` audit logs
 - Retry and recovery handling for transient Gmail/Discord failures
+- Transient-failure alert boundary with persistence threshold and cooldown
 - Realtime mode with Pub/Sub StreamingPull
 - In-process StreamingPull self-healing:
   - trigger failure backoff/circuit-breaker
@@ -103,8 +106,10 @@ pip install -e .[dev]
 
 - Operations runbook: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - Hybrid architecture and failover design (detailed): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+- Engineering decisions and design rationale: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - Japanese full README: [README.ja.md](./README.ja.md)
-- Language policy: operations runbook is English, hybrid architecture article is Japanese.
+- Language policy: operations runbook and hybrid architecture article are currently Japanese.
+- Optional structured logging (`structured_logging=true`) is supported.
 
 ## Security
 

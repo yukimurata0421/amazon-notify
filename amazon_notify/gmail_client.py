@@ -59,6 +59,8 @@ from .time_utils import utc_now_iso
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 300.0
+DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 300.0
 
 
 def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:
@@ -102,15 +104,89 @@ def run_oauth_flow(paths: RuntimePaths | None = None) -> Credentials | None:
     return creds
 
 
-def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
+def _clear_transient_issue_keys(state: dict) -> None:
+    state["transient_network_issue_active"] = False
+    state.pop("last_transient_error", None)
+    state.pop("last_transient_error_at", None)
+    state.pop("transient_network_issue_first_seen_at_epoch", None)
+    state.pop("transient_network_issue_last_seen_at_epoch", None)
+    state.pop("transient_network_issue_occurrences", None)
+    state.pop("transient_network_issue_last_alert_at_epoch", None)
+    state.pop("transient_network_issue_notified", None)
+
+
+def _should_send_transient_alert(
+    state: dict,
+    *,
+    now_epoch: float,
+    min_alert_duration_seconds: float,
+    alert_cooldown_seconds: float,
+) -> bool:
+    first_seen = state.get("transient_network_issue_first_seen_at_epoch")
+    if not isinstance(first_seen, (int, float)):
+        return False
+    if (now_epoch - float(first_seen)) < min_alert_duration_seconds:
+        return False
+
+    last_alert = state.get("transient_network_issue_last_alert_at_epoch")
+    if isinstance(last_alert, (int, float)):
+        if (now_epoch - float(last_alert)) < alert_cooldown_seconds:
+            return False
+    return True
+
+
+def record_transient_issue(
+    state: dict,
+    state_file: Path,
+    err: Exception | str,
+    *,
+    webhook_url: str | None = None,
+    alert_message: str | None = None,
+    min_alert_duration_seconds: float = DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS,
+    alert_cooldown_seconds: float = DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
+) -> bool:
+    if min_alert_duration_seconds < 0:
+        raise ValueError("min_alert_duration_seconds must be >= 0")
+    if alert_cooldown_seconds < 0:
+        raise ValueError("alert_cooldown_seconds must be >= 0")
+
+    now_epoch = time.time()
     state["transient_network_issue_active"] = True
     state["last_transient_error"] = str(err)
     state["last_transient_error_at"] = utc_now_iso()
+    first_seen = state.get("transient_network_issue_first_seen_at_epoch")
+    if not isinstance(first_seen, (int, float)):
+        first_seen = now_epoch
+    state["transient_network_issue_first_seen_at_epoch"] = float(first_seen)
+    state["transient_network_issue_last_seen_at_epoch"] = float(now_epoch)
+    state["transient_network_issue_occurrences"] = int(state.get("transient_network_issue_occurrences", 0)) + 1
+
+    sent_alert = False
+    if webhook_url and alert_message and _should_send_transient_alert(
+        state,
+        now_epoch=now_epoch,
+        min_alert_duration_seconds=min_alert_duration_seconds,
+        alert_cooldown_seconds=alert_cooldown_seconds,
+    ):
+        sent_alert = send_discord_alert(webhook_url, alert_message)
+        if sent_alert:
+            state["transient_network_issue_notified"] = True
+            state["transient_network_issue_last_alert_at_epoch"] = float(now_epoch)
+
     save_state(state_file, state)
+    return sent_alert
+
+
+def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
+    record_transient_issue(state, state_file, err)
 
 
 def notify_recovery_if_needed(webhook_url: str, state: dict, state_file: Path) -> None:
     if not state.get("transient_network_issue_active"):
+        return
+    if not state.get("transient_network_issue_notified"):
+        _clear_transient_issue_keys(state)
+        save_state(state_file, state)
         return
 
     message = (
@@ -122,9 +198,7 @@ def notify_recovery_if_needed(webhook_url: str, state: dict, state_file: Path) -
         LOGGER.warning("TRANSIENT_RECOVERY_NOTIFICATION_SKIPPED")
         return
 
-    state["transient_network_issue_active"] = False
-    state.pop("last_transient_error", None)
-    state.pop("last_transient_error_at", None)
+    _clear_transient_issue_keys(state)
     save_state(state_file, state)
 
 
@@ -270,12 +344,23 @@ def _record_transient_issue(
     state_file: Path | None,
     error: Exception | str,
     alert_message: str,
+    min_alert_duration_seconds: float,
+    alert_cooldown_seconds: float,
 ) -> None:
-    # transient 問題は発生のたびに通知し、運用監視で検知しやすくする。
-    if webhook_url:
-        send_discord_alert(webhook_url, alert_message)
-    if state is not None and state_file is not None:
-        mark_transient_network_issue(state, state_file, error)
+    # transient 問題は持続時のみ通知して alert fatigue を抑える。
+    if state is None or state_file is None:
+        if webhook_url:
+            send_discord_alert(webhook_url, alert_message)
+        return
+    record_transient_issue(
+        state,
+        state_file,
+        error,
+        webhook_url=webhook_url,
+        alert_message=alert_message,
+        min_alert_duration_seconds=min_alert_duration_seconds,
+        alert_cooldown_seconds=alert_cooldown_seconds,
+    )
 
 
 def _load_initial_credentials(
@@ -334,6 +419,8 @@ def _ensure_usable_credentials(
     state_file: Path | None,
     allow_oauth_interactive: bool,
     runtime_paths: RuntimePaths,
+    transient_alert_min_duration_seconds: float,
+    transient_alert_cooldown_seconds: float,
 ) -> tuple[Credentials | None, AuthStatus]:
     if creds.valid:
         return creds, AuthStatus.TOKEN_VALID
@@ -360,6 +447,8 @@ def _ensure_usable_credentials(
                 state_file,
                 refresh_error,
                 error_msg,
+                transient_alert_min_duration_seconds,
+                transient_alert_cooldown_seconds,
             )
             return None, AuthStatus.REFRESH_TRANSIENT_FAILURE
 
@@ -407,6 +496,8 @@ def _build_gmail_service(
     webhook_url: str | None,
     state: dict | None,
     state_file: Path | None,
+    transient_alert_min_duration_seconds: float,
+    transient_alert_cooldown_seconds: float,
 ) -> tuple[Any | None, AuthStatus]:
     try:
         # file_cache 警告を避けるため discovery cache は明示的に無効化する。
@@ -428,6 +519,8 @@ def _build_gmail_service(
                 state_file,
                 exc,
                 error_msg,
+                transient_alert_min_duration_seconds,
+                transient_alert_cooldown_seconds,
             )
             return None, AuthStatus.SERVICE_BUILD_TRANSIENT_FAILURE
         LOGGER.error("GMAIL_SERVICE_BUILD_FAILED: %s", exc)
@@ -504,6 +597,8 @@ def get_gmail_service_with_status(
     state_file: Path | None = None,
     allow_oauth_interactive: bool = False,
     paths: RuntimePaths | None = None,
+    transient_alert_min_duration_seconds: float = DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS,
+    transient_alert_cooldown_seconds: float = DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
 ) -> tuple[Any | None, AuthStatus]:
     try:
         ensure_google_dependencies()
@@ -529,6 +624,8 @@ def get_gmail_service_with_status(
         state_file=state_file,
         allow_oauth_interactive=allow_oauth_interactive,
         runtime_paths=runtime_paths,
+        transient_alert_min_duration_seconds=transient_alert_min_duration_seconds,
+        transient_alert_cooldown_seconds=transient_alert_cooldown_seconds,
     )
     if not usable_creds:
         return None, usable_status
@@ -538,6 +635,8 @@ def get_gmail_service_with_status(
         webhook_url=webhook_url,
         state=state,
         state_file=state_file,
+        transient_alert_min_duration_seconds=transient_alert_min_duration_seconds,
+        transient_alert_cooldown_seconds=transient_alert_cooldown_seconds,
     )
     return service, service_status
 
@@ -548,6 +647,8 @@ def get_gmail_service(
     state_file: Path | None = None,
     allow_oauth_interactive: bool = False,
     paths: RuntimePaths | None = None,
+    transient_alert_min_duration_seconds: float = DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS,
+    transient_alert_cooldown_seconds: float = DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
 ):
     service, _status = get_gmail_service_with_status(
         webhook_url=webhook_url,
@@ -555,6 +656,8 @@ def get_gmail_service(
         state_file=state_file,
         allow_oauth_interactive=allow_oauth_interactive,
         paths=paths,
+        transient_alert_min_duration_seconds=transient_alert_min_duration_seconds,
+        transient_alert_cooldown_seconds=transient_alert_cooldown_seconds,
     )
     return service
 

@@ -145,6 +145,85 @@ def test_notify_token_recovery_skips_when_state_not_active(monkeypatch, tmp_path
     assert calls == []
 
 
+def test_record_transient_issue_suppresses_alert_before_persistence_threshold(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state = {"last_message_id": "x"}
+
+    alerts: list[str] = []
+    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda _w, message: alerts.append(message) or True)
+    monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
+
+    sent = gmail_client.record_transient_issue(
+        state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=60.0,
+        alert_cooldown_seconds=60.0,
+    )
+
+    assert not sent
+    assert alerts == []
+    saved = json.loads(state_file.read_text(encoding="utf-8"))
+    assert saved["transient_network_issue_active"] is True
+    assert saved["transient_network_issue_occurrences"] == 1
+
+
+def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state = {"last_message_id": "x"}
+
+    alerts: list[str] = []
+    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda _w, message: alerts.append(message) or True)
+
+    now_values = iter([1000.0, 1070.0, 1100.0, 1140.0])
+    monkeypatch.setattr(gmail_client.time, "time", lambda: next(now_values))
+
+    first = gmail_client.record_transient_issue(
+        state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=60.0,
+        alert_cooldown_seconds=60.0,
+    )
+    second = gmail_client.record_transient_issue(
+        state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=60.0,
+        alert_cooldown_seconds=60.0,
+    )
+    third = gmail_client.record_transient_issue(
+        state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=60.0,
+        alert_cooldown_seconds=60.0,
+    )
+    fourth = gmail_client.record_transient_issue(
+        state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=60.0,
+        alert_cooldown_seconds=60.0,
+    )
+
+    assert [first, second, third, fourth] == [False, True, False, True]
+    assert len(alerts) == 2
+    saved = json.loads(state_file.read_text(encoding="utf-8"))
+    assert saved["transient_network_issue_occurrences"] == 4
+    assert saved["transient_network_issue_notified"] is True
+
+
 def test_refresh_with_retry_retries_on_transient_and_then_succeeds(monkeypatch) -> None:
     creds = _DummyCreds()
     creds.refresh_outcomes = [TimeoutError("timed out"), None]
@@ -239,6 +318,8 @@ def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
+        transient_alert_min_duration_seconds=0.0,
+        transient_alert_cooldown_seconds=0.0,
     )
     assert service is None
     assert alerts

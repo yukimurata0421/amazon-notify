@@ -30,14 +30,16 @@ from .errors import (
     TransientSourceError,
 )
 from .gmail_client import (
+    DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
+    DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS,
     HttpError,
     get_gmail_service_with_status,
     get_message_detail,
     is_retryable_http_error,
     is_transient_network_error,
     list_recent_messages,
-    mark_transient_network_issue,
     notify_recovery_if_needed,
+    record_transient_issue,
 )
 from .pipeline import NotificationPipeline
 from .runtime import RuntimeConfig
@@ -62,6 +64,8 @@ class GmailMailSource:
     gmail_api_base_delay_seconds: float
     gmail_api_max_delay_seconds: float
     runtime_paths: RuntimePaths
+    transient_alert_min_duration_seconds: float
+    transient_alert_cooldown_seconds: float
     auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
 
     def get_auth_status(self) -> AuthStatus:
@@ -75,7 +79,19 @@ class GmailMailSource:
     def mark_transient_issue(self, err: Exception | str) -> None:
         if self.dry_run:
             return
-        mark_transient_network_issue(self.state, self.state_file, err)
+        message = (
+            "一時的な通信障害が継続しています。しばらく自動再試行を続けます。\n"
+            f"エラー: {err}"
+        )
+        record_transient_issue(
+            self.state,
+            self.state_file,
+            err,
+            webhook_url=self.discord_webhook_url,
+            alert_message=message,
+            min_alert_duration_seconds=self.transient_alert_min_duration_seconds,
+            alert_cooldown_seconds=self.transient_alert_cooldown_seconds,
+        )
 
     def _call_gmail_api_with_retry(self, operation_name: str, fn: Callable[[], T]) -> T:
         if self.gmail_api_max_retries < 1:
@@ -111,10 +127,12 @@ class GmailMailSource:
     def iter_new_messages(self, checkpoint: Checkpoint, max_messages: int) -> Iterable[MailEnvelope]:
         # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
         service, status = get_gmail_service_with_status(
-            webhook_url=None,  # alert は incident lifecycle 側で一元管理する
+            webhook_url=None if self.dry_run else self.discord_webhook_url,
             state=None if self.dry_run else self.state,
             state_file=None if self.dry_run else self.state_file,
             paths=self.runtime_paths,
+            transient_alert_min_duration_seconds=self.transient_alert_min_duration_seconds,
+            transient_alert_cooldown_seconds=self.transient_alert_cooldown_seconds,
         )
         self.auth_status = status
         if service is None:
@@ -331,6 +349,12 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
         gmail_api_base_delay_seconds=float(_runtime_value(runtime, "gmail_api_base_delay_seconds", 1.0)),
         gmail_api_max_delay_seconds=float(_runtime_value(runtime, "gmail_api_max_delay_seconds", 30.0)),
         runtime_paths=runtime_paths,
+        transient_alert_min_duration_seconds=float(
+            _runtime_value(runtime, "transient_alert_min_duration_seconds", DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS)
+        ),
+        transient_alert_cooldown_seconds=float(
+            _runtime_value(runtime, "transient_alert_cooldown_seconds", DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS)
+        ),
     )
     classifier = RegexClassifier(
         amazon_pattern=amazon_pattern,

@@ -28,6 +28,11 @@ This unreleased set focuses on aligning StreamingPull recovery and checkpoint du
 - Switched `state.json` persistence to atomic write (`tempfile + os.replace`) to reduce partial-write risk.
 - Clarified README guarantees/non-goals and added README language-policy/license notes.
 - Updated README release badge link to `releases/latest` and strengthened top-level architecture intent text.
+- Aligned README language policy with actual docs language and added a note that `main` may be ahead of the latest GitHub release.
+- Moved `engineering-decisions.md` under `docs/` and linked it from both README variants.
+- Added transient-alert boundary controls (`transient_alert_min_duration_seconds`, `transient_alert_cooldown_seconds`) so short self-healing failures do not page operators.
+- Added optional JSON structured logging via `structured_logging=true`.
+- Added `deployment/systemd/install-systemd.sh` and `make install-systemd` for one-command systemd bootstrap.
 - Updated config validation wording so `poll_interval_seconds` minimum behaves as a required lower bound.
 - Standardized operational timestamps to UTC ISO 8601 across pipeline runs, checkpoint events, token/transient markers, and failover state.
 - Enabled Ruff import-order lint (`I`) and normalized imports across the project.
@@ -35,6 +40,7 @@ This unreleased set focuses on aligning StreamingPull recovery and checkpoint du
 ### Tests
 - Added CLI reconnect behavior regression test.
 - Added watchdog regression test for worker heartbeat stale detection.
+- Added transient-alert threshold/cooldown behavior tests and recovery-notification boundary tests.
 - Added focused `runtime.py` unit tests and restored CI coverage gate compliance (`--cov-fail-under=90`).
 
 ## [0.3.0] - 2026-04-04

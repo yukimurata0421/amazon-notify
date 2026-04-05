@@ -18,6 +18,8 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
         "state_file": state_file,
         "max_messages": 20,
         "gmail_api_max_retries": 1,
+        "transient_alert_min_duration_seconds": 0.0,
+        "transient_alert_cooldown_seconds": 0.0,
         "subject_pattern": None,
     }
 
@@ -41,7 +43,7 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
     recoveries: list[str] = []
 
     monkeypatch.setattr(
-        notifier,
+        gmail_client,
         "send_discord_alert",
         lambda webhook_url, message: alerts.append(message) or True,
     )

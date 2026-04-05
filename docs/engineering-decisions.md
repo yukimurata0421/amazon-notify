@@ -101,10 +101,14 @@
 - `incident_opened`
 - `incident_suppressed`
 - `incident_recovered`
+- 一時障害アラートの境界制御:
+  - `transient_alert_min_duration_seconds`
+  - `transient_alert_cooldown_seconds`
 
 ### 理由
 - 同一障害での alert 連投を抑止し、運用ノイズを減らす
 - 「発生中か」「復旧したか」を state と events で追跡できる
+- 短時間の自己修復（瞬断）では通知せず、持続障害だけを通知して alert fatigue を抑える
 
 ## 8. JSONL durability を強化した理由
 
@@ -153,10 +157,12 @@
 - mypy
 - pytest
 - coverage fail-under (`90%`)
+- `structured_logging=true` による JSON 構造化ログ（任意）
 
 ### 理由
 - 構造化した設計ほど、静的チェックと契約テストで維持コストを下げられる
 - coverage を目安ではなく下限にして、仕様の後退を防ぐ
+- JSON ログを有効化した場合、障害解析時の検索・集計を機械処理しやすくできる
 
 ## 12. あえて採用しなかったもの
 
