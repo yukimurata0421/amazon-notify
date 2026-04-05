@@ -1,48 +1,36 @@
 import argparse
 import json
-import re
 import sys
 import time
-from pathlib import Path
 
 from . import config as app_config
-from .checkpoint_store import JsonlCheckpointStore
+from .backoff import next_delay_seconds
 from .discord_client import send_discord_alert, send_discord_test
-from .gmail_client import run_oauth_flow
+from .failover import evaluate_failover_watchdog
+from .gmail_client import get_gmail_service_with_status, run_oauth_flow, start_gmail_watch_with_retry
+from .health import load_config_for_health_check as load_config_for_health_check_impl
+from .health import run_health_check as run_health_check_impl
 from .notifier import run_once
+from .runtime import (
+    MIN_POLL_INTERVAL_SECONDS,
+    RuntimeConfig,
+    build_runtime as build_runtime_impl,
+    compile_optional_pattern as compile_optional_pattern_impl,
+    looks_like_discord_webhook_url,
+    validate_config as validate_config_impl,
+)
+from .streaming_pull import run_streaming_pull
 
-DEFAULT_LOG_FILE_RELATIVE = "logs/amazon_mail_notifier.log"
-DEFAULT_EVENTS_FILE_RELATIVE = "events.jsonl"
-DEFAULT_RUNS_FILE_RELATIVE = "runs.jsonl"
-MIN_POLL_INTERVAL_SECONDS = 10
-
-
-def compile_optional_pattern(pattern: str | None, config_key: str) -> re.Pattern[str] | None:
-    if not pattern:
-        return None
-
+def compile_optional_pattern(pattern: str | None, config_key: str):
     try:
-        return re.compile(pattern)
-    except re.error as exc:
-        app_config.LOGGER.error("CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc)
-        sys.stderr.write(f"[ERROR] config.json の {config_key} が不正な正規表現です: {exc}\n")
+        return compile_optional_pattern_impl(pattern, config_key)
+    except ValueError as exc:
+        _stderr_error(str(exc))
         sys.exit(1)
 
 
-def build_runtime(config: dict, dry_run: bool = False) -> dict:
-    return {
-        "discord_webhook_url": config["discord_webhook_url"],
-        "amazon_pattern": config.get("amazon_from_pattern", r"amazon\.co\.jp"),
-        "state_file": app_config.resolve_runtime_path(config.get("state_file", "state.json")),
-        "events_file": app_config.resolve_runtime_path(config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE)),
-        "runs_file": app_config.resolve_runtime_path(config.get("runs_file", DEFAULT_RUNS_FILE_RELATIVE)),
-        "max_messages": int(config.get("max_messages", 50)),
-        "dry_run": dry_run,
-        "subject_pattern": compile_optional_pattern(
-            config.get("amazon_subject_pattern"),
-            "amazon_subject_pattern",
-        ),
-    }
+def build_runtime(config: dict, dry_run: bool = False) -> RuntimeConfig:
+    return build_runtime_impl(config, paths=app_config.get_runtime_paths(), dry_run=dry_run)
 
 
 def _stderr_error(message: str) -> None:
@@ -68,152 +56,24 @@ def load_config_or_exit() -> dict:
 
 
 def load_config_for_health_check() -> tuple[dict | None, list[str]]:
-    if not app_config.CONFIG_PATH.exists():
-        return None, [f"{app_config.CONFIG_PATH} が見つかりません。"]
-
-    try:
-        config = app_config.load_config(app_config.CONFIG_PATH)
-    except json.JSONDecodeError as exc:
-        return None, [f"config.json の JSON が不正です: {exc}"]
-    except OSError as exc:
-        return None, [f"config.json を読み込めませんでした: {exc}"]
-
-    return config, validate_config(config)
+    return load_config_for_health_check_impl(
+        app_config.get_runtime_paths(),
+        validate_config=validate_config,
+    )
 
 
 def validate_config(config: dict) -> list[str]:
-    errors: list[str] = []
-
-    webhook = config.get("discord_webhook_url")
-    if not isinstance(webhook, str) or not webhook.strip():
-        errors.append("discord_webhook_url が未設定です。")
-
-    for key in ("max_messages", "poll_interval_seconds"):
-        if key not in config:
-            continue
-        try:
-            value = int(config[key])
-        except (TypeError, ValueError):
-            errors.append(f"{key} は整数で指定してください。")
-            continue
-        if value <= 0:
-            errors.append(f"{key} は 1 以上を指定してください。")
-        if key == "poll_interval_seconds" and value < MIN_POLL_INTERVAL_SECONDS:
-            errors.append(
-                f"poll_interval_seconds は {MIN_POLL_INTERVAL_SECONDS} 以上を推奨します。"
-                f"({value} は短すぎます)"
-            )
-
-    amazon_from_pattern = config.get("amazon_from_pattern", r"amazon\.co\.jp")
-    try:
-        re.compile(amazon_from_pattern)
-    except re.error as exc:
-        errors.append(f"amazon_from_pattern の正規表現が不正です: {exc}")
-
-    subject_pattern = config.get("amazon_subject_pattern")
-    if subject_pattern:
-        try:
-            re.compile(subject_pattern)
-        except re.error as exc:
-            errors.append(f"amazon_subject_pattern の正規表現が不正です: {exc}")
-
-    for key, default_value in (
-        ("state_file", "state.json"),
-        ("log_file", DEFAULT_LOG_FILE_RELATIVE),
-        ("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
-        ("runs_file", DEFAULT_RUNS_FILE_RELATIVE),
-    ):
-        value = config.get(key, default_value)
-        if not isinstance(value, str):
-            errors.append(f"{key} は空文字以外の文字列で指定してください。")
-            continue
-        if not value.strip():
-            errors.append(f"{key} は空文字以外の文字列で指定してください。")
-            continue
-        try:
-            app_config.resolve_runtime_path(value)
-        except Exception as exc:
-            errors.append(f"{key} を runtime パスとして解決できません: {exc}")
-
-    return errors
+    return validate_config_impl(config, paths=app_config.get_runtime_paths())
 
 
 def run_health_check(config: dict | None, validation_errors: list[str]) -> int:
-    checks: list[dict[str, str | bool]] = []
-
-    checks.append(
-        {
-            "name": "config_file_exists",
-            "ok": app_config.CONFIG_PATH.exists(),
-            "detail": str(app_config.CONFIG_PATH),
-        }
+    exit_code, report = run_health_check_impl(
+        app_config.get_runtime_paths(),
+        config=config,
+        validation_errors=validation_errors,
     )
-    checks.append(
-        {
-            "name": "config_valid",
-            "ok": not validation_errors,
-            "detail": "OK" if not validation_errors else " / ".join(validation_errors),
-        }
-    )
-    checks.append(
-        {
-            "name": "credentials_file_exists",
-            "ok": app_config.CREDENTIALS_PATH.exists(),
-            "detail": str(app_config.CREDENTIALS_PATH),
-        }
-    )
-    checks.append(
-        {
-            "name": "token_file_exists",
-            "ok": app_config.TOKEN_PATH.exists(),
-            "detail": str(app_config.TOKEN_PATH),
-        }
-    )
-
-    state_file: Path | None = None
-    log_file: Path | None = None
-    events_file: Path | None = None
-    runs_file: Path | None = None
-    last_run_summary: dict | None = None
-    active_incident: dict | None = None
-    if config is not None:
-        state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"))
-        log_file = app_config.resolve_runtime_path(
-            config.get("log_file", str(app_config.DEFAULT_LOG_PATH))
-        )
-        events_file = app_config.resolve_runtime_path(config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE))
-        runs_file = app_config.resolve_runtime_path(config.get("runs_file", DEFAULT_RUNS_FILE_RELATIVE))
-        checkpoint_store = JsonlCheckpointStore(
-            state_file=state_file,
-            events_file=events_file,
-            runs_file=runs_file,
-        )
-        last_run_summary = checkpoint_store.load_last_run_summary()
-        active_incident = checkpoint_store.load_incident_state()
-
-    status = "ok" if all(bool(check["ok"]) for check in checks) else "degraded"
-    report = {
-        "status": status,
-        "checked_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "runtime_dir": str(app_config.RUNTIME_DIR),
-        "config_path": str(app_config.CONFIG_PATH),
-        "state_file": str(state_file) if state_file else None,
-        "log_file": str(log_file) if log_file else None,
-        "events_file": str(events_file) if events_file else None,
-        "runs_file": str(runs_file) if runs_file else None,
-        "runtime_status": {
-            "last_run_status": (last_run_summary or {}).get("last_run_status"),
-            "last_failure_kind": (last_run_summary or {}).get("last_failure_kind"),
-            "checkpoint_before": (last_run_summary or {}).get("checkpoint_before"),
-            "checkpoint_after": (last_run_summary or {}).get("checkpoint_after"),
-            "last_success_at": (last_run_summary or {}).get("last_success_at"),
-            "auth_status": (last_run_summary or {}).get("auth_status"),
-            "active_incident": active_incident,
-        },
-        "checks": checks,
-    }
     sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
-    return 0 if status == "ok" else 1
+    return exit_code
 
 
 def print_validation_errors(errors: list[str]) -> None:
@@ -221,15 +81,15 @@ def print_validation_errors(errors: list[str]) -> None:
         _stderr_error(err)
 
 
-def run_once_with_guard(runtime: dict) -> bool:
+def run_once_with_guard(runtime: RuntimeConfig) -> bool:
     try:
         run_once(runtime)
         return True
     except Exception as exc:
         app_config.LOGGER.exception("RUN_ONCE_UNHANDLED_EXCEPTION: %s", exc)
-        if runtime["discord_webhook_url"] and not runtime["dry_run"]:
+        if runtime.discord_webhook_url and not runtime.dry_run:
             send_discord_alert(
-                runtime["discord_webhook_url"],
+                runtime.discord_webhook_url,
                 f"未処理例外を検知しました。次周期で再試行します。\nエラー: {exc}",
             )
         return False
@@ -251,6 +111,68 @@ def main() -> None:
     parser.add_argument("--validate-config", action="store_true", help="設定ファイルを検証して終了する。")
     parser.add_argument("--health-check", action="store_true", help="実行前提のヘルスチェック結果をJSONで出力して終了する。")
     parser.add_argument("--log-file", type=str, help="ログファイルの保存先（未指定時は logs/amazon_mail_notifier.log）。")
+    parser.add_argument("--streaming-pull", action="store_true", help="Pub/Sub StreamingPull でイベント駆動実行する。")
+    parser.add_argument(
+        "--pubsub-subscription",
+        type=str,
+        help="StreamingPull 対象の subscription（projects/.../subscriptions/...）。",
+    )
+    parser.add_argument(
+        "--pubsub-flow-max-messages",
+        type=int,
+        default=50,
+        help="StreamingPull の flow control max_messages。",
+    )
+    parser.add_argument(
+        "--pubsub-pending-warn-threshold",
+        "--pubsub-trigger-queue-size",
+        type=int,
+        dest="pubsub_pending_warn_threshold",
+        default=256,
+        help="StreamingPull の pending backlog 警告しきい値。",
+    )
+    parser.add_argument(
+        "--heartbeat-file",
+        type=str,
+        help="StreamingPull 用 heartbeat ファイル。相対パスは runtime 基準。",
+    )
+    parser.add_argument(
+        "--heartbeat-interval-seconds",
+        type=float,
+        help="StreamingPull が heartbeat を更新する間隔秒。",
+    )
+    parser.add_argument(
+        "--heartbeat-max-age-seconds",
+        type=float,
+        help="fallback-watchdog が異常判定に使う heartbeat 最大許容秒。",
+    )
+    parser.add_argument(
+        "--main-service-name",
+        type=str,
+        help="fallback-watchdog で監視するメイン系 systemd サービス名。",
+    )
+    parser.add_argument(
+        "--fallback-watchdog",
+        action="store_true",
+        help="--once 実行時にメイン系を監視し、健全ならポーリングをスキップする。",
+    )
+    parser.add_argument("--setup-watch", action="store_true", help="Gmail watch を Pub/Sub topic に登録して終了する。")
+    parser.add_argument("--pubsub-topic", type=str, help="watch 登録先 topic（projects/.../topics/...）。")
+    parser.add_argument(
+        "--watch-label-ids",
+        type=str,
+        default="INBOX",
+        help="watch 対象の Gmail label（カンマ区切り、既定は INBOX）。",
+    )
+    parser.add_argument(
+        "--watch-label-filter-action",
+        choices=("include", "exclude"),
+        default="include",
+        help="watch の labelFilterAction。",
+    )
+    parser.add_argument("--watch-retries", type=int, default=4, help="watch API 登録時の最大リトライ回数。")
+    parser.add_argument("--watch-base-delay", type=float, default=1.0, help="watch API 登録リトライの初期待機秒。")
+    parser.add_argument("--watch-max-delay", type=float, default=60.0, help="watch API 登録リトライの最大待機秒。")
     args = parser.parse_args()
     app_config.configure_runtime_paths(args.config)
 
@@ -290,6 +212,11 @@ def main() -> None:
         app_config.LOGGER.error("CONFIG_INVALID: %s", " | ".join(validation_errors))
         print_validation_errors(validation_errors)
         sys.exit(1)
+    if not looks_like_discord_webhook_url(config["discord_webhook_url"]):
+        app_config.LOGGER.warning(
+            "CONFIG_DISCORD_WEBHOOK_URL_UNUSUAL: value=%s",
+            config["discord_webhook_url"],
+        )
 
     if args.test_discord:
         webhook_url = config["discord_webhook_url"]
@@ -305,7 +232,154 @@ def main() -> None:
         sys.stdout.write("[OK] Discord テスト通知を送信しました。\n")
         return
 
+    if args.setup_watch:
+        topic_name = (args.pubsub_topic or "").strip()
+        if not topic_name:
+            _stderr_error("--setup-watch には --pubsub-topic が必要です。")
+            sys.exit(1)
+
+        state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"))
+        state = app_config.load_state(state_file)
+        service, status = get_gmail_service_with_status(
+            webhook_url=config["discord_webhook_url"],
+            state=state,
+            state_file=state_file,
+            allow_oauth_interactive=False,
+        )
+        if service is None:
+            _stderr_error(f"Gmail service を初期化できませんでした。auth_status={status.value}")
+            sys.exit(1)
+
+        label_ids = [item.strip() for item in args.watch_label_ids.split(",") if item.strip()]
+        try:
+            watch_response = start_gmail_watch_with_retry(
+                service,
+                topic_name=topic_name,
+                label_ids=label_ids,
+                label_filter_action=args.watch_label_filter_action,
+                retries=args.watch_retries,
+                base_delay=args.watch_base_delay,
+                max_delay=args.watch_max_delay,
+            )
+        except Exception as exc:
+            app_config.LOGGER.error("GMAIL_WATCH_SETUP_FAILED: %s", exc)
+            _stderr_error(f"Gmail watch 登録に失敗しました: {exc}")
+            sys.exit(1)
+
+        sys.stdout.write(json.dumps(watch_response, ensure_ascii=False, indent=2) + "\n")
+        return
+
     runtime = build_runtime(config, dry_run=args.dry_run)
+    heartbeat_file = (
+        app_config.resolve_runtime_path(args.heartbeat_file)
+        if args.heartbeat_file
+        else runtime.pubsub_heartbeat_file
+    )
+    heartbeat_interval_seconds = (
+        float(args.heartbeat_interval_seconds)
+        if args.heartbeat_interval_seconds is not None
+        else float(runtime.pubsub_heartbeat_interval_seconds)
+    )
+    heartbeat_max_age_seconds = (
+        float(args.heartbeat_max_age_seconds)
+        if args.heartbeat_max_age_seconds is not None
+        else float(runtime.pubsub_heartbeat_max_age_seconds)
+    )
+    main_service_name = (
+        args.main_service_name.strip()
+        if args.main_service_name
+        else str(runtime.pubsub_main_service_name)
+    )
+    if heartbeat_interval_seconds <= 0:
+        _stderr_error("heartbeat-interval-seconds は 0 より大きい値を指定してください。")
+        sys.exit(1)
+    if heartbeat_max_age_seconds <= 0:
+        _stderr_error("heartbeat-max-age-seconds は 0 より大きい値を指定してください。")
+        sys.exit(1)
+    if not main_service_name:
+        _stderr_error("main-service-name は空文字にできません。")
+        sys.exit(1)
+
+    if args.streaming_pull:
+        if args.fallback_watchdog:
+            _stderr_error("--streaming-pull と --fallback-watchdog は同時に指定できません。")
+            sys.exit(1)
+        if args.once:
+            _stderr_error("--streaming-pull と --once は同時に指定できません。")
+            sys.exit(1)
+        if args.interval is not None:
+            _stderr_error("--streaming-pull と --interval は同時に指定できません。")
+            sys.exit(1)
+        subscription = (args.pubsub_subscription or config.get("pubsub_subscription", "")).strip()
+        if not subscription:
+            _stderr_error("StreamingPull には pubsub subscription が必要です。")
+            sys.exit(1)
+
+        app_config.LOGGER.info("STREAMING_PULL_MODE_START: subscription=%s", subscription)
+        run_once_with_guard(runtime)
+        reconnect_attempt = 0
+        reconnect_max_attempts = runtime.pubsub_stream_reconnect_max_attempts
+        reconnect_base_delay = runtime.pubsub_stream_reconnect_base_delay_seconds
+        reconnect_max_delay = runtime.pubsub_stream_reconnect_max_delay_seconds
+
+        while True:
+            try:
+                run_streaming_pull(
+                    subscription_path=subscription,
+                    on_trigger=lambda: run_once_with_guard(runtime),
+                    pending_warn_threshold=args.pubsub_pending_warn_threshold,
+                    flow_control_max_messages=args.pubsub_flow_max_messages,
+                    heartbeat_file=heartbeat_file,
+                    heartbeat_interval_seconds=heartbeat_interval_seconds,
+                    trigger_failure_max_consecutive=runtime.pubsub_trigger_failure_max_consecutive,
+                    trigger_failure_base_delay_seconds=runtime.pubsub_trigger_failure_base_delay_seconds,
+                    trigger_failure_max_delay_seconds=runtime.pubsub_trigger_failure_max_delay_seconds,
+                )
+                return
+            except KeyboardInterrupt:
+                raise
+            except Exception as exc:
+                reconnect_attempt += 1
+                app_config.LOGGER.exception(
+                    "STREAMING_PULL_SESSION_FAILED: attempt=%s error=%s",
+                    reconnect_attempt,
+                    exc,
+                )
+                if reconnect_max_attempts > 0 and reconnect_attempt >= reconnect_max_attempts:
+                    _stderr_error(
+                        "StreamingPull の再接続試行回数が上限に達しました。"
+                        f" attempts={reconnect_attempt}"
+                    )
+                    sys.exit(1)
+
+                delay = next_delay_seconds(
+                    reconnect_attempt,
+                    base_delay=reconnect_base_delay,
+                    max_delay=reconnect_max_delay,
+                )
+                app_config.LOGGER.warning(
+                    "STREAMING_PULL_RECONNECT_RETRY: attempt=%s wait=%.2fs",
+                    reconnect_attempt,
+                    delay,
+                )
+                time.sleep(delay)
+        return
+
+    if args.fallback_watchdog:
+        if not args.once:
+            _stderr_error("--fallback-watchdog は --once と併用してください。")
+            sys.exit(1)
+        should_run_fallback = evaluate_failover_watchdog(
+            state_file=runtime.state_file,
+            discord_webhook_url=runtime.discord_webhook_url,
+            service_name=main_service_name,
+            heartbeat_file=heartbeat_file,
+            heartbeat_max_age_seconds=heartbeat_max_age_seconds,
+            dry_run=runtime.dry_run,
+        )
+        if not should_run_fallback:
+            return
+
     poll_interval = args.interval or int(config.get("poll_interval_seconds", 60))
     if poll_interval < MIN_POLL_INTERVAL_SECONDS:
         _stderr_error(f"interval は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。")
@@ -320,7 +394,7 @@ def main() -> None:
     app_config.LOGGER.info(
         "LOOP_MODE_START: interval=%ss dry_run=%s",
         poll_interval,
-        runtime["dry_run"],
+        runtime.dry_run,
     )
     while True:
         time.sleep(poll_interval)

@@ -1,7 +1,7 @@
 import socket
 import time
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Callable, NoReturn
 
 try:
     from google.auth.transport.requests import Request
@@ -51,11 +51,14 @@ except ModuleNotFoundError as exc:
         """Fallback error type when googleapiclient is unavailable."""
 
 from . import config as app_config
+from .backoff import next_delay_seconds
 from .config import LOGGER, save_state
 from .domain import AuthStatus
 from .discord_client import send_discord_alert, send_discord_recovery
+from .time_utils import utc_now_iso
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+_RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 
 
 def ensure_google_dependencies() -> None:
@@ -97,7 +100,7 @@ def run_oauth_flow() -> Credentials | None:
 def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
     state["transient_network_issue_active"] = True
     state["last_transient_error"] = str(err)
-    state["last_transient_error_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    state["last_transient_error_at"] = utc_now_iso()
     save_state(state_file, state)
 
 
@@ -126,7 +129,7 @@ def mark_token_issue(state: dict, state_file: Path, reason: str) -> bool:
 
     state["token_issue_active"] = True
     state["token_issue_reason"] = reason
-    state["token_issue_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    state["token_issue_at"] = utc_now_iso()
     save_state(state_file, state)
 
     return (not previous_active) or (previous_reason != reason)
@@ -169,6 +172,10 @@ def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
         "certificate verify failed",
         "hostname mismatch",
         "servernotfounderror",
+        "too many requests",
+        "rate limit",
+        "quota exceeded",
+        "temporarily unavailable",
     )
 
     current: BaseException | None = exc
@@ -185,23 +192,46 @@ def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
     return False
 
 
-def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2) -> Exception | None:
+def is_retryable_http_error(exc: Exception) -> bool:
+    if not isinstance(exc, HttpError):
+        return False
+
+    status = getattr(getattr(exc, "resp", None), "status", None)
+    if isinstance(status, int) and status in _RETRYABLE_HTTP_STATUS_CODES:
+        return True
+    return is_transient_network_error(exc)
+
+
+def refresh_with_retry(
+    creds: Credentials,
+    retries: int = 3,
+    base_delay: float = 1.0,
+    max_delay: float = 30.0,
+    request_factory: Callable[[], Any] | None = None,
+) -> Exception | None:
     if retries < 1:
         raise ValueError("retries must be >= 1")
+    if request_factory is None:
+        ensure_google_dependencies()
+        request_factory = Request
 
     last_exc: Exception | None = None
 
     for attempt in range(1, retries + 1):
         try:
-            creds.refresh(Request())
+            creds.refresh(request_factory())
             return None
         except Exception as exc:
             last_exc = exc
-            is_transient = is_transient_network_error(exc)
+            is_transient = is_transient_network_error(exc) or is_retryable_http_error(exc)
             if (not is_transient) or attempt == retries:
                 break
 
-            sleep_sec = base_delay * attempt
+            sleep_sec = next_delay_seconds(
+                attempt,
+                base_delay=base_delay,
+                max_delay=max_delay,
+            )
             LOGGER.warning(
                 "TOKEN_REFRESH_RETRY: attempt=%s/%s error=%s retry_in=%ss",
                 attempt,
@@ -394,6 +424,70 @@ def _build_gmail_service(
             return None, AuthStatus.SERVICE_BUILD_TRANSIENT_FAILURE
         LOGGER.error("GMAIL_SERVICE_BUILD_FAILED: %s", exc)
         return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
+
+
+def start_gmail_watch(
+    service: Any,
+    *,
+    topic_name: str,
+    label_ids: list[str] | None = None,
+    label_filter_action: str = "include",
+) -> dict[str, Any]:
+    action = label_filter_action.strip().lower()
+    if action not in {"include", "exclude"}:
+        raise ValueError("label_filter_action must be 'include' or 'exclude'")
+
+    body: dict[str, Any] = {"topicName": topic_name}
+    if label_ids:
+        body["labelIds"] = label_ids
+        body["labelFilterAction"] = action.upper()
+
+    return service.users().watch(userId="me", body=body).execute()
+
+
+def start_gmail_watch_with_retry(
+    service: Any,
+    *,
+    topic_name: str,
+    label_ids: list[str] | None = None,
+    label_filter_action: str = "include",
+    retries: int = 4,
+    base_delay: float = 1.0,
+    max_delay: float = 60.0,
+) -> dict[str, Any]:
+    if retries < 1:
+        raise ValueError("retries must be >= 1")
+
+    last_exc: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return start_gmail_watch(
+                service,
+                topic_name=topic_name,
+                label_ids=label_ids,
+                label_filter_action=label_filter_action,
+            )
+        except Exception as exc:
+            last_exc = exc
+            should_retry = is_transient_network_error(exc) or is_retryable_http_error(exc)
+            if (not should_retry) or attempt == retries:
+                break
+            delay = next_delay_seconds(
+                attempt,
+                base_delay=base_delay,
+                max_delay=max_delay,
+            )
+            LOGGER.warning(
+                "GMAIL_WATCH_RETRY: attempt=%s/%s retry_in=%.2fs error=%s",
+                attempt,
+                retries,
+                delay,
+                exc,
+            )
+            time.sleep(delay)
+
+    assert last_exc is not None
+    raise last_exc
 
 
 def get_gmail_service_with_status(

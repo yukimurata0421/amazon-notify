@@ -11,7 +11,10 @@ def decode_mime_words(value: str) -> str:
 
 def extract_email_address(value: str) -> str:
     decoded = decode_mime_words(value)
-    match = re.search(r"[\w\.-]+@[\w\.-]+", decoded)
+    match = re.search(
+        r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}",
+        decoded,
+    )
     return match.group(0) if match else decoded
 
 

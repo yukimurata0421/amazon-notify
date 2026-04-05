@@ -1,6 +1,9 @@
 [Unit]
 Description=Amazon Notify (Gmail -> Discord)
 After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=3
+OnFailure=amazon-notify-alert@%n.service
 
 [Service]
 Type=simple

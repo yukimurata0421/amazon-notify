@@ -150,7 +150,12 @@ def test_refresh_with_retry_retries_on_transient_and_then_succeeds(monkeypatch) 
     sleeps: list[int] = []
     monkeypatch.setattr(gmail_client.time, "sleep", lambda sec: sleeps.append(sec))
 
-    result = gmail_client.refresh_with_retry(creds, retries=3, base_delay=1)
+    result = gmail_client.refresh_with_retry(
+        creds,
+        retries=3,
+        base_delay=1,
+        request_factory=lambda: object(),
+    )
     assert result is None
     assert sleeps == [1]
 
@@ -164,7 +169,12 @@ def test_refresh_with_retry_returns_non_transient_error_without_sleep(monkeypatc
     sleeps: list[int] = []
     monkeypatch.setattr(gmail_client.time, "sleep", lambda sec: sleeps.append(sec))
 
-    result = gmail_client.refresh_with_retry(creds, retries=3, base_delay=1)
+    result = gmail_client.refresh_with_retry(
+        creds,
+        retries=3,
+        base_delay=1,
+        request_factory=lambda: object(),
+    )
     assert result is error
     assert sleeps == []
 
@@ -172,6 +182,16 @@ def test_refresh_with_retry_returns_non_transient_error_without_sleep(monkeypatc
 def test_refresh_with_retry_raises_for_invalid_retries() -> None:
     with pytest.raises(ValueError):
         gmail_client.refresh_with_retry(_DummyCreds(), retries=0)
+
+
+def test_refresh_with_retry_uses_dependency_guard_when_request_factory_missing(monkeypatch) -> None:
+    calls: list[bool] = []
+    monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: calls.append(True))
+    monkeypatch.setattr(gmail_client, "Request", lambda: object())
+
+    result = gmail_client.refresh_with_retry(_DummyCreds(), retries=1)
+    assert result is None
+    assert calls == [True]
 
 
 def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: Path) -> None:
@@ -345,3 +365,37 @@ def test_list_and_get_message_helpers() -> None:
     service = _Service()
     assert gmail_client.list_recent_messages(service, query="in:inbox", max_results=20) == [{"id": "m-1"}]
     assert gmail_client.get_message_detail(service, "m-1")["snippet"] == "hello"
+
+
+def test_start_gmail_watch_with_retry_retries_transient_errors(monkeypatch) -> None:
+    calls = {"count": 0}
+
+    class _Exec:
+        def execute(self):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise TimeoutError("timed out")
+            return {"historyId": "123"}
+
+    class _Users:
+        def watch(self, *, userId: str, body: dict):
+            assert userId == "me"
+            assert body["topicName"] == "projects/p/topics/t"
+            return _Exec()
+
+    class _Service:
+        def users(self):
+            return _Users()
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(gmail_client.time, "sleep", lambda sec: sleeps.append(sec))
+
+    response = gmail_client.start_gmail_watch_with_retry(
+        _Service(),
+        topic_name="projects/p/topics/t",
+        retries=2,
+        base_delay=0.5,
+        max_delay=10.0,
+    )
+    assert response["historyId"] == "123"
+    assert sleeps == [0.5]

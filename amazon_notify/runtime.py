@@ -1,0 +1,273 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from pathlib import Path
+from re import Pattern
+from typing import Any
+from urllib.parse import urlparse
+
+from . import config as app_config
+from .config import RuntimePaths
+
+DEFAULT_LOG_FILE_RELATIVE = "logs/amazon_mail_notifier.log"
+DEFAULT_EVENTS_FILE_RELATIVE = "events.jsonl"
+DEFAULT_RUNS_FILE_RELATIVE = "runs.jsonl"
+DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE = "runtime/pubsub-heartbeat.txt"
+MIN_POLL_INTERVAL_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class RuntimeConfig:
+    discord_webhook_url: str
+    amazon_pattern: str
+    state_file: Path
+    events_file: Path
+    runs_file: Path
+    max_messages: int
+    dry_run: bool
+    gmail_api_max_retries: int
+    gmail_api_base_delay_seconds: float
+    gmail_api_max_delay_seconds: float
+    discord_max_retries: int
+    discord_base_delay_seconds: float
+    discord_max_delay_seconds: float
+    pubsub_main_service_name: str
+    pubsub_heartbeat_file: Path
+    pubsub_heartbeat_interval_seconds: float
+    pubsub_heartbeat_max_age_seconds: float
+    pubsub_trigger_failure_max_consecutive: int
+    pubsub_trigger_failure_base_delay_seconds: float
+    pubsub_trigger_failure_max_delay_seconds: float
+    pubsub_stream_reconnect_base_delay_seconds: float
+    pubsub_stream_reconnect_max_delay_seconds: float
+    pubsub_stream_reconnect_max_attempts: int
+    subject_pattern: Pattern[str] | None
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return getattr(self, key, default)
+
+    @classmethod
+    def from_mapping(cls, config: dict, *, dry_run: bool = False, paths: RuntimePaths | None = None) -> "RuntimeConfig":
+        runtime_paths = app_config.get_runtime_paths() if paths is None else paths
+        base_dir = runtime_paths.runtime_dir
+        return cls(
+            discord_webhook_url=config["discord_webhook_url"],
+            amazon_pattern=config.get("amazon_from_pattern", r"amazon\.co\.jp"),
+            state_file=app_config.resolve_runtime_path(config.get("state_file", "state.json"), base_dir=base_dir),
+            events_file=app_config.resolve_runtime_path(
+                config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
+                base_dir=base_dir,
+            ),
+            runs_file=app_config.resolve_runtime_path(
+                config.get("runs_file", DEFAULT_RUNS_FILE_RELATIVE),
+                base_dir=base_dir,
+            ),
+            max_messages=int(config.get("max_messages", 50)),
+            dry_run=dry_run,
+            gmail_api_max_retries=int(config.get("gmail_api_max_retries", 4)),
+            gmail_api_base_delay_seconds=float(config.get("gmail_api_base_delay_seconds", 1.0)),
+            gmail_api_max_delay_seconds=float(config.get("gmail_api_max_delay_seconds", 30.0)),
+            discord_max_retries=int(config.get("discord_max_retries", 4)),
+            discord_base_delay_seconds=float(config.get("discord_base_delay_seconds", 1.0)),
+            discord_max_delay_seconds=float(config.get("discord_max_delay_seconds", 30.0)),
+            pubsub_main_service_name=str(
+                config.get("pubsub_main_service_name", "amazon-notify-pubsub.service")
+            ),
+            pubsub_heartbeat_file=app_config.resolve_runtime_path(
+                config.get("pubsub_heartbeat_file", DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE),
+                base_dir=base_dir,
+            ),
+            pubsub_heartbeat_interval_seconds=float(
+                config.get("pubsub_heartbeat_interval_seconds", 30.0)
+            ),
+            pubsub_heartbeat_max_age_seconds=float(config.get("pubsub_heartbeat_max_age_seconds", 120.0)),
+            pubsub_trigger_failure_max_consecutive=int(
+                config.get("pubsub_trigger_failure_max_consecutive", 5)
+            ),
+            pubsub_trigger_failure_base_delay_seconds=float(
+                config.get("pubsub_trigger_failure_base_delay_seconds", 1.0)
+            ),
+            pubsub_trigger_failure_max_delay_seconds=float(
+                config.get("pubsub_trigger_failure_max_delay_seconds", 60.0)
+            ),
+            pubsub_stream_reconnect_base_delay_seconds=float(
+                config.get("pubsub_stream_reconnect_base_delay_seconds", 1.0)
+            ),
+            pubsub_stream_reconnect_max_delay_seconds=float(
+                config.get("pubsub_stream_reconnect_max_delay_seconds", 60.0)
+            ),
+            pubsub_stream_reconnect_max_attempts=int(
+                config.get("pubsub_stream_reconnect_max_attempts", 0)
+            ),
+            subject_pattern=compile_optional_pattern(config.get("amazon_subject_pattern"), "amazon_subject_pattern"),
+        )
+
+
+def compile_optional_pattern(pattern: str | None, config_key: str) -> Pattern[str] | None:
+    if not pattern:
+        return None
+    try:
+        return re.compile(pattern)
+    except re.error as exc:
+        app_config.LOGGER.error("CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc)
+        raise ValueError(f"config.json の {config_key} が不正な正規表現です: {exc}") from exc
+
+
+def looks_like_discord_webhook_url(value: str) -> bool:
+    parsed = urlparse(value)
+    if parsed.scheme != "https":
+        return False
+    if parsed.netloc not in {"discord.com", "canary.discord.com", "ptb.discord.com"}:
+        return False
+    return parsed.path.startswith("/api/webhooks/")
+
+
+def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[str]:
+    errors: list[str] = []
+    runtime_paths = app_config.get_runtime_paths() if paths is None else paths
+    base_dir = runtime_paths.runtime_dir
+
+    webhook = config.get("discord_webhook_url")
+    if not isinstance(webhook, str) or not webhook.strip():
+        errors.append("discord_webhook_url が未設定です。")
+
+    for key in ("max_messages", "poll_interval_seconds"):
+        if key not in config:
+            continue
+        try:
+            value = int(config[key])
+        except (TypeError, ValueError):
+            errors.append(f"{key} は整数で指定してください。")
+            continue
+        if value <= 0:
+            errors.append(f"{key} は 1 以上を指定してください。")
+        if key == "poll_interval_seconds" and value < MIN_POLL_INTERVAL_SECONDS:
+            errors.append(
+                f"poll_interval_seconds は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。"
+                f"({value} は短すぎます)"
+            )
+
+    retry_keys = (
+        "gmail_api_max_retries",
+        "discord_max_retries",
+        "pubsub_trigger_failure_max_consecutive",
+    )
+    for key in retry_keys:
+        if key not in config:
+            continue
+        try:
+            value = int(config[key])
+        except (TypeError, ValueError):
+            errors.append(f"{key} は整数で指定してください。")
+            continue
+        if value < 1:
+            errors.append(f"{key} は 1 以上を指定してください。")
+
+    if "pubsub_stream_reconnect_max_attempts" in config:
+        try:
+            reconnect_attempts = int(config["pubsub_stream_reconnect_max_attempts"])
+        except (TypeError, ValueError):
+            errors.append("pubsub_stream_reconnect_max_attempts は整数で指定してください。")
+        else:
+            if reconnect_attempts < 0:
+                errors.append("pubsub_stream_reconnect_max_attempts は 0 以上を指定してください。")
+
+    delay_keys = (
+        "gmail_api_base_delay_seconds",
+        "gmail_api_max_delay_seconds",
+        "discord_base_delay_seconds",
+        "discord_max_delay_seconds",
+        "pubsub_trigger_failure_base_delay_seconds",
+        "pubsub_trigger_failure_max_delay_seconds",
+        "pubsub_stream_reconnect_base_delay_seconds",
+        "pubsub_stream_reconnect_max_delay_seconds",
+    )
+    for key in delay_keys:
+        if key not in config:
+            continue
+        try:
+            delay_value = float(config[key])
+        except (TypeError, ValueError):
+            errors.append(f"{key} は数値で指定してください。")
+            continue
+        if delay_value <= 0:
+            errors.append(f"{key} は 0 より大きい値を指定してください。")
+
+    pubsub_subscription = config.get("pubsub_subscription")
+    if pubsub_subscription is not None:
+        if not isinstance(pubsub_subscription, str) or not pubsub_subscription.strip():
+            errors.append("pubsub_subscription は空文字以外の文字列で指定してください。")
+
+    pubsub_main_service_name = config.get("pubsub_main_service_name")
+    if pubsub_main_service_name is not None:
+        if not isinstance(pubsub_main_service_name, str) or not pubsub_main_service_name.strip():
+            errors.append("pubsub_main_service_name は空文字以外の文字列で指定してください。")
+
+    for key in ("pubsub_heartbeat_file",):
+        if key not in config:
+            continue
+        heartbeat_path_value = config.get(key)
+        if not isinstance(heartbeat_path_value, str) or not heartbeat_path_value.strip():
+            errors.append(f"{key} は空文字以外の文字列で指定してください。")
+            continue
+        try:
+            app_config.resolve_runtime_path(heartbeat_path_value, base_dir=base_dir)
+        except Exception as exc:
+            errors.append(f"{key} を runtime パスとして解決できません: {exc}")
+
+    for key in ("pubsub_heartbeat_interval_seconds", "pubsub_heartbeat_max_age_seconds"):
+        if key not in config:
+            continue
+        try:
+            heartbeat_value = float(config[key])
+        except (TypeError, ValueError):
+            errors.append(f"{key} は数値で指定してください。")
+            continue
+        if heartbeat_value <= 0:
+            errors.append(f"{key} は 0 より大きい値を指定してください。")
+
+    amazon_from_pattern = config.get("amazon_from_pattern", r"amazon\.co\.jp")
+    try:
+        re.compile(amazon_from_pattern)
+    except re.error as exc:
+        errors.append(f"amazon_from_pattern の正規表現が不正です: {exc}")
+
+    subject_pattern = config.get("amazon_subject_pattern")
+    if subject_pattern:
+        try:
+            re.compile(subject_pattern)
+        except re.error as exc:
+            errors.append(f"amazon_subject_pattern の正規表現が不正です: {exc}")
+
+    for key, default_value in (
+        ("state_file", "state.json"),
+        ("log_file", DEFAULT_LOG_FILE_RELATIVE),
+        ("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
+        ("runs_file", DEFAULT_RUNS_FILE_RELATIVE),
+    ):
+        value = config.get(key, default_value)
+        if not isinstance(value, str):
+            errors.append(f"{key} は空文字以外の文字列で指定してください。")
+            continue
+        if not value.strip():
+            errors.append(f"{key} は空文字以外の文字列で指定してください。")
+            continue
+        try:
+            app_config.resolve_runtime_path(value, base_dir=base_dir)
+        except Exception as exc:
+            errors.append(f"{key} を runtime パスとして解決できません: {exc}")
+
+    return errors
+
+
+def build_runtime(
+    config: dict,
+    *,
+    dry_run: bool = False,
+    paths: RuntimePaths | None = None,
+) -> RuntimeConfig:
+    return RuntimeConfig.from_mapping(config, dry_run=dry_run, paths=paths)

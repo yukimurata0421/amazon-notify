@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import uuid
 
 from .config import LOGGER
@@ -15,6 +14,7 @@ from .domain import (
     RunResult,
 )
 from .errors import CheckpointError, DeliveryError, PipelineError, PermanentAuthError, TransientSourceError
+from .time_utils import utc_now_iso
 
 
 class NotificationPipeline:
@@ -37,7 +37,7 @@ class NotificationPipeline:
 
     def run_once(self) -> RunResult:
         run_id = uuid.uuid4().hex
-        started_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        started_at = utc_now_iso()
         checkpoint_before = self.checkpoint_store.load_checkpoint()
         checkpoint_after = checkpoint_before
 
@@ -105,7 +105,7 @@ class NotificationPipeline:
             )
             self.source.mark_transient_issue(exc)
 
-        ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
+        ended_at = utc_now_iso()
         result = RunResult(
             run_id=run_id,
             started_at=started_at,

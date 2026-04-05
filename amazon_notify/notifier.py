@@ -1,12 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+import time
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from dataclasses import field
 from pathlib import Path
 from re import Pattern
+from typing import TypeVar
 
 from .checkpoint_store import JsonlCheckpointStore
+from .backoff import next_delay_seconds
 from .config import LOGGER, load_state
 from .discord_client import send_discord_alert, send_discord_notification, send_discord_recovery
 from .domain import AuthStatus, Checkpoint, MailEnvelope, NotificationCandidate, RunResult
@@ -15,13 +18,18 @@ from .gmail_client import (
     HttpError,
     get_gmail_service_with_status,
     get_message_detail,
+    is_retryable_http_error,
     is_transient_network_error,
     list_recent_messages,
     mark_transient_network_issue,
     notify_recovery_if_needed,
 )
 from .pipeline import NotificationPipeline
+from .runtime import RuntimeConfig
 from .text import build_gmail_message_url, decode_mime_words, extract_email_address, is_amazon_mail
+
+T = TypeVar("T")
+_MISSING = object()
 
 
 @dataclass
@@ -30,6 +38,9 @@ class GmailMailSource:
     state: dict
     state_file: Path
     dry_run: bool
+    gmail_api_max_retries: int
+    gmail_api_base_delay_seconds: float
+    gmail_api_max_delay_seconds: float
     auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
 
     def get_auth_status(self) -> AuthStatus:
@@ -44,6 +55,37 @@ class GmailMailSource:
         if self.dry_run:
             return
         mark_transient_network_issue(self.state, self.state_file, err)
+
+    def _call_gmail_api_with_retry(self, operation_name: str, fn: Callable[[], T]) -> T:
+        if self.gmail_api_max_retries < 1:
+            raise ValueError("gmail_api_max_retries must be >= 1")
+
+        last_exc: Exception | None = None
+        for attempt in range(1, self.gmail_api_max_retries + 1):
+            try:
+                return fn()
+            except Exception as exc:
+                last_exc = exc
+                should_retry = is_transient_network_error(exc) or is_retryable_http_error(exc)
+                if (not should_retry) or attempt == self.gmail_api_max_retries:
+                    break
+                delay = next_delay_seconds(
+                    attempt,
+                    base_delay=self.gmail_api_base_delay_seconds,
+                    max_delay=self.gmail_api_max_delay_seconds,
+                )
+                LOGGER.warning(
+                    "GMAIL_API_RETRY: op=%s attempt=%s/%s retry_in=%.2fs error=%s",
+                    operation_name,
+                    attempt,
+                    self.gmail_api_max_retries,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
+
+        assert last_exc is not None
+        raise last_exc
 
     def iter_new_messages(self, checkpoint: Checkpoint, max_messages: int) -> Iterable[MailEnvelope]:
         # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
@@ -66,10 +108,15 @@ class GmailMailSource:
             )
 
         try:
-            messages = list_recent_messages(service, query="in:inbox", max_results=max_messages)
+            messages = self._call_gmail_api_with_retry(
+                "list_recent_messages",
+                lambda: list_recent_messages(service, query="in:inbox", max_results=max_messages),
+            )
         except Exception as exc:
             if isinstance(exc, HttpError):
-                raise TransientSourceError(f"Gmail API 呼び出しエラー: {exc}") from exc
+                if is_retryable_http_error(exc):
+                    raise TransientSourceError(f"Gmail API 一時エラー: {exc}") from exc
+                raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
             if is_transient_network_error(exc):
                 raise TransientSourceError(str(exc)) from exc
             raise SourceError(f"Gmail API 予期しないエラー: {exc}") from exc
@@ -93,7 +140,10 @@ class GmailMailSource:
         for msg_meta in pending_messages:
             msg_id = msg_meta["id"]
             try:
-                msg = get_message_detail(service, msg_id)
+                msg = self._call_gmail_api_with_retry(
+                    "get_message_detail",
+                    lambda: get_message_detail(service, msg_id),
+                )
             except Exception as exc:
                 raise MessageDecodeError(
                     f"メッセージ詳細の取得に失敗しました: {exc}",
@@ -132,6 +182,9 @@ class RegexClassifier:
 class DiscordNotifier:
     webhook_url: str
     dry_run: bool
+    max_attempts: int
+    base_delay_seconds: float
+    max_delay_seconds: float
 
     def notify(self, candidate: NotificationCandidate) -> bool:
         if self.dry_run:
@@ -149,6 +202,9 @@ class DiscordNotifier:
             from_addr=candidate.from_addr,
             snippet=candidate.envelope.snippet,
             url=candidate.url,
+            max_attempts=self.max_attempts,
+            base_delay_seconds=self.base_delay_seconds,
+            max_delay_seconds=self.max_delay_seconds,
         )
 
 
@@ -199,15 +255,23 @@ def _handle_incident_lifecycle(
             checkpoint_store.recover_incident(run_id=result.run_id)
 
 
-def run_once(runtime: dict) -> RunResult:
-    discord_webhook_url = runtime["discord_webhook_url"]
-    amazon_pattern = runtime["amazon_pattern"]
-    state_file: Path = runtime["state_file"]
-    max_messages = runtime["max_messages"]
-    subject_pattern: Pattern[str] | None = runtime["subject_pattern"]
-    dry_run = bool(runtime.get("dry_run", False))
-    events_file: Path | None = runtime.get("events_file")
-    runs_file: Path | None = runtime.get("runs_file")
+def _runtime_value(runtime: RuntimeConfig | dict, key: str, default: object = _MISSING):
+    if isinstance(runtime, RuntimeConfig):
+        return getattr(runtime, key)
+    if default is _MISSING:
+        return runtime[key]
+    return runtime.get(key, default)
+
+
+def run_once(runtime: RuntimeConfig | dict) -> RunResult:
+    discord_webhook_url = _runtime_value(runtime, "discord_webhook_url")
+    amazon_pattern = _runtime_value(runtime, "amazon_pattern")
+    state_file: Path = _runtime_value(runtime, "state_file")
+    max_messages = _runtime_value(runtime, "max_messages")
+    subject_pattern: Pattern[str] | None = _runtime_value(runtime, "subject_pattern")
+    dry_run = bool(_runtime_value(runtime, "dry_run", False))
+    events_file: Path | None = _runtime_value(runtime, "events_file", None)
+    runs_file: Path | None = _runtime_value(runtime, "runs_file", None)
 
     state = load_state(state_file)
     LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
@@ -217,6 +281,9 @@ def run_once(runtime: dict) -> RunResult:
         state=state,
         state_file=state_file,
         dry_run=dry_run,
+        gmail_api_max_retries=int(_runtime_value(runtime, "gmail_api_max_retries", 4)),
+        gmail_api_base_delay_seconds=float(_runtime_value(runtime, "gmail_api_base_delay_seconds", 1.0)),
+        gmail_api_max_delay_seconds=float(_runtime_value(runtime, "gmail_api_max_delay_seconds", 30.0)),
     )
     classifier = RegexClassifier(
         amazon_pattern=amazon_pattern,
@@ -225,6 +292,9 @@ def run_once(runtime: dict) -> RunResult:
     notifier = DiscordNotifier(
         webhook_url=discord_webhook_url,
         dry_run=dry_run,
+        max_attempts=int(_runtime_value(runtime, "discord_max_retries", 4)),
+        base_delay_seconds=float(_runtime_value(runtime, "discord_base_delay_seconds", 1.0)),
+        max_delay_seconds=float(_runtime_value(runtime, "discord_max_delay_seconds", 30.0)),
     )
     checkpoint_store = JsonlCheckpointStore(
         state_file=state_file,

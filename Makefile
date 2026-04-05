@@ -74,6 +74,7 @@ dist: clean
 		Makefile \
 		pyproject.toml \
 		README.md \
+		README.ja.md \
 		-x '*/__pycache__' \
 		-x '*/__pycache__/*' \
 		-x '*.pyc'

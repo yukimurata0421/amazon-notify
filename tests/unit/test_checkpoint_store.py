@@ -70,6 +70,22 @@ def test_ignores_corrupted_tail_line_in_jsonl(tmp_path: Path) -> None:
     assert checkpoint.message_id == "event-id"
 
 
+def test_raises_for_corrupted_middle_line_in_jsonl(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "state-id"}), encoding="utf-8")
+    events_file = tmp_path / "events.jsonl"
+    events_file.write_text(
+        '{"schema_version":1,"event":"checkpoint_advanced","run_id":"r1","at":"2026-04-04 00:00:00","checkpoint":"event-id"}\n'
+        '{"broken":\n'
+        '{"schema_version":1,"event":"checkpoint_advanced","run_id":"r2","at":"2026-04-04 00:01:00","checkpoint":"event-id-2"}\n',
+        encoding="utf-8",
+    )
+
+    store = JsonlCheckpointStore(state_file=state_file, events_file=events_file)
+    with pytest.raises(CheckpointError, match="途中行が破損"):
+        store.load_checkpoint()
+
+
 def test_append_run_result_includes_schema_version(tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
@@ -185,7 +201,7 @@ def test_advance_checkpoint_updates_state_snapshot(tmp_path: Path) -> None:
     assert state["last_message_id"] == "new"
 
 
-def test_advance_checkpoint_raises_checkpoint_error_on_oserror(
+def test_advance_checkpoint_snapshot_write_failure_is_best_effort(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -196,6 +212,25 @@ def test_advance_checkpoint_raises_checkpoint_error_on_oserror(
     monkeypatch.setattr(
         "amazon_notify.checkpoint_store.save_state",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("disk full")),
+    )
+
+    store.advance_checkpoint(Checkpoint(message_id="new"), "run-1")
+    events = _read_jsonl(store.events_file)
+    assert any(event.get("checkpoint") == "new" for event in events)
+
+
+def test_advance_checkpoint_raises_when_event_write_fails(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    monkeypatch.setattr(
+        store,
+        "append_event",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("events disk full")),
     )
 
     with pytest.raises(CheckpointError) as exc_info:
