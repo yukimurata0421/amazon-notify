@@ -2,13 +2,28 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
-## [0.3.1] - 2026-04-05
+## [0.3.0] - 2026-04-05
 
 This release focuses on aligning StreamingPull recovery and checkpoint durability with the frontier-consistency contract.
 
+### Added
+- Added Pub/Sub StreamingPull runtime mode (`--streaming-pull`) with realtime trigger processing.
+- Added Gmail watch setup command (`--setup-watch --pubsub-topic ...`) with retry handling.
+- Added watchdog-based fallback mode (`--fallback-watchdog`) to skip polling when main streaming service is healthy.
+- Added heartbeat-driven silent-failure detection for StreamingPull (`--heartbeat-file`, `--heartbeat-interval-seconds`, `--heartbeat-max-age-seconds`).
+- Added new deployment templates for hybrid operation:
+  - `deployment/systemd/amazon-notify-pubsub.service`
+  - `deployment/systemd/amazon-notify-fallback.service`
+  - `deployment/systemd/amazon-notify-fallback.timer`
+
 ### Changed
+- Upgraded Discord Webhook retry behavior to exponential backoff with `429/5xx` awareness and `Retry-After` support.
+- Upgraded Gmail API retry behavior to exponential backoff for transient/retryable failures.
+- Expanded CLI/config validation to include pubsub/heartbeat/failover settings.
+- Reorganized README structure:
+  - concise `README.md` (entrypoint)
+  - concise Japanese `README.ja.md`
+  - detailed architecture article in `docs/HYBRID_ARCHITECTURE_JA.md`.
 - Hardened StreamingPull to reduce reliance on `systemd` restarts:
   - replaced queue-drop behavior with latest-event aggregation (no `ack`+drop on local queue full)
   - added trigger failure backoff and consecutive-failure circuit breaker
@@ -44,35 +59,12 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
   - `docs/PORTABILITY_PARAMS_JA.md`.
 
 ### Tests
+- Expanded unit/e2e tests for new streaming/failover/backoff flows.
+- Kept coverage gate (`--cov-fail-under=90`) passing with latest implementation.
 - Added CLI reconnect behavior regression test.
 - Added watchdog regression test for worker heartbeat stale detection.
 - Added transient-alert threshold/cooldown behavior tests and recovery-notification boundary tests.
 - Added focused `runtime.py` unit tests and restored CI coverage gate compliance (`--cov-fail-under=90`).
-
-## [0.3.0] - 2026-04-04
-
-### Added
-- Added Pub/Sub StreamingPull runtime mode (`--streaming-pull`) with realtime trigger processing.
-- Added Gmail watch setup command (`--setup-watch --pubsub-topic ...`) with retry handling.
-- Added watchdog-based fallback mode (`--fallback-watchdog`) to skip polling when main streaming service is healthy.
-- Added heartbeat-driven silent-failure detection for StreamingPull (`--heartbeat-file`, `--heartbeat-interval-seconds`, `--heartbeat-max-age-seconds`).
-- Added new deployment templates for hybrid operation:
-  - `deployment/systemd/amazon-notify-pubsub.service`
-  - `deployment/systemd/amazon-notify-fallback.service`
-  - `deployment/systemd/amazon-notify-fallback.timer`
-
-### Changed
-- Upgraded Discord Webhook retry behavior to exponential backoff with `429/5xx` awareness and `Retry-After` support.
-- Upgraded Gmail API retry behavior to exponential backoff for transient/retryable failures.
-- Expanded CLI/config validation to include pubsub/heartbeat/failover settings.
-- Reorganized README structure:
-  - concise `README.md` (entrypoint)
-  - concise Japanese `README.ja.md`
-  - detailed architecture article in `docs/HYBRID_ARCHITECTURE_JA.md`.
-
-### Tests
-- Expanded unit/e2e tests for new streaming/failover/backoff flows.
-- Kept coverage gate (`--cov-fail-under=90`) passing with latest implementation.
 
 ## [0.2.0] - 2026-04-04
 
