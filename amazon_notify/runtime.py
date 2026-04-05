@@ -42,6 +42,7 @@ class RuntimeConfig:
     pubsub_stream_reconnect_base_delay_seconds: float
     pubsub_stream_reconnect_max_delay_seconds: float
     pubsub_stream_reconnect_max_attempts: int
+    runtime_paths: RuntimePaths
     subject_pattern: Pattern[str] | None
 
     def __getitem__(self, key: str) -> Any:
@@ -106,6 +107,7 @@ class RuntimeConfig:
             pubsub_stream_reconnect_max_attempts=int(
                 config.get("pubsub_stream_reconnect_max_attempts", 0)
             ),
+            runtime_paths=runtime_paths,
             subject_pattern=compile_optional_pattern(config.get("amazon_subject_pattern"), "amazon_subject_pattern"),
         )
 

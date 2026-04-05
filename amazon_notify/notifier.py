@@ -305,6 +305,7 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
     dry_run = bool(_runtime_value(runtime, "dry_run", False))
     events_file: Path | None = _runtime_value(runtime, "events_file", None)
     runs_file: Path | None = _runtime_value(runtime, "runs_file", None)
+    runtime_paths_raw = _runtime_value(runtime, "runtime_paths", get_runtime_paths())
 
     amazon_pattern: Pattern[str]
     if isinstance(amazon_pattern_raw, Pattern):
@@ -315,6 +316,12 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
     state = load_state(state_file)
     LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
 
+    runtime_paths: RuntimePaths
+    if isinstance(runtime_paths_raw, RuntimePaths):
+        runtime_paths = runtime_paths_raw
+    else:
+        runtime_paths = get_runtime_paths()
+
     source = GmailMailSource(
         discord_webhook_url=discord_webhook_url,
         state=state,
@@ -323,7 +330,7 @@ def run_once(runtime: RuntimeConfig | dict) -> RunResult:
         gmail_api_max_retries=int(_runtime_value(runtime, "gmail_api_max_retries", 4)),
         gmail_api_base_delay_seconds=float(_runtime_value(runtime, "gmail_api_base_delay_seconds", 1.0)),
         gmail_api_max_delay_seconds=float(_runtime_value(runtime, "gmail_api_max_delay_seconds", 30.0)),
-        runtime_paths=get_runtime_paths(),
+        runtime_paths=runtime_paths,
     )
     classifier = RegexClassifier(
         amazon_pattern=amazon_pattern,

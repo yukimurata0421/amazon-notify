@@ -54,6 +54,25 @@ def test_run_streaming_pull_raises_for_invalid_args() -> None:
         )
 
 
+def test_run_streaming_pull_logs_queue_size_alias_deprecation(monkeypatch) -> None:
+    warnings: list[str] = []
+
+    def fake_warning(message: str, *args) -> None:
+        warnings.append(message % args if args else message)
+
+    monkeypatch.setattr(streaming_pull.LOGGER, "warning", fake_warning)
+
+    with pytest.raises(ValueError):
+        streaming_pull.run_streaming_pull(
+            subscription_path="projects/p/subscriptions/s",
+            on_trigger=lambda: True,
+            queue_size=32,
+            heartbeat_interval_seconds=0.0,
+        )
+
+    assert any("PUBSUB_QUEUE_SIZE_ALIAS_DEPRECATED" in item for item in warnings)
+
+
 def test_ensure_pubsub_dependencies_raises_when_missing(monkeypatch) -> None:
     monkeypatch.setattr(streaming_pull, "PUBSUB_IMPORT_ERROR", ImportError("missing"))
     with pytest.raises(ModuleNotFoundError):

@@ -26,6 +26,7 @@ def test_build_runtime_defaults_and_mapping_api(tmp_path: Path) -> None:
     assert built.get("missing_key", "fallback") == "fallback"
     assert built.events_file == tmp_path / "events.jsonl"
     assert built.runs_file == tmp_path / "runs.jsonl"
+    assert built.runtime_paths.runtime_dir == tmp_path
     assert built.subject_pattern is None
 
 

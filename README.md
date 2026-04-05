@@ -7,9 +7,8 @@
 
 # Amazon Notify
 
-Self-hosted notifier for Amazon.co.jp delivery emails:
-Gmail API -> filtering -> Discord Webhook.
-Built around ordered-frontier checkpoint consistency rather than raw realtime throughput.
+Self-hosted Gmail->Discord notification pipeline for Amazon.co.jp delivery emails.
+Designed around ordered-frontier checkpoint consistency, with Gmail inbox state as the recovery source of truth.
 
 Current versions use `events.jsonl` as the checkpoint source of truth and keep
 `state.json` as a compatibility snapshot.
@@ -23,7 +22,7 @@ Japanese README: [README.ja.md](./README.ja.md)
 ## Highlights
 
 - Ordered-frontier processing (oldest-first, stop on midstream failure)
-- Checkpoint and audit logs via `state.json` / `events.jsonl` / `runs.jsonl`
+- Checkpoint source of truth in `events.jsonl`, with `state.json` compatibility snapshots and `runs.jsonl` audit logs
 - Retry and recovery handling for transient Gmail/Discord failures
 - Realtime mode with Pub/Sub StreamingPull
 - In-process StreamingPull self-healing:

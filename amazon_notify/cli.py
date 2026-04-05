@@ -107,6 +107,37 @@ def run_once_with_guard(runtime: RuntimeConfig) -> bool:
         return False
 
 
+def handle_reauth(args: argparse.Namespace) -> bool:
+    if not args.reauth:
+        return False
+    log_path = app_config.resolve_runtime_path(args.log_file) if args.log_file else app_config.DEFAULT_LOG_PATH
+    app_config.setup_logging(log_path)
+    app_config.LOGGER.info("MANUAL_REAUTH_START")
+    creds = run_oauth_flow(paths=app_config.get_runtime_paths())
+    if not creds:
+        app_config.LOGGER.error("MANUAL_REAUTH_FAILED")
+        sys.exit(1)
+    app_config.LOGGER.info("MANUAL_REAUTH_SUCCESS")
+    return True
+
+
+def handle_health_check(args: argparse.Namespace) -> bool:
+    if not args.health_check:
+        return False
+    health_config, health_validation_errors = load_config_for_health_check()
+    sys.exit(run_health_check(health_config, health_validation_errors))
+
+
+def handle_validate_config(args: argparse.Namespace, validation_errors: list[str]) -> bool:
+    if not args.validate_config:
+        return False
+    if validation_errors:
+        print_validation_errors(validation_errors)
+        sys.exit(1)
+    sys.stdout.write("[OK] config.json の検証に成功しました。\n")
+    return True
+
+
 def handle_setup_watch(args: argparse.Namespace, config: dict) -> None:
     topic_name = (args.pubsub_topic or "").strip()
     if not topic_name:
@@ -188,15 +219,13 @@ def validate_watchdog_options(
         sys.exit(1)
 
 
-def handle_streaming_pull_mode(
+def handle_streaming_mode(
     args: argparse.Namespace,
     config: dict,
     runtime: RuntimeConfig,
     heartbeat_file: Path,
     heartbeat_interval_seconds: float,
-) -> bool:
-    if not args.streaming_pull:
-        return False
+) -> None:
 
     if args.fallback_watchdog:
         _stderr_error("--streaming-pull と --fallback-watchdog は同時に指定できません。")
@@ -232,7 +261,7 @@ def handle_streaming_pull_mode(
                 trigger_failure_base_delay_seconds=runtime.pubsub_trigger_failure_base_delay_seconds,
                 trigger_failure_max_delay_seconds=runtime.pubsub_trigger_failure_max_delay_seconds,
             )
-            return True
+            return
         except KeyboardInterrupt:
             raise
         except Exception as exc:
@@ -387,29 +416,16 @@ def main() -> None:
     args = parser.parse_args()
     app_config.configure_runtime_paths(args.config)
 
-    if args.reauth:
-        log_path = app_config.resolve_runtime_path(args.log_file) if args.log_file else app_config.DEFAULT_LOG_PATH
-        app_config.setup_logging(log_path)
-        app_config.LOGGER.info("MANUAL_REAUTH_START")
-        creds = run_oauth_flow(paths=app_config.get_runtime_paths())
-        if not creds:
-            app_config.LOGGER.error("MANUAL_REAUTH_FAILED")
-            sys.exit(1)
-        app_config.LOGGER.info("MANUAL_REAUTH_SUCCESS")
+    if handle_reauth(args):
         return
 
-    if args.health_check:
-        health_config, health_validation_errors = load_config_for_health_check()
-        sys.exit(run_health_check(health_config, health_validation_errors))
+    if handle_health_check(args):
+        return
 
     config = load_config_or_exit()
     validation_errors = validate_config(config)
 
-    if args.validate_config:
-        if validation_errors:
-            print_validation_errors(validation_errors)
-            sys.exit(1)
-        sys.stdout.write("[OK] config.json の検証に成功しました。\n")
+    if handle_validate_config(args, validation_errors):
         return
 
     log_path = (
@@ -457,13 +473,14 @@ def main() -> None:
         main_service_name,
     )
 
-    if handle_streaming_pull_mode(
-        args,
-        config,
-        runtime,
-        heartbeat_file,
-        heartbeat_interval_seconds,
-    ):
+    if args.streaming_pull:
+        handle_streaming_mode(
+            args,
+            config,
+            runtime,
+            heartbeat_file,
+            heartbeat_interval_seconds,
+        )
         return
 
     if not should_run_fallback_polling(

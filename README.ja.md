@@ -21,7 +21,7 @@ English README: [README.md](./README.md)
 ## できること
 
 - Ordered Frontier（oldest-first、途中失敗時はそこで停止）
-- `state.json` / `events.jsonl` / `runs.jsonl` による境界管理と監査ログ
+- `events.jsonl` を checkpoint 正本とし、`state.json` は互換スナップショット、`runs.jsonl` は監査ログとして運用
 - Gmail/Discord の一時障害に対するリトライと復旧通知
 - Pub/Sub StreamingPull によるリアルタイム通知
 - StreamingPull の自己復旧（systemd 依存を最小化）:
