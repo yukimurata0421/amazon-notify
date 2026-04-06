@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
+- Added lock/state runtime artifact ignores for dedupe coordination files (`.state.json.lock`, `.discord_dedupe_state.json`, `.discord_dedupe_state.lock`).
+
+### Tests
+- Added regression tests for stale-state recovery dedupe and cross-notification dedupe behavior (duplicate suppression, in-flight suppression, and per-message-key delivery behavior).
+- Added coverage-focused Discord dedupe branch tests so CI coverage gate (`--cov-fail-under=90`) remains stable.
+
 ## [0.3.0] - 2026-04-05
 
 This release focuses on aligning StreamingPull recovery and checkpoint durability with the frontier-consistency contract.
@@ -65,8 +75,6 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
   - in-memory incident suppression fallback when incident state writes fail.
 - Added exception trace payload support to `JsonLogFormatter` for structured logs.
 - Added cross-language documentation links between English/Japanese README variants.
-- Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
-- Added lock/state runtime artifact ignores for dedupe coordination files (`.state.json.lock`, `.discord_dedupe_state.json`, `.discord_dedupe_state.lock`).
 
 ### Tests
 - Expanded unit/e2e tests for new streaming/failover/backoff flows.
@@ -76,7 +84,6 @@ This release focuses on aligning StreamingPull recovery and checkpoint durabilit
 - Added transient-alert threshold/cooldown behavior tests and recovery-notification boundary tests.
 - Added focused `runtime.py` unit tests and restored CI coverage gate compliance (`--cov-fail-under=90`).
 - Added fixture-level reset for in-memory incident suppression state to avoid cross-test leakage.
-- Added regression tests for stale-state recovery dedupe and cross-notification dedupe behavior (duplicate suppression, in-flight suppression, and per-message-key delivery behavior).
 
 ## [0.2.0] - 2026-04-04
 
