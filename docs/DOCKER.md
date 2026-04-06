@@ -16,7 +16,7 @@
   - `amazon-notify --validate-config`
   - `amazon-notify --once --dry-run`
 
-## 入れないもの（明示）
+## 入れないもの
 - `systemd` 運用
 - hybrid HA 構成
 - watchdog/fallback オーケストレーション

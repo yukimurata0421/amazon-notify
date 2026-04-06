@@ -659,3 +659,57 @@ def test_run_once_fails_safe_when_checkpoint_not_found_in_paginated_listing(
     assert saved["last_message_id"] == "old-id"
     assert sent_alerts
     assert "checkpoint_not_found_in_listing" in sent_alerts[0]
+
+
+def test_report_unhandled_exception_persists_run_and_events(monkeypatch, tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda *_args, **_kwargs: True)
+
+    result = notifier.report_unhandled_exception(runtime, RuntimeError("boom"))
+
+    assert result.failure_kind == notifier.FailureKind.SOURCE_FAILED
+    assert result.failure_message == "boom"
+
+    events = [
+        json.loads(line)
+        for line in runtime.events_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    assert any(event.get("event") == "source_failed" for event in events)
+    assert any(event.get("event") == "incident_opened" for event in events)
+
+    runs = [json.loads(line) for line in runtime.runs_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(runs) == 1
+    assert runs[0]["failure_kind"] == "source_failed"
+
+
+def test_report_unhandled_exception_handles_persistence_failures(monkeypatch, tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path, dry_run=True)
+
+    class _BrokenStore:
+        def load_checkpoint(self):
+            raise RuntimeError("checkpoint load failed")
+
+        def append_event(self, *_args, **_kwargs):
+            raise OSError("event write failed")
+
+        def append_run_result(self, *_args, **_kwargs):
+            raise RuntimeError("run write failed")
+
+        def load_incident_state(self):
+            return None
+
+    monkeypatch.setattr(notifier, "JsonlCheckpointStore", lambda *_args, **_kwargs: _BrokenStore())
+
+    result = notifier.report_unhandled_exception(runtime, RuntimeError("guard exploded"))
+
+    assert result.failure_kind == notifier.FailureKind.SOURCE_FAILED
+    assert result.failure_message == "guard exploded"
+    assert result.checkpoint_before is None
+
+
+def test_incident_memory_map_returns_empty_for_non_dict_runtime_attr() -> None:
+    class _RuntimeLike:
+        incident_memory_suppressed_until = "invalid"
+
+    assert notifier._incident_memory_map(_RuntimeLike()) == {}

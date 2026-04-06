@@ -352,3 +352,70 @@ def test_load_last_run_summary_prefers_index_snapshot_when_available(tmp_path: P
     assert summary is not None
     assert summary["last_run_status"] == "ok"
     assert summary["checkpoint_after"] == "b"
+
+
+def test_load_last_run_summary_falls_back_to_state_snapshot(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "last_message_id": "x",
+                "last_run_summary": {
+                    "last_run_status": "ok",
+                    "last_failure_kind": None,
+                    "checkpoint_before": "a",
+                    "checkpoint_after": "b",
+                    "auth_status": "READY",
+                    "last_success_at": "2026-04-04 00:00:01",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    summary = store.load_last_run_summary()
+
+    assert summary is not None
+    assert summary["checkpoint_after"] == "b"
+    assert summary["last_run_status"] == "ok"
+
+
+def test_private_helpers_cover_edge_cases(tmp_path: Path, monkeypatch) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    assert store._read_json_file(tmp_path / "missing.json") is None
+
+    bad_json = tmp_path / "bad.json"
+    bad_json.write_text("{broken", encoding="utf-8")
+    assert store._read_json_file(bad_json) is None
+
+    list_json = tmp_path / "list.json"
+    list_json.write_text("[]", encoding="utf-8")
+    assert store._read_json_file(list_json) is None
+
+    assert store._read_jsonl_row_at_offset(tmp_path / "missing.jsonl", 0) is None
+
+    rows_path = tmp_path / "rows.jsonl"
+    rows_path.write_text("\n", encoding="utf-8")
+    assert store._read_jsonl_row_at_offset(rows_path, 0) is None
+
+    rows_path.write_text("not-json\n", encoding="utf-8")
+    assert store._read_jsonl_row_at_offset(rows_path, 0) is None
+
+    rows_path.write_text("[]\n", encoding="utf-8")
+    assert store._read_jsonl_row_at_offset(rows_path, 0) is None
+
+    monkeypatch.setattr(
+        Path,
+        "stat",
+        lambda _self: (_ for _ in ()).throw(OSError("boom")),
+    )
+    assert store._safe_file_size(rows_path) is None
+
+    assert store._find_last_checkpoint_event([{"event": "x"}]) is None
+    assert store._find_last_checkpoint_event([{"event": "x"}, {"event": "checkpoint_advanced"}]) == {
+        "event": "checkpoint_advanced"
+    }
