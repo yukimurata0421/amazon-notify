@@ -49,9 +49,12 @@ def handle_streaming_mode(
 
     while True:
         try:
+            def _trigger(_runtime: RuntimeConfig = runtime) -> bool:
+                return run_once_with_guard_fn(_runtime)
+
             run_streaming_pull_fn(
                 subscription_path=subscription,
-                on_trigger=lambda: run_once_with_guard_fn(runtime),
+                on_trigger=_trigger,
                 pending_warn_threshold=args.pubsub_pending_warn_threshold,
                 flow_control_max_messages=args.pubsub_flow_max_messages,
                 heartbeat_file=heartbeat_file,
@@ -81,6 +84,7 @@ def handle_streaming_mode(
                 reconnect_attempt,
                 base_delay=reconnect_base_delay,
                 max_delay=reconnect_max_delay,
+                jitter_ratio=0.1,
             )
             app_config.LOGGER.warning(
                 "STREAMING_PULL_RECONNECT_RETRY: attempt=%s wait=%.2fs",

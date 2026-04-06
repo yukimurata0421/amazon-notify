@@ -22,7 +22,9 @@ state.json
 .discord_dedupe_state.json
 .discord_dedupe_state.lock
 events.jsonl
+events.jsonl.checkpoint.index.json
 runs.jsonl
+runs.jsonl.summary.index.json
 
 # OS / editor
 .DS_Store

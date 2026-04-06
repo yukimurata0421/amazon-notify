@@ -295,3 +295,60 @@ def test_append_run_result_raises_checkpoint_error_when_storage_write_fails(
 
     assert exc_info.value.message_id == "b"
     assert "run result 保存" in str(exc_info.value)
+
+
+def test_load_checkpoint_prefers_index_snapshot_when_available(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": None}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    store.append_event(
+        "checkpoint_advanced",
+        "run-1",
+        {"checkpoint": "idx-checkpoint", "source": "pipeline_commit"},
+    )
+
+    original_loader = store._load_jsonl_entries
+    store._load_jsonl_entries = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected scan"))
+    try:
+        checkpoint = store.load_checkpoint()
+    finally:
+        store._load_jsonl_entries = original_loader
+
+    assert checkpoint.message_id == "idx-checkpoint"
+
+
+def test_load_last_run_summary_prefers_index_snapshot_when_available(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    result = RunResult(
+        run_id="run-1",
+        started_at="2026-04-04 00:00:00",
+        ended_at="2026-04-04 00:00:01",
+        checkpoint_before="a",
+        checkpoint_after="b",
+        processed_count=1,
+        matched_count=1,
+        notified_count=1,
+        non_target_count=0,
+        failure_kind=None,
+        failure_message=None,
+        failure_message_id=None,
+        should_retry=False,
+        should_alert=False,
+        auth_status=None,
+    )
+    store.append_run_result(result)
+
+    original_loader = store._load_jsonl_entries
+    store._load_jsonl_entries = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected scan"))
+    try:
+        summary = store.load_last_run_summary()
+    finally:
+        store._load_jsonl_entries = original_loader
+
+    assert summary is not None
+    assert summary["last_run_status"] == "ok"
+    assert summary["checkpoint_after"] == "b"

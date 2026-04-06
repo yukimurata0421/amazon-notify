@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from amazon_notify import cli, config
+from amazon_notify import runtime as app_runtime
 from amazon_notify.domain import AuthStatus
 
 
@@ -24,7 +25,7 @@ def restore_runtime_paths() -> None:
 
 
 def test_validate_config_detects_invalid_values() -> None:
-    errors = cli.validate_config(
+    errors = app_runtime.validate_config(
         {
             "discord_webhook_url": "",
             "max_messages": 0,
@@ -36,7 +37,8 @@ def test_validate_config_detects_invalid_values() -> None:
             "gmail_api_max_retries": 0,
             "discord_base_delay_seconds": 0,
             "pubsub_subscription": "",
-        }
+        },
+        paths=config.get_runtime_paths(),
     )
 
     assert any("discord_webhook_url" in err for err in errors)
@@ -52,11 +54,12 @@ def test_validate_config_detects_invalid_values() -> None:
 
 
 def test_validate_config_rejects_too_short_poll_interval() -> None:
-    errors = cli.validate_config(
+    errors = app_runtime.validate_config(
         {
             "discord_webhook_url": "https://discord.invalid/webhook",
             "poll_interval_seconds": 5,
-        }
+        },
+        paths=config.get_runtime_paths(),
     )
     assert any("短すぎます" in err for err in errors)
 
@@ -176,6 +179,7 @@ def test_main_health_check_outputs_json_and_nonzero_when_files_missing(monkeypat
     check_names = [item["name"] for item in report["checks"]]
     assert "credentials_file_exists" in check_names
     assert "token_file_exists" in check_names
+    assert "dedupe_lock_supported" in check_names
 
 
 def test_main_health_check_outputs_json_when_config_is_missing(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -375,15 +379,19 @@ def test_main_once_exits_nonzero_when_first_run_once_raises(monkeypatch, tmp_pat
 
     monkeypatch.setattr(cli, "run_once", lambda _runtime: (_ for _ in ()).throw(RuntimeError("boom")))
     monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
-    alerts: list[str] = []
-    monkeypatch.setattr(cli, "send_discord_alert", lambda _webhook, message: alerts.append(message) or True)
+    reported_errors: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "report_unhandled_exception",
+        lambda _runtime, exc: reported_errors.append(str(exc)),
+    )
     monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--once"])
 
     with pytest.raises(SystemExit) as exc_info:
         cli.main()
 
     assert exc_info.value.code == 1
-    assert alerts
+    assert reported_errors == ["boom"]
 
 
 def test_main_loop_handles_unhandled_exception_and_alerts(monkeypatch, tmp_path: Path) -> None:
@@ -408,7 +416,11 @@ def test_main_loop_handles_unhandled_exception_and_alerts(monkeypatch, tmp_path:
 
     monkeypatch.setattr(cli, "run_once", fake_run_once)
     monkeypatch.setattr(cli.time, "sleep", lambda _sec: None)
-    monkeypatch.setattr(cli, "send_discord_alert", lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()))
+    monkeypatch.setattr(
+        cli,
+        "report_unhandled_exception",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(KeyboardInterrupt()),
+    )
     monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path)])
 
@@ -470,7 +482,10 @@ def test_main_exits_when_config_invalid_in_normal_mode(monkeypatch, tmp_path: Pa
 
 
 def test_build_runtime_uses_consistent_default_amazon_pattern() -> None:
-    runtime = cli.build_runtime({"discord_webhook_url": "https://discord.invalid/webhook"})
+    runtime = app_runtime.build_runtime(
+        {"discord_webhook_url": "https://discord.invalid/webhook"},
+        paths=config.get_runtime_paths(),
+    )
     assert runtime["amazon_pattern"].pattern == r"amazon\.co\.jp"
     assert runtime["events_file"].name == "events.jsonl"
     assert runtime["runs_file"].name == "runs.jsonl"

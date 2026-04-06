@@ -71,3 +71,30 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
     assert after_recovery["transient_network_issue_active"] is False
     assert len(recoveries) == 1
     assert "復旧" in recoveries[0]
+
+
+def test_e2e_transient_alert_threshold_respects_default_window(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "baseline"}), encoding="utf-8")
+    state = {"last_message_id": "baseline"}
+
+    timeline = iter([1000.0, 1300.0, 1701.0])
+    monkeypatch.setattr(gmail_client.time, "time", lambda: next(timeline))
+
+    alerts: list[str] = []
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda _webhook_url, message: alerts.append(message) or True,
+    )
+
+    for _ in range(3):
+        gmail_client.record_transient_issue(
+            state,
+            state_file,
+            TimeoutError("timed out"),
+            webhook_url="https://discord.invalid/webhook",
+            alert_message="transient issue",
+        )
+
+    assert len(alerts) == 1

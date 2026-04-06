@@ -122,3 +122,37 @@ Not adopted:
 Reasoning:
 - Out of scope for single-host reliability target.
 - JSONL + ordered frontier currently provides better cost/performance/operability balance.
+
+## 13. Why We Added Rebuildable JSONL Index Snapshots
+Adopted:
+- `events.jsonl.checkpoint.index.json`
+- `runs.jsonl.summary.index.json`
+
+Reasoning:
+- Prevent startup/runtime-status reads from growing linearly with long-lived JSONL files.
+- Keep source-of-truth as append-only JSONL while allowing fast warm reads.
+- Preserve recoverability: indexes are derivable caches, not authoritative state.
+
+## 14. Why Guard-Path Exceptions Converge to `RunResult`
+Adopted:
+- `run_once_with_guard` unhandled errors are recorded through `report_unhandled_exception` as persisted `source_failed` + `RunResult`.
+
+Reasoning:
+- Avoid split operational policies between "normal failure path" and "unhandled path".
+- Keep incident lifecycle, summaries, and alerting on a single contract surface.
+
+## 15. Why Incident Memory Suppression Moved off Module Globals
+Adopted:
+- in-memory suppression map is runtime-scoped (`RuntimeConfig`) instead of mutable module-global state.
+
+Reasoning:
+- Improve test isolation and future multi-runtime safety.
+- Reduce hidden shared state and fixture-only cleanup dependency.
+
+## 16. Why Discord Dedupe Lock Became Fail-Fast
+Adopted:
+- require `fcntl` for dedupe file-lock path; unsupported platforms fail fast and surface via health-check (`dedupe_lock_supported`).
+
+Reasoning:
+- Silent lock degradation can create hard-to-debug duplicate notification behavior.
+- Explicit incompatibility signaling is safer for operations than best-effort locking on unsupported platforms.

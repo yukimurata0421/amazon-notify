@@ -354,6 +354,7 @@ def run_streaming_pull(
                             consecutive_failures,
                             base_delay=trigger_failure_base_delay_seconds,
                             max_delay=trigger_failure_max_delay_seconds,
+                            jitter_ratio=0.1,
                         )
                         if stop_event.wait(delay):
                             break

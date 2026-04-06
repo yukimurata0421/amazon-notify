@@ -24,8 +24,11 @@ Note: the `main` branch may be ahead of the latest GitHub Release.
 
 - Ordered-frontier processing (oldest-first, stop on midstream failure)
 - Checkpoint source of truth in `events.jsonl`, with `state.json` compatibility snapshots and `runs.jsonl` audit logs
+- Rebuildable index snapshots (`events.jsonl.checkpoint.index.json`, `runs.jsonl.summary.index.json`) to keep startup/runtime-status reads fast on long-lived files
 - Retry and recovery handling for transient Gmail/Discord failures
 - Transient-failure alert boundary with persistence threshold and cooldown
+- Unhandled guard-path exceptions are normalized into persisted `RunResult`/`source_failed` records
+- Discord dedupe lock is fail-fast on non-`fcntl` platforms (also exposed via `--health-check` as `dedupe_lock_supported`)
 - Realtime mode with Pub/Sub StreamingPull
 - In-process StreamingPull self-healing:
   - trigger failure backoff/circuit-breaker
@@ -54,6 +57,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install .
 cp config.example.json config.json
+# use config.full.example.json if you need Pub/Sub / advanced retry knobs
 ```
 
 1. Set `discord_webhook_url` in `config.json`
@@ -88,6 +92,26 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 amazon-notify --once --fallback-watchdog
 ```
 
+## Try With Thin Docker
+
+```bash
+docker build -t amazon-notify:slim .
+docker run --rm amazon-notify:slim --help
+docker run --rm -v "$(pwd):/work" amazon-notify:slim --config /work/config.json --validate-config
+docker run --rm -v "$(pwd):/work" amazon-notify:slim --config /work/config.json --once --dry-run
+```
+
+Positioning:
+- Primary production path: Linux single-host + systemd-first operations.
+- Docker path: quick evaluation, reproducible local testing, and portability proof for the CLI/runtime boundary.
+
+Scope note: this thin image is for CLI bring-up only. It does not include `systemd`, hybrid HA/watchdog orchestration, multi-container operations, or production secret/monitoring design.
+
+## Health Check Notes
+
+- `amazon-notify --health-check` includes `dedupe_lock_supported`.
+- On platforms without `fcntl`, this check becomes `false` and dedupe lock paths are treated as unsupported (fail-fast).
+
 ## Optional Dependencies
 
 Pub/Sub mode:
@@ -108,12 +132,14 @@ pip install -e .[dev]
 - Portability parameters (environment-dependent values): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
 - Operations runbook (English): [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
 - Operations runbook (Japanese): [docs/OPERATIONS.md](./docs/OPERATIONS.md)
+- Thin Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
+- Thin Docker guide (Japanese): [docs/DOCKER.md](./docs/DOCKER.md)
 - Hybrid architecture and failover design (detailed): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - Engineering decisions and design rationale (English): [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - Engineering decisions and design rationale (Japanese): [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - Implementation rationale (why these choices were made): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - Japanese full README: [README.ja.md](./README.ja.md)
-- Language policy: operations and engineering-decision docs are maintained in both English (`*.en.md`) and Japanese (`*.md`). This README prioritizes English links and also includes Japanese counterparts.
+- Language policy: operations, Docker, and engineering-decision docs are maintained in both English (`*.en.md`) and Japanese (`*.md`). This README prioritizes English links and also includes Japanese counterparts.
 - Optional structured logging (`structured_logging=true`) is supported.
 
 ## Security
@@ -125,7 +151,12 @@ Do not commit local runtime files:
 - `config.json`
 - `state.json`
 - `events.jsonl`
+- `events.jsonl.checkpoint.index.json`
 - `runs.jsonl`
+- `runs.jsonl.summary.index.json`
+- `.state.json.lock`
+- `.discord_dedupe_state.json`
+- `.discord_dedupe_state.lock`
 - `logs/`
 
 ## License

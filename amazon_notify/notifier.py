@@ -1,13 +1,10 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Iterable
-from dataclasses import dataclass, field
-from pathlib import Path
+import uuid
+from dataclasses import dataclass
 from re import Pattern
-from typing import Any, TypeVar
 
-from .backoff import next_delay_seconds
 from .checkpoint_store import JsonlCheckpointStore
 from .config import LOGGER, RuntimePaths, get_runtime_paths, load_state
 from .discord_client import (
@@ -17,16 +14,10 @@ from .discord_client import (
 )
 from .domain import (
     AuthStatus,
-    Checkpoint,
+    FailureKind,
     MailEnvelope,
     NotificationCandidate,
     RunResult,
-)
-from .errors import (
-    MessageDecodeError,
-    PermanentAuthError,
-    SourceError,
-    TransientSourceError,
 )
 from .gmail_client import (
     HttpError,
@@ -39,222 +30,19 @@ from .gmail_client import (
     notify_recovery_if_needed,
     record_transient_issue,
 )
+from .gmail_source import GmailMailSource
 from .pipeline import NotificationPipeline
 from .runtime import RuntimeConfig
 from .text import (
     build_gmail_message_url,
-    decode_mime_words,
     extract_email_address,
     is_amazon_mail,
 )
+from .time_utils import utc_now_iso
 
-T = TypeVar("T")
 _INCIDENT_MEMORY_SUPPRESSION_SECONDS = 1800.0
-_INCIDENT_MEMORY_SUPPRESSED_UNTIL: dict[str, float] = {}
-
-
-@dataclass
-class GmailMailSource:
-    discord_webhook_url: str
-    state: dict
-    state_file: Path
-    dry_run: bool
-    gmail_api_max_retries: int
-    gmail_api_base_delay_seconds: float
-    gmail_api_max_delay_seconds: float
-    runtime_paths: RuntimePaths
-    transient_alert_min_duration_seconds: float
-    transient_alert_cooldown_seconds: float
-    auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
-
-    def get_auth_status(self) -> AuthStatus:
-        return self.auth_status
-
-    def notify_recovery_if_needed(self) -> None:
-        if self.dry_run:
-            return
-        notify_recovery_if_needed(self.discord_webhook_url, self.state, self.state_file)
-
-    def mark_transient_issue(self, err: Exception | str) -> None:
-        if self.dry_run:
-            return
-        message = (
-            "一時的な通信障害が継続しています。しばらく自動再試行を続けます。\n"
-            f"エラー: {err}"
-        )
-        record_transient_issue(
-            self.state,
-            self.state_file,
-            err,
-            webhook_url=self.discord_webhook_url,
-            alert_message=message,
-            min_alert_duration_seconds=self.transient_alert_min_duration_seconds,
-            alert_cooldown_seconds=self.transient_alert_cooldown_seconds,
-        )
-
-    def _call_gmail_api_with_retry(self, operation_name: str, fn: Callable[[], T]) -> T:
-        if self.gmail_api_max_retries < 1:
-            raise ValueError("gmail_api_max_retries must be >= 1")
-
-        last_exc: Exception | None = None
-        for attempt in range(1, self.gmail_api_max_retries + 1):
-            try:
-                return fn()
-            except Exception as exc:
-                last_exc = exc
-                should_retry = is_transient_network_error(exc) or is_retryable_http_error(exc)
-                if (not should_retry) or attempt == self.gmail_api_max_retries:
-                    break
-                delay = next_delay_seconds(
-                    attempt,
-                    base_delay=self.gmail_api_base_delay_seconds,
-                    max_delay=self.gmail_api_max_delay_seconds,
-                )
-                LOGGER.warning(
-                    "GMAIL_API_RETRY: op=%s attempt=%s/%s retry_in=%.2fs error=%s",
-                    operation_name,
-                    attempt,
-                    self.gmail_api_max_retries,
-                    delay,
-                    exc,
-                )
-                time.sleep(delay)
-
-        assert last_exc is not None
-        raise last_exc
-
-    def iter_new_messages(self, checkpoint: Checkpoint, max_messages: int) -> Iterable[MailEnvelope]:
-        # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
-        service, status = get_gmail_service_with_status(
-            webhook_url=None if self.dry_run else self.discord_webhook_url,
-            state=None if self.dry_run else self.state,
-            state_file=None if self.dry_run else self.state_file,
-            paths=self.runtime_paths,
-            transient_alert_min_duration_seconds=self.transient_alert_min_duration_seconds,
-            transient_alert_cooldown_seconds=self.transient_alert_cooldown_seconds,
-        )
-        self.auth_status = status
-        if service is None:
-            if status in {
-                AuthStatus.REFRESH_TRANSIENT_FAILURE,
-                AuthStatus.SERVICE_BUILD_TRANSIENT_FAILURE,
-            }:
-                raise TransientSourceError(
-                    f"Gmail service 一時障害: auth_status={status.value}"
-                )
-            raise PermanentAuthError(
-                f"Gmail service が利用できません。auth_status={status.value}"
-            )
-
-        list_page_size = min(500, max(max_messages, 100))
-
-        def _safe_fetch_page(page_token: str | None) -> tuple[list[dict[str, str]], str | None]:
-            try:
-                # 単体テスト互換: service stub が users() を持たない場合は旧 helper を使う。
-                if page_token is None and not hasattr(service, "users"):
-                    def _list_recent_compat() -> list[dict[str, str]]:
-                        return list_recent_messages(
-                            service,
-                            query="in:inbox",
-                            max_results=max_messages,
-                        )
-
-                    messages_compat = self._call_gmail_api_with_retry(
-                        "list_recent_messages",
-                        _list_recent_compat,
-                    )
-                    return messages_compat, None
-
-                def _list_page(_page_token: str | None = page_token) -> tuple[list[dict[str, str]], str | None]:
-                    return list_recent_messages_page(
-                        service,
-                        query="in:inbox",
-                        max_results=list_page_size,
-                        page_token=_page_token,
-                    )
-
-                return self._call_gmail_api_with_retry("list_recent_messages", _list_page)
-            except Exception as exc:
-                if isinstance(exc, HttpError):
-                    if is_retryable_http_error(exc):
-                        raise TransientSourceError(f"Gmail API 一時エラー: {exc}") from exc
-                    raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
-                if is_transient_network_error(exc):
-                    raise TransientSourceError(str(exc)) from exc
-                raise SourceError(f"Gmail API 予期しないエラー: {exc}") from exc
-
-        pending_messages: list[dict[str, str]] = []
-        page_token: str | None = None
-        checkpoint_found = checkpoint.message_id is None
-        scanned_messages = 0
-        page_count = 0
-
-        while True:
-            messages, next_page_token = _safe_fetch_page(page_token)
-            page_count += 1
-
-            if not messages:
-                if page_count == 1:
-                    LOGGER.info("RUN_ONCE_NO_MESSAGES")
-                break
-
-            for msg_meta in messages:
-                msg_id = msg_meta["id"]
-                if checkpoint.message_id and msg_id == checkpoint.message_id:
-                    checkpoint_found = True
-                    break
-                pending_messages.append(msg_meta)
-                scanned_messages += 1
-
-            if checkpoint_found:
-                break
-            if next_page_token is None:
-                break
-            page_token = next_page_token
-
-        if checkpoint.message_id and not checkpoint_found:
-            raise SourceError(
-                "checkpoint_not_found_in_listing: "
-                f"checkpoint={checkpoint.message_id} scanned={scanned_messages} pages={page_count}"
-            )
-
-        if not pending_messages:
-            LOGGER.info("RUN_ONCE_NO_NEW_MESSAGES")
-            return
-
-        pending_messages.reverse()
-        if len(pending_messages) > max_messages:
-            LOGGER.warning(
-                "RUN_ONCE_PENDING_TRUNCATED_FRONTIER: pending=%s max_messages=%s",
-                len(pending_messages),
-                max_messages,
-            )
-            pending_messages = pending_messages[:max_messages]
-
-        for msg_meta in pending_messages:
-            msg_id = msg_meta["id"]
-            try:
-                def _get_detail(_message_id: str = msg_id) -> dict[str, Any]:
-                    return get_message_detail(service, _message_id)
-
-                msg = self._call_gmail_api_with_retry(
-                    "get_message_detail",
-                    _get_detail,
-                )
-            except Exception as exc:
-                raise MessageDecodeError(
-                    f"メッセージ詳細の取得に失敗しました: {exc}",
-                    msg_id,
-                ) from exc
-
-            headers = msg.get("payload", {}).get("headers", [])
-            header_dict = {header["name"]: header["value"] for header in headers}
-            yield MailEnvelope(
-                message_id=msg_id,
-                subject=decode_mime_words(header_dict.get("Subject", "(no subject)")),
-                from_header=decode_mime_words(header_dict.get("From", "(unknown)")),
-                snippet=msg.get("snippet", ""),
-            )
+# Backward-compatible symbol export for existing tests/integrations.
+_AUTH_STATUS_SYMBOL = AuthStatus
 
 
 @dataclass
@@ -311,6 +99,7 @@ def _handle_incident_lifecycle(
     discord_webhook_url: str,
     dry_run: bool,
     result: RunResult,
+    incident_memory_suppressed_until: dict[str, float],
 ) -> None:
     active_incident = checkpoint_store.load_incident_state()
     active_kind = active_incident["kind"] if active_incident else None
@@ -319,7 +108,7 @@ def _handle_incident_lifecycle(
     if result.failure_kind is not None and result.should_alert and not dry_run and discord_webhook_url:
         assert failure_kind is not None
         now_epoch = time.time()
-        suppressed_until = _INCIDENT_MEMORY_SUPPRESSED_UNTIL.get(failure_kind)
+        suppressed_until = incident_memory_suppressed_until.get(failure_kind)
         if suppressed_until is not None and now_epoch < suppressed_until:
             LOGGER.warning(
                 "INCIDENT_ALERT_SUPPRESSED_IN_MEMORY: kind=%s remaining=%.1fs",
@@ -334,7 +123,7 @@ def _handle_incident_lifecycle(
                     kind=failure_kind,
                     run_id=result.run_id,
                 )
-                _INCIDENT_MEMORY_SUPPRESSED_UNTIL.pop(failure_kind, None)
+                incident_memory_suppressed_until.pop(failure_kind, None)
             except OSError as exc:
                 LOGGER.error(
                     "INCIDENT_SUPPRESS_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
@@ -342,7 +131,7 @@ def _handle_incident_lifecycle(
                     failure_kind,
                     exc,
                 )
-                _INCIDENT_MEMORY_SUPPRESSED_UNTIL[failure_kind] = (
+                incident_memory_suppressed_until[failure_kind] = (
                     now_epoch + _INCIDENT_MEMORY_SUPPRESSION_SECONDS
                 )
             return
@@ -359,7 +148,7 @@ def _handle_incident_lifecycle(
                     opened_at=result.ended_at,
                     run_id=result.run_id,
                 )
-                _INCIDENT_MEMORY_SUPPRESSED_UNTIL.pop(failure_kind, None)
+                incident_memory_suppressed_until.pop(failure_kind, None)
             except OSError as exc:
                 LOGGER.error(
                     "INCIDENT_OPEN_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
@@ -367,7 +156,7 @@ def _handle_incident_lifecycle(
                     failure_kind,
                     exc,
                 )
-                _INCIDENT_MEMORY_SUPPRESSED_UNTIL[failure_kind] = (
+                incident_memory_suppressed_until[failure_kind] = (
                     now_epoch + _INCIDENT_MEMORY_SUPPRESSION_SECONDS
                 )
         return
@@ -393,6 +182,13 @@ def _handle_incident_lifecycle(
                 )
 
 
+def _incident_memory_map(runtime: RuntimeConfig) -> dict[str, float]:
+    candidate = getattr(runtime, "incident_memory_suppressed_until", None)
+    if isinstance(candidate, dict):
+        return candidate
+    return {}
+
+
 def run_once(runtime: RuntimeConfig) -> RunResult:
     discord_webhook_url = runtime.discord_webhook_url
     amazon_pattern = runtime.amazon_pattern
@@ -403,6 +199,7 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
     events_file = runtime.events_file
     runs_file = runtime.runs_file
     runtime_paths_raw = runtime.runtime_paths
+    incident_memory_suppressed_until = _incident_memory_map(runtime)
 
     state = load_state(state_file)
     LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
@@ -424,6 +221,15 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
         runtime_paths=runtime_paths,
         transient_alert_min_duration_seconds=runtime.transient_alert_min_duration_seconds,
         transient_alert_cooldown_seconds=runtime.transient_alert_cooldown_seconds,
+        get_gmail_service_with_status_fn=get_gmail_service_with_status,
+        list_recent_messages_fn=list_recent_messages,
+        list_recent_messages_page_fn=list_recent_messages_page,
+        get_message_detail_fn=get_message_detail,
+        notify_recovery_if_needed_fn=notify_recovery_if_needed,
+        record_transient_issue_fn=record_transient_issue,
+        is_retryable_http_error_fn=is_retryable_http_error,
+        is_transient_network_error_fn=is_transient_network_error,
+        http_error_type=HttpError,
     )
     classifier = RegexClassifier(
         amazon_pattern=amazon_pattern,
@@ -456,6 +262,7 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
         discord_webhook_url=discord_webhook_url,
         dry_run=dry_run,
         result=result,
+        incident_memory_suppressed_until=incident_memory_suppressed_until,
     )
 
     if result.notified_count == 0:
@@ -469,4 +276,70 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
             result.notified_count,
             result.non_target_count,
         )
+    return result
+
+
+def report_unhandled_exception(runtime: RuntimeConfig, exc: Exception) -> RunResult:
+    checkpoint_store = JsonlCheckpointStore(
+        state_file=runtime.state_file,
+        events_file=runtime.events_file,
+        runs_file=runtime.runs_file,
+    )
+    checkpoint_before: str | None = None
+    try:
+        checkpoint_before = checkpoint_store.load_checkpoint().message_id
+    except Exception as checkpoint_exc:
+        LOGGER.error(
+            "UNHANDLED_EXCEPTION_CHECKPOINT_LOAD_FAILED: error=%s",
+            checkpoint_exc,
+        )
+
+    now = utc_now_iso()
+    result = RunResult(
+        run_id=uuid.uuid4().hex,
+        started_at=now,
+        ended_at=now,
+        checkpoint_before=checkpoint_before,
+        checkpoint_after=checkpoint_before,
+        processed_count=0,
+        matched_count=0,
+        notified_count=0,
+        non_target_count=0,
+        failure_kind=FailureKind.SOURCE_FAILED,
+        failure_message=str(exc),
+        failure_message_id=None,
+        should_retry=True,
+        should_alert=True,
+        auth_status=None,
+    )
+
+    try:
+        checkpoint_store.append_event(
+            "source_failed",
+            result.run_id,
+            {"error": str(exc), "source": "run_once_guard"},
+        )
+    except OSError as record_exc:
+        LOGGER.error(
+            "UNHANDLED_EXCEPTION_EVENT_PERSIST_FAILED: run_id=%s error=%s",
+            result.run_id,
+            record_exc,
+        )
+
+    try:
+        checkpoint_store.append_run_result(result)
+    except Exception as persist_exc:
+        LOGGER.error(
+            "UNHANDLED_EXCEPTION_RUN_RESULT_PERSIST_FAILED: run_id=%s error=%s",
+            result.run_id,
+            persist_exc,
+        )
+
+    _handle_incident_lifecycle(
+        checkpoint_store=checkpoint_store,
+        discord_webhook_url=runtime.discord_webhook_url,
+        dry_run=runtime.dry_run,
+        result=result,
+        incident_memory_suppressed_until=_incident_memory_map(runtime),
+    )
     return result

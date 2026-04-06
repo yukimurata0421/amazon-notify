@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 - Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
+- Set the next intended release cut to `0.4.0` to group runtime-state model upgrades (checkpoint/run-summary indices, guard-path normalization, and incident-memory refactor) into one semantically-visible update.
 - Added lock/state runtime artifact ignores for dedupe coordination files (`.state.json.lock`, `.discord_dedupe_state.json`, `.discord_dedupe_state.lock`).
 - Hardened Discord dedupe-state parsing/pruning to explicitly drop malformed inflight entries (no dangling owner-only entries).
 - Added paginated Gmail listing for polling catch-up and fail-safe behavior when the checkpoint is not found in listing results, so checkpoint advancement never skips unseen frontier messages under backlog pressure.
@@ -13,6 +14,9 @@ All notable changes to this project will be documented in this file.
 - Switched `record_transient_issue` negative threshold handling from exception-fail to warning+clamp (`<0` -> `0`) for defensive resilience against bad runtime values.
 - Documented silent-clear behavior in operations docs (no recovery notification when transient alert threshold was never crossed).
 - Clarified README platform assumptions (`Linux`/single-host/systemd-first) and OAuth-browser completion step in quickstart.
+- Expanded English/Japanese operations/design docs to cover runtime index snapshots, guard-path `RunResult` convergence, dedupe lock fail-fast semantics, and health-check lock support signaling.
+- Added a thin Docker runtime baseline (`Dockerfile`, `.dockerignore`, and English/Japanese Docker guides) focused on CLI bring-up (`--help`, `--validate-config`, `--once --dry-run`) without systemd/hybrid/watchdog orchestration scope.
+- Clarified Docker positioning as a supplemental quick-evaluation path (portability/reproducibility aid), while keeping Linux single-host + systemd-first as the primary operations stance.
 - Narrowed CI default permissions to `contents: read` and scoped `contents: write` to the test job that updates the coverage badge.
 
 ### Tests

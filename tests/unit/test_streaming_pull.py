@@ -1,4 +1,5 @@
 import json
+import threading
 import time
 from pathlib import Path
 
@@ -90,6 +91,8 @@ def test_run_streaming_pull_processes_messages_and_updates_heartbeat(monkeypatch
         def ack(self) -> None:
             self.acked = True
 
+    trigger_seen = threading.Event()
+
     class _FakeFuture:
         def __init__(self, callback, messages):
             self._callback = callback
@@ -99,7 +102,7 @@ def test_run_streaming_pull_processes_messages_and_updates_heartbeat(monkeypatch
         def result(self) -> None:
             for message in self._messages:
                 self._callback(message)
-            time.sleep(0.2)
+            trigger_seen.wait(timeout=1.0)
             raise RuntimeError("stop stream")
 
         def cancel(self) -> None:
@@ -143,7 +146,7 @@ def test_run_streaming_pull_processes_messages_and_updates_heartbeat(monkeypatch
     with pytest.raises(RuntimeError, match="stop stream"):
         streaming_pull.run_streaming_pull(
             subscription_path="projects/p/subscriptions/s",
-            on_trigger=lambda: triggers.append(True) or True,
+            on_trigger=lambda: trigger_seen.set() or triggers.append(True) or True,
             queue_size=32,
             flow_control_max_messages=10,
             heartbeat_file=heartbeat_file,
@@ -174,7 +177,6 @@ def test_run_streaming_pull_skips_invalid_message_payload(monkeypatch) -> None:
 
         def result(self) -> None:
             self._callback(_BadMessage())
-            time.sleep(0.1)
             raise RuntimeError("stop stream")
 
         def cancel(self) -> None:

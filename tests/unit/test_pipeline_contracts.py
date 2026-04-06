@@ -360,7 +360,7 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("state disk full")),
     )
     monkeypatch.setattr(notifier.time, "time", lambda: 1_000.0)
-    monkeypatch.setattr(notifier, "_INCIDENT_MEMORY_SUPPRESSED_UNTIL", {})
+    runtime.incident_memory_suppressed_until.clear()
 
     notifier.run_once(runtime)
     notifier.run_once(runtime)

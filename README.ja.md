@@ -23,8 +23,11 @@ English README: [README.md](./README.md)
 
 - Ordered Frontier（oldest-first、途中失敗時はそこで停止）
 - `events.jsonl` を checkpoint 正本とし、`state.json` は互換スナップショット、`runs.jsonl` は監査ログとして運用
+- 長期運用でも起動/状態読み取りコストを抑えるため、再生成可能な index snapshot（`events.jsonl.checkpoint.index.json`、`runs.jsonl.summary.index.json`）を併用
 - Gmail/Discord の一時障害に対するリトライと復旧通知
 - 一時障害アラートの境界制御（継続時間しきい値 + クールダウン）
+- guard 経路の未処理例外を `RunResult` / `source_failed` として永続化し、障害経路を一本化
+- `fcntl` 非対応環境では Discord dedupe lock を fail-fast し、`--health-check` の `dedupe_lock_supported` で可視化
 - Pub/Sub StreamingPull によるリアルタイム通知
 - StreamingPull の自己復旧（systemd 依存を最小化）:
   - trigger 失敗時の指数バックオフ + 連続失敗しきい値
@@ -53,6 +56,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install .
 cp config.example.json config.json
+# Pub/Sub や詳細パラメータを使う場合は config.full.example.json をベースにしてください
 ```
 
 1. `config.json` の `discord_webhook_url` を設定
@@ -87,6 +91,26 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 amazon-notify --once --fallback-watchdog
 ```
 
+## 薄い Docker で試す
+
+```bash
+docker build -t amazon-notify:slim .
+docker run --rm amazon-notify:slim --help
+docker run --rm -v "$(pwd):/work" amazon-notify:slim --config /work/config.json --validate-config
+docker run --rm -v "$(pwd):/work" amazon-notify:slim --config /work/config.json --once --dry-run
+```
+
+位置づけ:
+- 本番主系: Linux 単一ホスト + systemd-first 運用。
+- Docker: クイック評価・再現テスト・CLI/runtime 境界の portability proof 用の補助導線。
+
+補足: この薄いイメージは CLI 起動確認用です。`systemd`、hybrid HA/watchdog、複数コンテナ構成、本番 secret/監視設計はスコープ外です。
+
+## ヘルスチェック補足
+
+- `amazon-notify --health-check` に `dedupe_lock_supported` が含まれます。
+- `fcntl` 非対応環境では `false` となり、dedupe lock 経路は非対応として fail-fast 動作になります。
+
 ## 追加依存
 
 Pub/Sub を使う場合:
@@ -107,12 +131,14 @@ pip install -e .[dev]
 - 環境依存パラメータ一覧（移植チェックリスト）: [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - 運用手順（英語）: [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
+- 薄い Docker ガイド: [docs/DOCKER.md](./docs/DOCKER.md)
+- Thin Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
 - ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
 - 設計判断と根拠: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - 設計判断と根拠（英語）: [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - 実装判断の意図（なぜこの選択をしたか）: [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - 英語版 README: [README.md](./README.md)
-- 言語ポリシー: 運用/設計ドキュメントは英語版（`*.en.md`）と日本語版（`*.md`）を併記しています。この README では日本語版を優先しつつ英語版も併記しています。
+- 言語ポリシー: 運用/Docker/設計ドキュメントは英語版（`*.en.md`）と日本語版（`*.md`）を併記しています。この README では日本語版を優先しつつ英語版も併記しています。
 - `structured_logging=true` で JSON 構造化ログを有効化できます。
 
 ## セキュリティ
@@ -124,7 +150,12 @@ pip install -e .[dev]
 - `config.json`
 - `state.json`
 - `events.jsonl`
+- `events.jsonl.checkpoint.index.json`
 - `runs.jsonl`
+- `runs.jsonl.summary.index.json`
+- `.state.json.lock`
+- `.discord_dedupe_state.json`
+- `.discord_dedupe_state.lock`
 - `logs/`
 
 ## ライセンス

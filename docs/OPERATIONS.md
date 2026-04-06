@@ -9,6 +9,7 @@
 1. `python3 -m venv .venv && source .venv/bin/activate`
 2. `pip install .`
 3. `cp config.example.json config.json`
+   - Pub/Sub や詳細な retry/backoff 設定が必要な場合は `config.full.example.json` をベースにします。
 4. `config.json` の `discord_webhook_url` を設定
 5. `credentials.json` を `config.json` と同じディレクトリに配置
 6. `amazon-notify --reauth` で `token.json` を作成
@@ -31,9 +32,19 @@
 - モジュール実行: `python -m amazon_notify.cli`
 - `amazon_subject_pattern` が不正な正規表現なら、起動時にエラーを表示して終了します。
 - `state_file`、`events_file`、`runs_file`、`log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
+- runtime で派生生成される次のファイルはローカル運用前提です（Git 管理対象外）。
+  - `events.jsonl.checkpoint.index.json`
+  - `runs.jsonl.summary.index.json`
+  - `.state.json.lock`
+  - `.discord_dedupe_state.json`
+  - `.discord_dedupe_state.lock`
 - Pub/Sub を使う場合は追加で `pip install .[pubsub]` を実行します。
 - `transient_alert_min_duration_seconds` と `transient_alert_cooldown_seconds` で一時障害アラート境界を調整できます。
 - `structured_logging=true` にすると JSON 形式でログを出力します。
+
+## ヘルスチェック補足
+- `amazon-notify --health-check` は `dedupe_lock_supported` を返します。
+- `dedupe_lock_supported=false` の場合、現在の実行環境では `fcntl` ベース lock が使えず、Discord dedupe lock 経路は非対応です。
 
 ## v0.3.0 移行仕様
 - checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
@@ -69,6 +80,9 @@
 - `auth_failed` が出たら:
   - `amazon-notify --reauth`
   - `token.json` と `credentials.json` の配置を確認
+- `source_failed` が出たら:
+  - source 側障害、または `run_once_with_guard` 経路の未処理例外が `RunResult`/event に収束したケースです
+  - `runs.jsonl` の `failure_message` と `events.jsonl` (`source_failed`) を合わせて確認
 - transient 障害が短時間で自己復旧した場合:
   - しきい値未到達で alert 未送信のケースは recovery 通知も送信されません（silent clear）。
 - checkpoint が進まないとき:
@@ -203,6 +217,7 @@ sudo journalctl -u amazon-notify-fallback.service -f
 
 ## 運用メモ
 - `max_messages` は 1 監視周期あたりの最大流入数より大きくしてください。
+- Discord dedupe の lock 前提は Linux + `fcntl` です。非対応環境では fail-fast で停止します。
 - StreamingPull の自己復旧パラメータ:
   - `pubsub_trigger_failure_max_consecutive`
   - `pubsub_trigger_failure_base_delay_seconds`

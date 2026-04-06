@@ -12,14 +12,14 @@ from .commands import polling as polling_command
 from .commands import reauth as reauth_command
 from .commands import streaming as streaming_command
 from .commands import watch as watch_command
-from .discord_client import send_discord_alert, send_discord_test
+from .discord_client import send_discord_test
 from .failover import evaluate_failover_watchdog
 from .gmail_client import (
     get_gmail_service_with_status,
     run_oauth_flow,
     start_gmail_watch_with_retry,
 )
-from .notifier import run_once
+from .notifier import report_unhandled_exception, run_once
 from .runtime import RuntimeConfig, looks_like_discord_webhook_url
 from .runtime import build_runtime as build_runtime_impl
 from .runtime import compile_optional_pattern as compile_optional_pattern_impl
@@ -33,10 +33,6 @@ def compile_optional_pattern(pattern: str | None, config_key: str):
     except ValueError as exc:
         _stderr_error(str(exc))
         sys.exit(1)
-
-
-def build_runtime(config: dict, dry_run: bool = False) -> RuntimeConfig:
-    return build_runtime_impl(config, paths=app_config.get_runtime_paths(), dry_run=dry_run)
 
 
 def _stderr_error(message: str) -> None:
@@ -62,11 +58,12 @@ def load_config_or_exit() -> dict:
 
 
 def load_config_for_health_check() -> tuple[dict | None, list[str]]:
-    return health_command.load_config_for_health_check(validate_config=validate_config)
-
-
-def validate_config(config: dict) -> list[str]:
-    return validate_config_impl(config, paths=app_config.get_runtime_paths())
+    return health_command.load_config_for_health_check(
+        validate_config=lambda config: validate_config_impl(
+            config,
+            paths=app_config.get_runtime_paths(),
+        )
+    )
 
 
 def run_health_check(config: dict | None, validation_errors: list[str]) -> int:
@@ -89,10 +86,12 @@ def run_once_with_guard(runtime: RuntimeConfig) -> bool:
         return True
     except Exception as exc:
         app_config.LOGGER.exception("RUN_ONCE_UNHANDLED_EXCEPTION: %s", exc)
-        if runtime.discord_webhook_url and not runtime.dry_run:
-            send_discord_alert(
-                runtime.discord_webhook_url,
-                f"未処理例外を検知しました。次周期で再試行します。\nエラー: {exc}",
+        try:
+            report_unhandled_exception(runtime, exc)
+        except Exception as report_exc:
+            app_config.LOGGER.exception(
+                "UNHANDLED_EXCEPTION_REPORT_FAILED: %s",
+                report_exc,
             )
         return False
 
@@ -290,7 +289,7 @@ def main() -> None:
         return
 
     config = load_config_or_exit()
-    validation_errors = validate_config(config)
+    validation_errors = validate_config_impl(config, paths=app_config.get_runtime_paths())
 
     if handle_validate_config(args, validation_errors):
         return
@@ -331,7 +330,11 @@ def main() -> None:
         handle_setup_watch(args, config)
         return
 
-    runtime = build_runtime(config, dry_run=args.dry_run)
+    runtime = build_runtime_impl(
+        config,
+        paths=app_config.get_runtime_paths(),
+        dry_run=args.dry_run,
+    )
     heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name = (
         resolve_watchdog_options(args, runtime)
     )

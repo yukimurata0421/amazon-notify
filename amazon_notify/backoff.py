@@ -1,19 +1,33 @@
 from __future__ import annotations
 
+import random
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 
-def next_delay_seconds(attempt: int, *, base_delay: float, max_delay: float) -> float:
+def next_delay_seconds(
+    attempt: int,
+    *,
+    base_delay: float,
+    max_delay: float,
+    jitter_ratio: float = 0.0,
+) -> float:
     if attempt < 1:
         raise ValueError("attempt must be >= 1")
     if base_delay <= 0:
         raise ValueError("base_delay must be > 0")
     if max_delay <= 0:
         raise ValueError("max_delay must be > 0")
+    if jitter_ratio < 0:
+        raise ValueError("jitter_ratio must be >= 0")
 
     delay = base_delay * (2 ** (attempt - 1))
-    return min(delay, max_delay)
+    capped_delay = min(delay, max_delay)
+    if jitter_ratio == 0 or capped_delay >= max_delay:
+        return capped_delay
+
+    jitter = random.uniform(0.0, capped_delay * jitter_ratio)
+    return min(capped_delay + jitter, max_delay)
 
 
 def parse_retry_after_seconds(header_value: str | None) -> float | None:

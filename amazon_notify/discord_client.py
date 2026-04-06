@@ -41,6 +41,26 @@ try:
 except ModuleNotFoundError:
     fcntl = None  # type: ignore[assignment]
 
+_LOCK_SUPPORT_WARNING_EMITTED = False
+
+
+def has_dedupe_file_lock_support() -> bool:
+    return fcntl is not None
+
+
+def _ensure_dedupe_lock_supported() -> None:
+    global _LOCK_SUPPORT_WARNING_EMITTED
+    if has_dedupe_file_lock_support():
+        return
+    if not _LOCK_SUPPORT_WARNING_EMITTED:
+        LOGGER.error(
+            "DISCORD_DEDUPE_LOCK_UNSUPPORTED: fcntl が利用できない環境です。"
+            " dedupe lock は無効化され、重複通知抑止はベストエフォートになります。"
+            " Linux 単一ホスト運用を推奨します。"
+        )
+        _LOCK_SUPPORT_WARNING_EMITTED = True
+    raise OSError("fcntl is unavailable; discord dedupe lock is not supported on this platform")
+
 
 def _discord_dedupe_state_path() -> Path:
     return get_runtime_paths().runtime_dir / _DEDUPE_STATE_FILENAME
@@ -48,16 +68,16 @@ def _discord_dedupe_state_path() -> Path:
 
 @contextmanager
 def _discord_dedupe_lock(state_path: Path):
+    _ensure_dedupe_lock_supported()
     lock_path = state_path.parent / _DEDUPE_LOCK_FILENAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock_handle:
-        if fcntl is not None:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        assert fcntl is not None
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
         try:
             yield
         finally:
-            if fcntl is not None:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
 
 
 def _read_dedupe_entries(state_path: Path) -> dict[str, dict[str, float | str]]:
@@ -102,8 +122,10 @@ def _read_dedupe_entries(state_path: Path) -> dict[str, dict[str, float | str]]:
         if has_valid_inflight_until and isinstance(inflight_owner, str) and inflight_owner:
             entry["inflight_owner"] = inflight_owner
 
-        if entry:
-            entries[key] = entry
+        if not entry:
+            # 型不整合だけの壊れた entry はこの段階で破棄する。
+            continue
+        entries[key] = entry
     return entries
 
 

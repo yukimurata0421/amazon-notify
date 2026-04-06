@@ -197,3 +197,41 @@
 - append-only JSONL は「追記のみ」で非破壊性が高く、障害解析や監査時に履歴をそのまま追いやすい
 - このツールの要件では、RDB のテーブル分割・JOIN・複雑クエリが不要で、JSONL で十分に要件を満たせる
 - マネージドな Pub/Sub は trigger 経路として利用するが、永続ワークフローや再配送制御を担う自前基盤は導入しない
+
+## 13. JSONL index snapshot を追加した理由
+
+### 採用
+- `events.jsonl.checkpoint.index.json`
+- `runs.jsonl.summary.index.json`
+
+### 理由
+- 長期運用で JSONL 全走査コストが線形に伸びる問題を緩和するため。
+- 正本は append-only JSONL のまま維持しつつ、起動時/health 時の読み取りを高速化するため。
+- index は再生成可能な cache として扱い、正本性を持たせないため。
+
+## 14. guard 経路の未処理例外を `RunResult` に収束させた理由
+
+### 採用
+- `run_once_with_guard` の未処理例外を `report_unhandled_exception` 経由で `source_failed` event + `RunResult` として永続化する。
+
+### 理由
+- 「通常 failure path」と「未処理例外 path」で通知・状態更新ポリシーが二重化するのを避けるため。
+- incident lifecycle / run summary / alert 導線を同じ契約面に統一するため。
+
+## 15. incident のメモリ抑制を module global から外した理由
+
+### 採用
+- 抑制マップを mutable module global ではなく runtime スコープ（`RuntimeConfig`）で保持する。
+
+### 理由
+- テスト分離性を高め、fixture 依存の隠れた副作用を減らすため。
+- 将来の複数 runtime / 並行実行時の状態競合リスクを下げるため。
+
+## 16. Discord dedupe lock を fail-fast にした理由
+
+### 採用
+- `fcntl` が使えない環境では dedupe lock 経路を fail-fast とし、`--health-check` の `dedupe_lock_supported` で可視化する。
+
+### 理由
+- lock が静かに劣化すると、重複通知が断続的に発生して原因追跡が難しくなるため。
+- 非対応環境を明示したほうが運用上の誤解を減らせるため。

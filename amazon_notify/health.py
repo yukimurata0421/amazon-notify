@@ -7,6 +7,7 @@ from typing import Callable
 from . import config as app_config
 from .checkpoint_store import JsonlCheckpointStore
 from .config import RuntimePaths
+from .discord_client import has_dedupe_file_lock_support
 from .errors import CheckpointError
 from .runtime import DEFAULT_EVENTS_FILE_RELATIVE, DEFAULT_RUNS_FILE_RELATIVE
 from .time_utils import utc_now_iso
@@ -64,6 +65,14 @@ def run_health_check(
             "name": "token_file_exists",
             "ok": paths.token.exists(),
             "detail": str(paths.token),
+        }
+    )
+    lock_supported = has_dedupe_file_lock_support()
+    checks.append(
+        {
+            "name": "dedupe_lock_supported",
+            "ok": lock_supported,
+            "detail": "fcntl available" if lock_supported else "fcntl unavailable",
         }
     )
 

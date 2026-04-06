@@ -8,6 +8,7 @@ For design background, see `docs/HYBRID_ARCHITECTURE_JA.md` and `docs/engineerin
 1. `python3 -m venv .venv && source .venv/bin/activate`
 2. `pip install .`
 3. `cp config.example.json config.json`
+   - If you need Pub/Sub or advanced retry knobs, start from `config.full.example.json`.
 4. Set `discord_webhook_url` in `config.json`
 5. Place `credentials.json` next to `config.json`
 6. Run `amazon-notify --reauth`
@@ -25,12 +26,23 @@ For design background, see `docs/HYBRID_ARCHITECTURE_JA.md` and `docs/engineerin
 ## Runtime Files and Paths
 - Relative paths (`state_file`, `events_file`, `runs_file`, `log_file`) are resolved from the directory containing `config.json`.
 - Use `--config /path/to/config.json` when operating from another working directory.
+- Runtime-derived artifacts to keep local (do not commit):
+  - `events.jsonl.checkpoint.index.json`
+  - `runs.jsonl.summary.index.json`
+  - `.state.json.lock`
+  - `.discord_dedupe_state.json`
+  - `.discord_dedupe_state.lock`
+
+## Health Check Signals
+- `amazon-notify --health-check` includes `dedupe_lock_supported`.
+- If `dedupe_lock_supported=false`, file-lock-based Discord dedupe is unavailable on the current platform.
 
 ## Failure Handling Summary
 - `delivery_failed`: Discord send failed; checkpoint is not advanced.
 - `message_detail_failed`: message detail fetch failed; ordered frontier stops at failure point.
 - `auth_failed`: token/credential issue; run `amazon-notify --reauth`.
 - `checkpoint_failed`: persistence path failed (for example `events.jsonl`/`runs.jsonl` write failure).
+- `source_failed`: source/guard-path failure (including previously-unhandled `run_once_with_guard` errors) normalized into persisted run/event records.
 - Short-lived transient failures that never crossed the alert threshold are silently cleared, so no recovery notification is sent in that case.
 
 ## Disk Full / ENOSPC Operations
@@ -67,4 +79,5 @@ sudo journalctl -u amazon-notify-fallback.service -f
 
 ## Notes
 - Current implementation is single-host oriented.
+- Linux + `fcntl` is the supported lock environment for Discord dedupe coordination.
 - If you also have external monitoring (node exporter, cloud alerts), use those metrics as primary evidence and cross-check local app logs.

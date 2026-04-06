@@ -46,6 +46,7 @@ class RuntimeConfig:
     transient_alert_cooldown_seconds: float
     runtime_paths: RuntimePaths
     subject_pattern: Pattern[str] | None
+    incident_memory_suppressed_until: dict[str, float]
 
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)
@@ -117,6 +118,7 @@ class RuntimeConfig:
             ),
             runtime_paths=runtime_paths,
             subject_pattern=compile_optional_pattern(config.get("amazon_subject_pattern"), "amazon_subject_pattern"),
+            incident_memory_suppressed_until={},
         )
 
 
