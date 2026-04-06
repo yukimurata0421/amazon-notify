@@ -1,3 +1,8 @@
+import json
+from pathlib import Path
+
+import pytest
+
 from amazon_notify import discord_client
 
 
@@ -11,6 +16,15 @@ class _DummyResponse:
     def raise_for_status(self) -> None:
         if self._should_raise:
             raise RuntimeError("http error")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_dedupe_state(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        discord_client,
+        "_discord_dedupe_state_path",
+        lambda: tmp_path / ".discord_dedupe_state.json",
+    )
 
 
 def test_post_webhook_success(monkeypatch) -> None:
@@ -90,7 +104,7 @@ def test_send_discord_alert_formats_message(monkeypatch) -> None:
     monkeypatch.setattr(
         discord_client,
         "_post_webhook",
-        lambda webhook_url, content: payloads.append(content) or True,
+        lambda webhook_url, content, **_kwargs: payloads.append(content) or True,
     )
 
     assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
@@ -99,6 +113,9 @@ def test_send_discord_alert_formats_message(monkeypatch) -> None:
 
 
 def test_send_discord_notification_success_and_failure(monkeypatch) -> None:
+    now = {"value": 1000.0}
+    monkeypatch.setattr(discord_client.time, "time", lambda: now["value"])
+
     monkeypatch.setattr(discord_client, "_post_webhook", lambda *_args, **_kwargs: True)
     assert discord_client.send_discord_notification(
         webhook_url="https://discord.invalid/webhook",
@@ -108,6 +125,7 @@ def test_send_discord_notification_success_and_failure(monkeypatch) -> None:
         url="https://mail.google.com/1",
     )
 
+    now["value"] = 1000.0 + discord_client._DEDUPE_WINDOW_SECONDS["notification"] + 1.0
     monkeypatch.setattr(discord_client, "_post_webhook", lambda *_args, **_kwargs: False)
     assert not discord_client.send_discord_notification(
         webhook_url="https://discord.invalid/webhook",
@@ -116,3 +134,91 @@ def test_send_discord_notification_success_and_failure(monkeypatch) -> None:
         snippet="snippet",
         url="https://mail.google.com/1",
     )
+
+
+def test_send_discord_alert_suppresses_duplicate_within_window(monkeypatch) -> None:
+    posted: list[str] = []
+
+    def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
+        posted.append(content)
+        return True
+
+    now = {"value": 1000.0}
+    monkeypatch.setattr(discord_client, "_post_webhook", fake_post)
+    monkeypatch.setattr(discord_client.time, "time", lambda: now["value"])
+
+    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    now["value"] = 1005.0
+    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    assert len(posted) == 1
+
+
+def test_send_discord_notification_allows_different_message_ids(monkeypatch) -> None:
+    posted: list[str] = []
+
+    def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
+        posted.append(content)
+        return True
+
+    now = {"value": 2000.0}
+    monkeypatch.setattr(discord_client, "_post_webhook", fake_post)
+    monkeypatch.setattr(discord_client.time, "time", lambda: now["value"])
+
+    assert discord_client.send_discord_notification(
+        webhook_url="https://discord.invalid/webhook",
+        subject="件名",
+        from_addr="from@example.com",
+        snippet="snippet",
+        url="https://mail.google.com/mail/u/0/#inbox/msg-1",
+    )
+    now["value"] = 2001.0
+    assert discord_client.send_discord_notification(
+        webhook_url="https://discord.invalid/webhook",
+        subject="件名",
+        from_addr="from@example.com",
+        snippet="snippet",
+        url="https://mail.google.com/mail/u/0/#inbox/msg-1",
+    )
+    now["value"] = 2002.0
+    assert discord_client.send_discord_notification(
+        webhook_url="https://discord.invalid/webhook",
+        subject="件名",
+        from_addr="from@example.com",
+        snippet="snippet",
+        url="https://mail.google.com/mail/u/0/#inbox/msg-2",
+    )
+    assert len(posted) == 2
+
+
+def test_send_discord_alert_suppresses_when_inflight_claim_exists(monkeypatch) -> None:
+    state_path = discord_client._discord_dedupe_state_path()
+    dedupe_key = discord_client._build_dedupe_key(
+        "alert",
+        "⚠️ **Gmail監視システム警告**\nwarn",
+    )
+    state_path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {
+                    dedupe_key: {
+                        "inflight_owner": "other-process",
+                        "inflight_until": 1500.0,
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    posted: list[str] = []
+
+    def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
+        posted.append(content)
+        return True
+
+    monkeypatch.setattr(discord_client, "_post_webhook", fake_post)
+    monkeypatch.setattr(discord_client.time, "time", lambda: 1400.0)
+
+    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    assert posted == []

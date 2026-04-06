@@ -19,6 +19,8 @@ credentials.json
 token.json
 state.json
 .state.json.lock
+.discord_dedupe_state.json
+.discord_dedupe_state.lock
 events.jsonl
 runs.jsonl
 
