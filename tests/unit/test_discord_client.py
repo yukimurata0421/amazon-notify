@@ -222,3 +222,124 @@ def test_send_discord_alert_suppresses_when_inflight_claim_exists(monkeypatch) -
 
     assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
     assert posted == []
+
+
+def test_post_webhook_rejects_invalid_max_attempts() -> None:
+    with pytest.raises(ValueError):
+        discord_client._post_webhook(
+            "https://discord.invalid/webhook",
+            "hello",
+            max_attempts=0,
+        )
+
+
+def test_post_webhook_returns_false_on_non_retryable_status(monkeypatch) -> None:
+    monkeypatch.setattr(
+        discord_client.requests,
+        "post",
+        lambda *_args, **_kwargs: _DummyResponse(status_code=400),
+    )
+    assert not discord_client._post_webhook("https://discord.invalid/webhook", "hello")
+
+
+def test_send_discord_recovery_and_test_format(monkeypatch) -> None:
+    payloads: list[str] = []
+    monkeypatch.setattr(
+        discord_client,
+        "_post_webhook",
+        lambda _webhook_url, content, **_kwargs: payloads.append(content) or True,
+    )
+
+    assert discord_client.send_discord_recovery("https://discord.invalid/webhook", "recovered")
+    assert discord_client.send_discord_test("https://discord.invalid/webhook", "test")
+    assert payloads[0].startswith("✅ **Gmail監視システム復旧**")
+    assert payloads[1].startswith("🧪 **Amazon Notify テスト通知**")
+
+
+def test_read_dedupe_entries_handles_corrupted_or_invalid_payload(tmp_path: Path) -> None:
+    state_path = tmp_path / "bad.json"
+    state_path.write_text("{invalid-json", encoding="utf-8")
+    assert discord_client._read_dedupe_entries(state_path) == {}
+
+    state_path.write_text(json.dumps({"entries": []}), encoding="utf-8")
+    assert discord_client._read_dedupe_entries(state_path) == {}
+
+
+def test_read_and_prune_dedupe_entries_variants(tmp_path: Path) -> None:
+    state_path = tmp_path / "state.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "entries": {
+                    "k1": 123,
+                    "k2": {"last_sent_at": "x", "inflight_until": "y", "inflight_owner": ""},
+                    "k3": {"last_sent_at": 2_999_900.0, "inflight_until": 150.0, "inflight_owner": "p1"},
+                    "k4": {"inflight_until": 80.0, "inflight_owner": "p2"},
+                    "k5": {"last_sent_at": 0.0},
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    entries = discord_client._read_dedupe_entries(state_path)
+    assert entries["k1"]["last_sent_at"] == 123.0
+    assert "k2" not in entries
+    assert entries["k3"]["inflight_owner"] == "p1"
+
+    changed = discord_client._prune_dedupe_entries(entries, now_epoch=3_000_000.0)
+    assert changed
+    assert "inflight_until" not in entries["k3"]
+    assert "inflight_owner" not in entries["k3"]
+    assert "k4" not in entries
+    assert "k5" not in entries
+
+
+def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Path) -> None:
+    original_lock = discord_client._discord_dedupe_lock
+    monkeypatch.setattr(
+        discord_client,
+        "_discord_dedupe_state_path",
+        lambda: tmp_path / ".discord_dedupe_state.json",
+    )
+    assert discord_client._reserve_dedupe_claim(
+        notification_kind="alert",
+        content="x",
+        dedupe_window_seconds=0,
+    ) == (True, None, None, None)
+
+    class _BrokenLock:
+        def __enter__(self):
+            raise OSError("lock failed")
+
+        def __exit__(self, _exc_type, _exc, _tb):
+            return False
+
+    monkeypatch.setattr(discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock())
+    allowed, state_path, dedupe_key, owner = discord_client._reserve_dedupe_claim(
+        notification_kind="alert",
+        content="x",
+        dedupe_window_seconds=60.0,
+    )
+    assert allowed and state_path is None and dedupe_key is None and owner is None
+
+    # finalize no-op paths
+    discord_client._finalize_dedupe_claim(state_path=None, dedupe_key=None, owner=None, sent=True)
+    state_file = tmp_path / ".discord_dedupe_state.json"
+    state_file.write_text(
+        json.dumps({"entries": {"key": {"inflight_owner": "other", "inflight_until": 9999.0}}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(discord_client, "_discord_dedupe_lock", original_lock)
+    discord_client._finalize_dedupe_claim(
+        state_path=state_file,
+        dedupe_key="key",
+        owner="mine",
+        sent=True,
+    )
+    monkeypatch.setattr(discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock())
+    discord_client._finalize_dedupe_claim(
+        state_path=state_file,
+        dedupe_key="key",
+        owner="mine",
+        sent=True,
+    )
