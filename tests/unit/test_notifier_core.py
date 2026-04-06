@@ -144,6 +144,87 @@ def test_notify_recovery_silent_clear_when_transient_was_never_alerted(monkeypat
     assert saved["transient_network_issue_active"] is False
 
 
+def test_notify_recovery_uses_latest_persisted_state(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    # Disk state is already recovered, but in-memory state is stale.
+    state_file.write_text(
+        json.dumps(
+            {
+                "last_message_id": "msg-1",
+                "transient_network_issue_active": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    stale_state = {
+        "last_message_id": "msg-1",
+        "transient_network_issue_active": True,
+        "transient_network_issue_notified": True,
+        "last_transient_error": "timed out",
+        "last_transient_error_at": "2026-04-06 09:42:52",
+    }
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_recovery",
+        lambda _webhook, message: calls.append(message) or True,
+    )
+
+    gmail_client.notify_recovery_if_needed(
+        "https://discord.invalid/webhook",
+        stale_state,
+        state_file,
+    )
+
+    assert calls == []
+    assert stale_state["transient_network_issue_active"] is False
+
+
+def test_record_transient_issue_uses_latest_persisted_state_for_cooldown(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "last_message_id": "msg-1",
+                "transient_network_issue_active": True,
+                "transient_network_issue_notified": True,
+                "transient_network_issue_first_seen_at_epoch": 1000.0,
+                "transient_network_issue_last_alert_at_epoch": 1090.0,
+                "transient_network_issue_occurrences": 2,
+            }
+        ),
+        encoding="utf-8",
+    )
+    stale_state = {"last_message_id": "msg-1"}
+
+    alerts: list[str] = []
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda _webhook, message: alerts.append(message) or True,
+    )
+    monkeypatch.setattr(gmail_client.time, "time", lambda: 1100.0)
+
+    sent = gmail_client.record_transient_issue(
+        stale_state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=0.0,
+        alert_cooldown_seconds=60.0,
+    )
+
+    assert sent is False
+    assert alerts == []
+    saved = _read_json(state_file)
+    assert saved["transient_network_issue_occurrences"] == 3
+
+
 def test_save_state_creates_parent_directories(tmp_path: Path) -> None:
     state_file = tmp_path / "nested" / "runtime" / "state.json"
 

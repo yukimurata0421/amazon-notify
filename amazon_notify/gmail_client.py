@@ -1,7 +1,13 @@
 import socket
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, NoReturn
+
+try:
+    import fcntl
+except ModuleNotFoundError:
+    fcntl = None  # type: ignore[assignment]
 
 try:
     from requests import exceptions as requests_exceptions
@@ -62,7 +68,7 @@ except ModuleNotFoundError as exc:
 
 from . import config as app_config
 from .backoff import next_delay_seconds
-from .config import LOGGER, RuntimePaths, save_state
+from .config import LOGGER, RuntimePaths, load_state, save_state
 from .discord_client import send_discord_alert, send_discord_recovery
 from .domain import AuthStatus
 from .time_utils import utc_now_iso
@@ -109,6 +115,25 @@ if urllib3_exceptions is not None:
 
 def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:
     return app_config.get_runtime_paths() if paths is None else paths
+
+
+@contextmanager
+def _state_update_lock(state_file: Path):
+    lock_path = state_file.parent / f".{state_file.name}.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as lock_handle:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
+
+def _sync_state_from_source(target: dict, source: dict) -> None:
+    target.clear()
+    target.update(source)
 
 
 def ensure_google_dependencies() -> None:
@@ -194,31 +219,36 @@ def record_transient_issue(
     if alert_cooldown_seconds < 0:
         raise ValueError("alert_cooldown_seconds must be >= 0")
 
-    now_epoch = time.time()
-    state["transient_network_issue_active"] = True
-    state["last_transient_error"] = str(err)
-    state["last_transient_error_at"] = utc_now_iso()
-    first_seen = state.get("transient_network_issue_first_seen_at_epoch")
-    if not isinstance(first_seen, (int, float)):
-        first_seen = now_epoch
-    state["transient_network_issue_first_seen_at_epoch"] = float(first_seen)
-    state["transient_network_issue_last_seen_at_epoch"] = float(now_epoch)
-    state["transient_network_issue_occurrences"] = int(state.get("transient_network_issue_occurrences", 0)) + 1
+    with _state_update_lock(state_file):
+        persisted_state = load_state(state_file)
+        now_epoch = time.time()
+        persisted_state["transient_network_issue_active"] = True
+        persisted_state["last_transient_error"] = str(err)
+        persisted_state["last_transient_error_at"] = utc_now_iso()
+        first_seen = persisted_state.get("transient_network_issue_first_seen_at_epoch")
+        if not isinstance(first_seen, (int, float)):
+            first_seen = now_epoch
+        persisted_state["transient_network_issue_first_seen_at_epoch"] = float(first_seen)
+        persisted_state["transient_network_issue_last_seen_at_epoch"] = float(now_epoch)
+        persisted_state["transient_network_issue_occurrences"] = int(
+            persisted_state.get("transient_network_issue_occurrences", 0)
+        ) + 1
 
-    sent_alert = False
-    if webhook_url and alert_message and _should_send_transient_alert(
-        state,
-        now_epoch=now_epoch,
-        min_alert_duration_seconds=min_alert_duration_seconds,
-        alert_cooldown_seconds=alert_cooldown_seconds,
-    ):
-        sent_alert = send_discord_alert(webhook_url, alert_message)
-        if sent_alert:
-            state["transient_network_issue_notified"] = True
-            state["transient_network_issue_last_alert_at_epoch"] = float(now_epoch)
+        sent_alert = False
+        if webhook_url and alert_message and _should_send_transient_alert(
+            persisted_state,
+            now_epoch=now_epoch,
+            min_alert_duration_seconds=min_alert_duration_seconds,
+            alert_cooldown_seconds=alert_cooldown_seconds,
+        ):
+            sent_alert = send_discord_alert(webhook_url, alert_message)
+            if sent_alert:
+                persisted_state["transient_network_issue_notified"] = True
+                persisted_state["transient_network_issue_last_alert_at_epoch"] = float(now_epoch)
 
-    save_state(state_file, state)
-    return sent_alert
+        save_state(state_file, persisted_state)
+        _sync_state_from_source(state, persisted_state)
+        return sent_alert
 
 
 def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
@@ -226,24 +256,30 @@ def mark_transient_network_issue(state: dict, state_file: Path, err: Exception |
 
 
 def notify_recovery_if_needed(webhook_url: str, state: dict, state_file: Path) -> None:
-    if not state.get("transient_network_issue_active"):
-        return
-    if not state.get("transient_network_issue_notified"):
-        _clear_transient_issue_keys(state)
-        save_state(state_file, state)
-        return
+    with _state_update_lock(state_file):
+        persisted_state = load_state(state_file)
+        _sync_state_from_source(state, persisted_state)
 
-    message = (
-        "一時的な通信障害から復旧しました。Gmail監視を再開しています。\n"
-        f"前回障害時刻: {state.get('last_transient_error_at', '(unknown)')}\n"
-        f"前回エラー: {state.get('last_transient_error', '(unknown)')}"
-    )
-    if not send_discord_recovery(webhook_url, message):
-        LOGGER.warning("TRANSIENT_RECOVERY_NOTIFICATION_SKIPPED")
-        return
+        if not persisted_state.get("transient_network_issue_active"):
+            return
+        if not persisted_state.get("transient_network_issue_notified"):
+            _clear_transient_issue_keys(persisted_state)
+            save_state(state_file, persisted_state)
+            _sync_state_from_source(state, persisted_state)
+            return
 
-    _clear_transient_issue_keys(state)
-    save_state(state_file, state)
+        message = (
+            "一時的な通信障害から復旧しました。Gmail監視を再開しています。\n"
+            f"前回障害時刻: {persisted_state.get('last_transient_error_at', '(unknown)')}\n"
+            f"前回エラー: {persisted_state.get('last_transient_error', '(unknown)')}"
+        )
+        if not send_discord_recovery(webhook_url, message):
+            LOGGER.warning("TRANSIENT_RECOVERY_NOTIFICATION_SKIPPED")
+            return
+
+        _clear_transient_issue_keys(persisted_state)
+        save_state(state_file, persisted_state)
+        _sync_state_from_source(state, persisted_state)
 
 
 def mark_token_issue(state: dict, state_file: Path, reason: str) -> bool:
