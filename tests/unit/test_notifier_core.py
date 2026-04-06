@@ -558,3 +558,104 @@ def test_run_once_no_messages_logs_and_keeps_state(monkeypatch, tmp_path: Path) 
     saved = _read_json(state_file)
     assert saved["last_message_id"] == "old-id"
     assert any("RUN_ONCE_NO_MESSAGES" in message for message in logs)
+
+
+def test_run_once_preserves_frontier_when_backlog_exceeds_max_messages(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = _runtime(tmp_path, state_file=state_file, max_messages=2)
+
+    class _Service:
+        def users(self):
+            return object()
+
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (_Service(), notifier.AuthStatus.READY),
+    )
+
+    pages = {
+        None: ([{"id": "m5"}, {"id": "m4"}, {"id": "m3"}], "page-2"),
+        "page-2": ([{"id": "m2"}, {"id": "m1"}, {"id": "old-id"}], None),
+    }
+
+    def fake_list_recent_messages_page(_service, *, query: str, max_results: int, page_token: str | None = None):
+        assert query == "in:inbox"
+        return pages[page_token]
+
+    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
+
+    def fake_message_detail(_service, message_id: str) -> dict:
+        return {
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "配達済み: テスト注文"},
+                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                ]
+            },
+            "snippet": f"snippet-{message_id}",
+        }
+
+    monkeypatch.setattr(notifier, "get_message_detail", fake_message_detail)
+
+    sent_message_ids: list[str] = []
+
+    def fake_send_notification(**kwargs) -> bool:
+        sent_message_ids.append(kwargs["url"].rsplit("/", 1)[-1])
+        return True
+
+    monkeypatch.setattr(notifier, "send_discord_notification", fake_send_notification)
+
+    notifier.run_once(runtime)
+
+    # oldest-first frontier within backlog, capped by max_messages
+    assert sent_message_ids == ["m1", "m2"]
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "m2"
+
+
+def test_run_once_fails_safe_when_checkpoint_not_found_in_paginated_listing(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+
+    runtime = _runtime(tmp_path, state_file=state_file, max_messages=2)
+
+    class _Service:
+        def users(self):
+            return object()
+
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (_Service(), notifier.AuthStatus.READY),
+    )
+
+    pages = {
+        None: ([{"id": "m3"}, {"id": "m2"}], "page-2"),
+        "page-2": ([{"id": "m1"}], None),
+    }
+
+    def fake_list_recent_messages_page(_service, *, query: str, max_results: int, page_token: str | None = None):
+        assert query == "in:inbox"
+        return pages[page_token]
+
+    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
+
+    sent_alerts: list[str] = []
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_alert",
+        lambda _webhook_url, message: sent_alerts.append(message) or True,
+    )
+
+    notifier.run_once(runtime)
+
+    saved = _read_json(state_file)
+    assert saved["last_message_id"] == "old-id"
+    assert sent_alerts
+    assert "checkpoint_not_found_in_listing" in sent_alerts[0]

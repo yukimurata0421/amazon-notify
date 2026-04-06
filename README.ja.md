@@ -9,8 +9,7 @@
 Amazon.co.jp の配送関連メールを Gmail API で検出し、Discord Webhook に通知する自己ホスト向けツールです。
 通知速度より運用上の一貫性と復旧容易性を優先しています。
 設計上の最優先は checkpoint/frontier の整合性維持です。
-
-補足: `main` ブランチは最新 GitHub Release より先行している場合があります。
+対象プラットフォームは Linux 単一ホストで、運用は systemd 中心です。
 
 運用モードは 2 つあります。
 - 単純な定期ポーリング
@@ -19,6 +18,8 @@ Amazon.co.jp の配送関連メールを Gmail API で検出し、Discord Webhoo
 English README: [README.md](./README.md)
 
 ## できること
+
+補足: `main` ブランチは最新 GitHub Release より先行している場合があります。
 
 - Ordered Frontier（oldest-first、途中失敗時はそこで停止）
 - `events.jsonl` を checkpoint 正本とし、`state.json` は互換スナップショット、`runs.jsonl` は監査ログとして運用
@@ -56,7 +57,8 @@ cp config.example.json config.json
 
 1. `config.json` の `discord_webhook_url` を設定
 2. `credentials.json` を `config.json` と同じ場所に配置
-3. 初回認証と疎通確認
+3. `amazon-notify --reauth` を実行し、表示されたブラウザ OAuth を完了
+4. `amazon-notify --once` で疎通確認
 
 ```bash
 amazon-notify --reauth

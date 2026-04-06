@@ -455,11 +455,13 @@ def test_list_and_get_message_helpers() -> None:
             return self.payload
 
     class _Messages:
-        def list(self, *, userId: str, q: str, maxResults: int):
+        def list(self, *, userId: str, q: str, maxResults: int, pageToken: str | None = None):
             assert userId == "me"
             assert q == "in:inbox"
             assert maxResults == 20
-            return _Exec({"messages": [{"id": "m-1"}]})
+            if pageToken == "page-2":
+                return _Exec({"messages": [{"id": "m-2"}], "nextPageToken": None})
+            return _Exec({"messages": [{"id": "m-1"}], "nextPageToken": "page-2"})
 
         def get(self, *, userId: str, id: str, format: str):
             assert userId == "me"
@@ -477,6 +479,14 @@ def test_list_and_get_message_helpers() -> None:
 
     service = _Service()
     assert gmail_client.list_recent_messages(service, query="in:inbox", max_results=20) == [{"id": "m-1"}]
+    page_messages, page_token = gmail_client.list_recent_messages_page(
+        service,
+        query="in:inbox",
+        max_results=20,
+        page_token="page-2",
+    )
+    assert page_messages == [{"id": "m-2"}]
+    assert page_token is None
     assert gmail_client.get_message_detail(service, "m-1")["snippet"] == "hello"
 
 

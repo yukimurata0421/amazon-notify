@@ -8,14 +8,18 @@ All notable changes to this project will be documented in this file.
 - Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
 - Added lock/state runtime artifact ignores for dedupe coordination files (`.state.json.lock`, `.discord_dedupe_state.json`, `.discord_dedupe_state.lock`).
 - Hardened Discord dedupe-state parsing/pruning to explicitly drop malformed inflight entries (no dangling owner-only entries).
+- Added paginated Gmail listing for polling catch-up and fail-safe behavior when the checkpoint is not found in listing results, so checkpoint advancement never skips unseen frontier messages under backlog pressure.
 - Bound loop lambdas in `GmailMailSource.iter_new_messages` with default arguments to avoid future closure-capture pitfalls.
 - Switched `record_transient_issue` negative threshold handling from exception-fail to warning+clamp (`<0` -> `0`) for defensive resilience against bad runtime values.
 - Documented silent-clear behavior in operations docs (no recovery notification when transient alert threshold was never crossed).
+- Clarified README platform assumptions (`Linux`/single-host/systemd-first) and OAuth-browser completion step in quickstart.
+- Narrowed CI default permissions to `contents: read` and scoped `contents: write` to the test job that updates the coverage badge.
 
 ### Tests
 - Added regression tests for stale-state recovery dedupe and cross-notification dedupe behavior (duplicate suppression, in-flight suppression, and per-message-key delivery behavior).
 - Added coverage-focused Discord dedupe branch tests so CI coverage gate (`--cov-fail-under=90`) remains stable.
 - Added tests for malformed dedupe-state entries and transient-threshold clamp behavior.
+- Added frontier/backlog regression tests for paginated polling catch-up and checkpoint-not-found fail-safe behavior.
 
 ## [0.3.0] - 2026-04-05
 

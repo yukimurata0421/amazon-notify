@@ -7,11 +7,10 @@
 
 # Amazon Notify
 
-Self-hosted Gmail->Discord notification pipeline for Amazon.co.jp delivery emails.
-Built for operational reliability over notification speed.
-Design priority: ordered-frontier checkpoint consistency with Gmail inbox state as the recovery source of truth.
-
-Note: the `main` branch may be ahead of the latest GitHub Release.
+Amazon Notify watches Gmail for Amazon.co.jp delivery emails and posts them to Discord.
+It is designed for recovery-safe processing rather than maximum speed.
+A message is considered processed only after the notification succeeds, and catch-up always relies on Gmail inbox state.
+Target platform: Linux single-host deployment, systemd-first operations.
 
 Two operating modes are supported:
 - simple polling for single-host setups
@@ -20,6 +19,8 @@ Two operating modes are supported:
 Japanese README: [README.ja.md](./README.ja.md)
 
 ## Highlights
+
+Note: the `main` branch may be ahead of the latest GitHub Release.
 
 - Ordered-frontier processing (oldest-first, stop on midstream failure)
 - Checkpoint source of truth in `events.jsonl`, with `state.json` compatibility snapshots and `runs.jsonl` audit logs
@@ -57,7 +58,8 @@ cp config.example.json config.json
 
 1. Set `discord_webhook_url` in `config.json`
 2. Place `credentials.json` next to `config.json`
-3. Run OAuth once:
+3. Run `amazon-notify --reauth` and complete the browser OAuth flow when prompted.
+4. Run one-shot verification:
 
 ```bash
 amazon-notify --reauth

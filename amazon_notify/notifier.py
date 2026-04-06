@@ -35,6 +35,7 @@ from .gmail_client import (
     is_retryable_http_error,
     is_transient_network_error,
     list_recent_messages,
+    list_recent_messages_page,
     notify_recovery_if_needed,
     record_transient_issue,
 )
@@ -145,43 +146,91 @@ class GmailMailSource:
                 f"Gmail service が利用できません。auth_status={status.value}"
             )
 
-        try:
-            def _list_recent() -> list[dict[str, str]]:
-                return list_recent_messages(
-                    service,
-                    query="in:inbox",
-                    max_results=max_messages,
-                )
+        list_page_size = min(500, max(max_messages, 100))
 
-            messages = self._call_gmail_api_with_retry(
-                "list_recent_messages",
-                _list_recent,
-            )
-        except Exception as exc:
-            if isinstance(exc, HttpError):
-                if is_retryable_http_error(exc):
-                    raise TransientSourceError(f"Gmail API 一時エラー: {exc}") from exc
-                raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
-            if is_transient_network_error(exc):
-                raise TransientSourceError(str(exc)) from exc
-            raise SourceError(f"Gmail API 予期しないエラー: {exc}") from exc
+        def _safe_fetch_page(page_token: str | None) -> tuple[list[dict[str, str]], str | None]:
+            try:
+                # 単体テスト互換: service stub が users() を持たない場合は旧 helper を使う。
+                if page_token is None and not hasattr(service, "users"):
+                    def _list_recent_compat() -> list[dict[str, str]]:
+                        return list_recent_messages(
+                            service,
+                            query="in:inbox",
+                            max_results=max_messages,
+                        )
 
-        if not messages:
-            LOGGER.info("RUN_ONCE_NO_MESSAGES")
-            return
+                    messages_compat = self._call_gmail_api_with_retry(
+                        "list_recent_messages",
+                        _list_recent_compat,
+                    )
+                    return messages_compat, None
+
+                def _list_page(_page_token: str | None = page_token) -> tuple[list[dict[str, str]], str | None]:
+                    return list_recent_messages_page(
+                        service,
+                        query="in:inbox",
+                        max_results=list_page_size,
+                        page_token=_page_token,
+                    )
+
+                return self._call_gmail_api_with_retry("list_recent_messages", _list_page)
+            except Exception as exc:
+                if isinstance(exc, HttpError):
+                    if is_retryable_http_error(exc):
+                        raise TransientSourceError(f"Gmail API 一時エラー: {exc}") from exc
+                    raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
+                if is_transient_network_error(exc):
+                    raise TransientSourceError(str(exc)) from exc
+                raise SourceError(f"Gmail API 予期しないエラー: {exc}") from exc
 
         pending_messages: list[dict[str, str]] = []
-        for msg_meta in messages:
-            msg_id = msg_meta["id"]
-            if checkpoint.message_id and msg_id == checkpoint.message_id:
+        page_token: str | None = None
+        checkpoint_found = checkpoint.message_id is None
+        scanned_messages = 0
+        page_count = 0
+
+        while True:
+            messages, next_page_token = _safe_fetch_page(page_token)
+            page_count += 1
+
+            if not messages:
+                if page_count == 1:
+                    LOGGER.info("RUN_ONCE_NO_MESSAGES")
                 break
-            pending_messages.append(msg_meta)
+
+            for msg_meta in messages:
+                msg_id = msg_meta["id"]
+                if checkpoint.message_id and msg_id == checkpoint.message_id:
+                    checkpoint_found = True
+                    break
+                pending_messages.append(msg_meta)
+                scanned_messages += 1
+
+            if checkpoint_found:
+                break
+            if next_page_token is None:
+                break
+            page_token = next_page_token
+
+        if checkpoint.message_id and not checkpoint_found:
+            raise SourceError(
+                "checkpoint_not_found_in_listing: "
+                f"checkpoint={checkpoint.message_id} scanned={scanned_messages} pages={page_count}"
+            )
 
         if not pending_messages:
             LOGGER.info("RUN_ONCE_NO_NEW_MESSAGES")
             return
 
         pending_messages.reverse()
+        if len(pending_messages) > max_messages:
+            LOGGER.warning(
+                "RUN_ONCE_PENDING_TRUNCATED_FRONTIER: pending=%s max_messages=%s",
+                len(pending_messages),
+                max_messages,
+            )
+            pending_messages = pending_messages[:max_messages]
+
         for msg_meta in pending_messages:
             msg_id = msg_meta["id"]
             try:
