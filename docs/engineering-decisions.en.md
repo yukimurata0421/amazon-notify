@@ -16,7 +16,7 @@ Adopted:
 - Protocol boundaries: `MailSource`, `Classifier`, `Notifier`, `CheckpointStore`
 
 Reasoning:
-- Keep business invariants (when to advance checkpoint) independent from Gmail/Discord implementation details.
+- Keep processing invariants (when to advance checkpoint) independent from Gmail/Discord implementation details.
 - Make failure-policy behavior explicit and testable.
 - Reduce future replacement cost (new source/target integrations).
 
@@ -46,7 +46,7 @@ Reasoning:
 - Avoid checkpoint holes and non-reproducible state.
 - Prefer consistency and recoverability over partial forward progress.
 
-## 5. Why Business-Level Error Classes
+## 5. Why Policy-Oriented Error Classes
 Adopted (`errors.py`):
 - `TransientSourceError`, `PermanentAuthError`, `MessageDecodeError`, `DeliveryError`, `CheckpointError`, `ConfigError`
 
@@ -94,7 +94,7 @@ Adopted:
 - Add in-memory incident suppression fallback when incident state writes fail.
 
 Reasoning:
-- "Fail safely" is not enough; operators also need fast root-cause discovery.
+- "Fail safely" is not enough; investigation also needs fast root-cause discovery.
 - Persistence failures must not break the alerting/control path itself.
 - When state files are unwritable, pure state-based suppression can no longer prevent repeated alerts.
 
@@ -105,7 +105,7 @@ If external metrics become available (disk usage, inode alerts), they should be 
 
 ## 11. Why Config Validation Includes Semantic Checks
 Adopted validation includes:
-- lower bounds (for example practical minimum poll interval)
+- lower bounds (for example minimum poll interval)
 - runtime-path resolvability
 - required operational keys
 

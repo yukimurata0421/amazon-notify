@@ -1,4 +1,4 @@
-# Thin Docker Guide (English)
+# Minimal Docker Guide (English)
 
 This container target is intentionally small and limited.
 

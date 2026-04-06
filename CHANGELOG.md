@@ -15,8 +15,9 @@ All notable changes to this project will be documented in this file.
 - Documented silent-clear behavior in operations docs (no recovery notification when transient alert threshold was never crossed).
 - Clarified README platform assumptions (`Linux`/single-host/systemd-first) and OAuth-browser completion step in quickstart.
 - Expanded English/Japanese operations/design docs to cover runtime index snapshots, guard-path `RunResult` convergence, dedupe lock fail-fast semantics, and health-check lock support signaling.
-- Added a thin Docker runtime baseline (`Dockerfile`, `.dockerignore`, and English/Japanese Docker guides) focused on CLI bring-up (`--help`, `--validate-config`, `--once --dry-run`) without systemd/hybrid/watchdog orchestration scope.
+- Added a minimal Docker runtime baseline (`Dockerfile`, `.dockerignore`, and English/Japanese Docker guides) focused on CLI bring-up (`--help`, `--validate-config`, `--once --dry-run`) without systemd/hybrid/watchdog orchestration scope.
 - Clarified Docker positioning as a supplemental quick-evaluation path (portability/reproducibility aid), while keeping Linux single-host + systemd-first as the primary operations stance.
+- Added English companion docs for hybrid quickstart, portability parameters, architecture guide, and implementation rationale, and aligned cross-language links in README/docs.
 - Narrowed CI default permissions to `contents: read` and scoped `contents: write` to the test job that updates the coverage badge.
 
 ### Tests

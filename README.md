@@ -13,7 +13,7 @@ A message is considered processed only after the notification succeeds, and catc
 Target platform: Linux single-host deployment, systemd-first operations.
 
 Two operating modes are supported:
-- simple polling for single-host setups
+- polling for single-host setups
 - Gmail Watch + Pub/Sub StreamingPull for near-real-time triggering
 
 Japanese README: [README.ja.md](./README.ja.md)
@@ -92,7 +92,7 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 amazon-notify --once --fallback-watchdog
 ```
 
-## Try With Thin Docker
+## Try With Minimal Docker
 
 ```bash
 docker build -t amazon-notify:slim .
@@ -103,9 +103,9 @@ docker run --rm -v "$(pwd):/work" amazon-notify:slim --config /work/config.json 
 
 Positioning:
 - Primary production path: Linux single-host + systemd-first operations.
-- Docker path: quick evaluation, reproducible local testing, and portability proof for the CLI/runtime boundary.
+- Docker path: local evaluation and reproducible testing of the CLI/runtime boundary.
 
-Scope note: this thin image is for CLI bring-up only. It does not include `systemd`, hybrid HA/watchdog orchestration, multi-container operations, or production secret/monitoring design.
+Scope note: this minimal image is for CLI bring-up only. It does not include `systemd`, hybrid HA/watchdog orchestration, multi-container operations, or production secret/monitoring design.
 
 ## Health Check Notes
 
@@ -128,16 +128,20 @@ pip install -e .[dev]
 
 ## Documentation
 
-- Hybrid quickstart (copy/paste, common failures): [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
-- Portability parameters (environment-dependent values): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
+- Hybrid quickstart (Japanese): [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+- Hybrid quickstart (English): [docs/HYBRID_QUICKSTART.en.md](./docs/HYBRID_QUICKSTART.en.md)
+- Portability parameters (Japanese): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
+- Portability parameters (English): [docs/PORTABILITY_PARAMS.en.md](./docs/PORTABILITY_PARAMS.en.md)
 - Operations runbook (English): [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
 - Operations runbook (Japanese): [docs/OPERATIONS.md](./docs/OPERATIONS.md)
-- Thin Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
-- Thin Docker guide (Japanese): [docs/DOCKER.md](./docs/DOCKER.md)
-- Hybrid architecture and failover design (detailed): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+- Minimal Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
+- Minimal Docker guide (Japanese): [docs/DOCKER.md](./docs/DOCKER.md)
+- Hybrid architecture and failover design (Japanese): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+- Hybrid architecture and failover design (English): [docs/HYBRID_ARCHITECTURE.en.md](./docs/HYBRID_ARCHITECTURE.en.md)
 - Engineering decisions and design rationale (English): [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - Engineering decisions and design rationale (Japanese): [docs/engineering-decisions.md](./docs/engineering-decisions.md)
-- Implementation rationale (why these choices were made): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
+- Implementation rationale (Japanese): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
+- Implementation rationale (English): [docs/IMPLEMENTATION_RATIONALE.en.md](./docs/IMPLEMENTATION_RATIONALE.en.md)
 - Japanese full README: [README.ja.md](./README.ja.md)
 - Language policy: operations, Docker, and engineering-decision docs are maintained in both English (`*.en.md`) and Japanese (`*.md`). This README prioritizes English links and also includes Japanese counterparts.
 - Optional structured logging (`structured_logging=true`) is supported.

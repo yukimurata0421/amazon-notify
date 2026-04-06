@@ -1,8 +1,8 @@
 # Operations Guide (English)
 
-For copy/paste hybrid setup, see `docs/HYBRID_QUICKSTART_JA.md`.
-For environment-dependent values, see `docs/PORTABILITY_PARAMS_JA.md`.
-For design background, see `docs/HYBRID_ARCHITECTURE_JA.md` and `docs/engineering-decisions.en.md`.
+For copy/paste hybrid setup, see `docs/HYBRID_QUICKSTART.en.md` (or Japanese: `docs/HYBRID_QUICKSTART_JA.md`).
+For environment-dependent values, see `docs/PORTABILITY_PARAMS.en.md` (or Japanese: `docs/PORTABILITY_PARAMS_JA.md`).
+For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineering-decisions.en.md`.
 
 ## Initial Setup
 1. `python3 -m venv .venv && source .venv/bin/activate`

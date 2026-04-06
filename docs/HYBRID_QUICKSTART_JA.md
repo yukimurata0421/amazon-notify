@@ -1,7 +1,9 @@
-# Hybrid Quickstart (Pub/Sub + Fallback) for Practitioners
+# Hybrid Quickstart (Pub/Sub + Fallback)
 
-このドキュメントは、`amazon-notify` を **StreamingPull + fallback-watchdog** で実運用するための
-最短手順です。実際に詰まりやすいポイントを前提に、コピペで進められる形にしています。
+English version: [HYBRID_QUICKSTART.en.md](./HYBRID_QUICKSTART.en.md)
+
+このドキュメントは、`amazon-notify` を **StreamingPull + fallback-watchdog** で運用するための
+導入手順です。発生しやすいエラーと対処を含めて、コピペで進められる形にしています。
 
 対象環境:
 - Linux (Debian/Ubuntu/Raspberry Pi OS)
@@ -51,7 +53,7 @@ gcloud --version
 
 ---
 
-## 3. 認証（ここが重要）
+## 3. 認証（ADC 設定を含む）
 
 `gcloud auth login` と `gcloud auth application-default login` は別です。
 Pub/Sub クライアントには **ADC**（Application Default Credentials）が必要です。

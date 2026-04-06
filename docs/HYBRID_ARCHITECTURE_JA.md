@@ -1,5 +1,7 @@
 # ハイブリッド構成ガイド（Pub/Sub + Fallback Polling）
 
+English version: [HYBRID_ARCHITECTURE.en.md](./HYBRID_ARCHITECTURE.en.md)
+
 このドキュメントは、`amazon-notify` を高可用に運用するための設計意図と実装方針をまとめた詳細記事です。
 
 対象:
@@ -61,19 +63,20 @@
 
 ## 4. サイレント障害対策（heartbeat）
 
-StreamingPull で怖いのは「プロセスは生きているが実質停止」の状態です。
+StreamingPull で問題になるのは「プロセスは生きているが実質停止」の状態です。
 
 この対策として、メイン系は定期的に heartbeat ファイルの更新時刻を更新します。
 サブ系は heartbeat 年齢と worker heartbeat 年齢を見て「古い = 停止相当」と判定します。
 
-推奨値:
+設定例:
 
 - heartbeat 更新間隔: `30` 秒
 - 異常判定閾値: `300` 秒
 
 ## 5. なぜ二重処理が問題になりにくいか
 
-本プロジェクトは ordered frontier + checkpoint commit を持つため、冪等性に寄せた運用が可能です。
+本プロジェクトは ordered frontier と checkpoint commit を前提にしているため、
+重複処理が発生しても境界整合性を保ちやすい設計です。
 
 - 成功時のみ frontier を前進
 - 途中失敗時は checkpoint を進めない
@@ -95,7 +98,7 @@ StreamingPull で怖いのは「プロセスは生きているが実質停止」
 - `--heartbeat-max-age-seconds`
 - `--main-service-name`
 
-## 7. systemd 推奨ユニット
+## 7. systemd ユニット例
 
 このリポジトリのテンプレート:
 
@@ -122,7 +125,7 @@ StreamingPull で怖いのは「プロセスは生きているが実質停止」
 
 ## 10. トラブルシュート
 
-- Pub/Sub が silent っぽい:
+- Pub/Sub trigger 停止が疑われる場合:
   - heartbeat 更新時刻を確認
   - fallback service ログで `SKIP` か `FAILOVER` か確認
 
@@ -146,4 +149,4 @@ StreamingPull で怖いのは「プロセスは生きているが実質停止」
 
 ---
 
-実運用では `docs/OPERATIONS.md` と併読してください。こちらは「設計意図」、`OPERATIONS.md` は「具体手順」に寄せています。
+運用時は `docs/OPERATIONS.md` と併読してください。こちらは「設計意図」、`OPERATIONS.md` は「具体手順」に寄せています。

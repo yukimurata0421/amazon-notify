@@ -91,7 +91,7 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 amazon-notify --once --fallback-watchdog
 ```
 
-## 薄い Docker で試す
+## 軽量 Docker で試す
 
 ```bash
 docker build -t amazon-notify:slim .
@@ -102,9 +102,9 @@ docker run --rm -v "$(pwd):/work" amazon-notify:slim --config /work/config.json 
 
 位置づけ:
 - 本番主系: Linux 単一ホスト + systemd-first 運用。
-- Docker: クイック評価・再現テスト・CLI/runtime 境界の portability proof 用の補助導線。
+- Docker: クイック評価・再現テスト・CLI/runtime 境界の移植性確認用の補助導線。
 
-補足: この薄いイメージは CLI 起動確認用です。`systemd`、hybrid HA/watchdog、複数コンテナ構成、本番 secret/監視設計はスコープ外です。
+補足: この軽量イメージは CLI 起動確認用です。`systemd`、hybrid HA/watchdog、複数コンテナ構成、本番 secret/監視設計はスコープ外です。
 
 ## ヘルスチェック補足
 
@@ -127,16 +127,20 @@ pip install -e .[dev]
 
 ## ドキュメント
 
-- ハイブリッド最短導入（コピペ手順・詰まりどころ集）: [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+- ハイブリッド導入手順（コピペ手順・エラー対処）: [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+- Hybrid quickstart (English): [docs/HYBRID_QUICKSTART.en.md](./docs/HYBRID_QUICKSTART.en.md)
 - 環境依存パラメータ一覧（移植チェックリスト）: [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
+- Portability parameters (English): [docs/PORTABILITY_PARAMS.en.md](./docs/PORTABILITY_PARAMS.en.md)
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - 運用手順（英語）: [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
-- 薄い Docker ガイド: [docs/DOCKER.md](./docs/DOCKER.md)
-- Thin Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
+- 軽量 Docker ガイド: [docs/DOCKER.md](./docs/DOCKER.md)
+- Minimal Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
 - ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+- Hybrid architecture guide (English): [docs/HYBRID_ARCHITECTURE.en.md](./docs/HYBRID_ARCHITECTURE.en.md)
 - 設計判断と根拠: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - 設計判断と根拠（英語）: [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - 実装判断の意図（なぜこの選択をしたか）: [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
+- Implementation rationale (English): [docs/IMPLEMENTATION_RATIONALE.en.md](./docs/IMPLEMENTATION_RATIONALE.en.md)
 - 英語版 README: [README.md](./README.md)
 - 言語ポリシー: 運用/Docker/設計ドキュメントは英語版（`*.en.md`）と日本語版（`*.md`）を併記しています。この README では日本語版を優先しつつ英語版も併記しています。
 - `structured_logging=true` で JSON 構造化ログを有効化できます。

@@ -1,6 +1,6 @@
 # Operations Guide
 
-最短導入（コピペ手順）は `docs/HYBRID_QUICKSTART_JA.md` を参照してください。  
+導入手順（コピペ手順）は `docs/HYBRID_QUICKSTART_JA.md` を参照してください。  
 環境依存値の一覧は `docs/PORTABILITY_PARAMS_JA.md` を参照してください。  
 設計背景を含む詳細解説は `docs/HYBRID_ARCHITECTURE_JA.md` を参照してください。
 実装判断の意図（採用/非採用の理由）は `docs/IMPLEMENTATION_RATIONALE_JA.md` を参照してください。
@@ -168,7 +168,7 @@ sudo bash deployment/systemd/install-systemd.sh \
 - `--no-enable-now` で unit 配置のみ行います。
 - `--no-install-deps` で venv/pip の更新をスキップします。
 
-## systemd ハイブリッド（推奨）
+## systemd ハイブリッド（標準例）
 メイン系（リアルタイム）とサブ系（フェールオーバー）を分離します。
 
 1. メイン系:

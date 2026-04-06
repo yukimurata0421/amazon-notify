@@ -1,5 +1,7 @@
 # Portability Parameters (環境依存値一覧)
 
+English version: [PORTABILITY_PARAMS.en.md](./PORTABILITY_PARAMS.en.md)
+
 この文書は、`amazon-notify` を他人環境へ移すときに必要な
 **環境依存パラメータ**を網羅したチェックリストです。
 
@@ -14,13 +16,13 @@
 | GCP | `PROJECT_ID` | `my-gcp-project` | `config.json`, CLI 引数 | topic/subscription の親 |
 | Pub/Sub | `TOPIC_ID` | `amazon-notify-topic` | `--setup-watch --pubsub-topic` | `projects/<PROJECT_ID>/topics/<TOPIC_ID>` |
 | Pub/Sub | `SUBSCRIPTION_ID` | `amazon-notify-sub` | `config.json.pubsub_subscription` | `projects/<PROJECT_ID>/subscriptions/<SUBSCRIPTION_ID>` |
-| 通知先 | `DISCORD_WEBHOOK_URL` | `https://discord.com/api/webhooks/...` | `config.json.discord_webhook_url` | 実運用値。秘匿扱い推奨 |
+| 通知先 | `DISCORD_WEBHOOK_URL` | `https://discord.com/api/webhooks/...` | `config.json.discord_webhook_url` | 運用値。秘匿対象 |
 | OAuth | `credentials.json` | `<base-dir>/credentials.json` | ローカルファイル | Gmail API OAuth クライアント |
 | OAuth | `token.json` | `<base-dir>/token.json` | `amazon-notify --reauth` で生成 | Gmail API 実行トークン |
 | ADC | Application Default Credentials | `~/.config/gcloud/application_default_credentials.json` | `gcloud auth application-default login` | Pub/Sub クライアントで必須 |
 | 障害通知 | `DISCORD_ALERT_WEBHOOK_URL` | `https://discord.com/api/webhooks/...` | `<base-dir>/deployment/systemd/amazon-notify-alert.env` | OnFailure 用（任意） |
 
-## 2. 最低限変更すべき値
+## 2. 最低限の変更対象
 
 他人環境に移すとき、最低でも次を置換してください。
 
@@ -43,7 +45,7 @@
 }
 ```
 
-### systemd 導入（推奨）
+### systemd 導入例
 
 `install-systemd.sh` に環境依存値を明示して実行します。
 
@@ -87,4 +89,3 @@ amazon-notify --config ./config.json --health-check
 - `gcloud auth login` のみで ADC を設定したつもりになる
 - systemd unit の `User=YOUR_USER` / `/opt/amazon-notify` を未置換のまま起動する
 - topic/subscription の project が `config.json` と一致していない
-
