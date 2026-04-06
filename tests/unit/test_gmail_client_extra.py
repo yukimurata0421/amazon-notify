@@ -224,6 +224,30 @@ def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(mon
     assert saved["transient_network_issue_notified"] is True
 
 
+def test_record_transient_issue_clamps_negative_thresholds(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state = {"last_message_id": "x"}
+
+    alerts: list[str] = []
+    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda _w, message: alerts.append(message) or True)
+    monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
+
+    sent = gmail_client.record_transient_issue(
+        state,
+        state_file,
+        TimeoutError("timed out"),
+        webhook_url="https://discord.invalid/webhook",
+        alert_message="transient issue",
+        min_alert_duration_seconds=-1.0,
+        alert_cooldown_seconds=-2.0,
+    )
+
+    assert sent is True
+    assert alerts == ["transient issue"]
+    saved = json.loads(state_file.read_text(encoding="utf-8"))
+    assert saved["transient_network_issue_notified"] is True
+
+
 def test_refresh_with_retry_retries_on_transient_and_then_succeeds(monkeypatch) -> None:
     creds = _DummyCreds()
     creds.refresh_outcomes = [TimeoutError("timed out"), None]

@@ -91,12 +91,15 @@ def _read_dedupe_entries(state_path: Path) -> dict[str, dict[str, float | str]]:
         if isinstance(last_sent_at, (int, float)):
             entry["last_sent_at"] = float(last_sent_at)
 
-        inflight_until = raw.get("inflight_until")
-        if isinstance(inflight_until, (int, float)):
-            entry["inflight_until"] = float(inflight_until)
+        inflight_until_obj: object = raw.get("inflight_until")
+        has_valid_inflight_until = False
+        if isinstance(inflight_until_obj, (int, float)):
+            has_valid_inflight_until = True
+            entry["inflight_until"] = float(inflight_until_obj)
 
+        # inflight_owner は inflight_until とセットでのみ意味を持つ。
         inflight_owner = raw.get("inflight_owner")
-        if isinstance(inflight_owner, str) and inflight_owner:
+        if has_valid_inflight_until and isinstance(inflight_owner, str) and inflight_owner:
             entry["inflight_owner"] = inflight_owner
 
         if entry:
@@ -124,6 +127,11 @@ def _prune_dedupe_entries(
         inflight_until = entry.get("inflight_until")
         if isinstance(inflight_until, (int, float)) and float(inflight_until) <= now_epoch:
             entry.pop("inflight_until", None)
+            entry.pop("inflight_owner", None)
+            changed = True
+
+        # owner だけ残る壊れた entry は明示的に掃除する。
+        if "inflight_owner" in entry and "inflight_until" not in entry:
             entry.pop("inflight_owner", None)
             changed = True
 

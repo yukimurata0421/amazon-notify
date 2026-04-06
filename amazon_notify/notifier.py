@@ -5,7 +5,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from re import Pattern
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from .backoff import next_delay_seconds
 from .checkpoint_store import JsonlCheckpointStore
@@ -146,9 +146,16 @@ class GmailMailSource:
             )
 
         try:
+            def _list_recent() -> list[dict[str, str]]:
+                return list_recent_messages(
+                    service,
+                    query="in:inbox",
+                    max_results=max_messages,
+                )
+
             messages = self._call_gmail_api_with_retry(
                 "list_recent_messages",
-                lambda: list_recent_messages(service, query="in:inbox", max_results=max_messages),
+                _list_recent,
             )
         except Exception as exc:
             if isinstance(exc, HttpError):
@@ -178,9 +185,12 @@ class GmailMailSource:
         for msg_meta in pending_messages:
             msg_id = msg_meta["id"]
             try:
+                def _get_detail(_message_id: str = msg_id) -> dict[str, Any]:
+                    return get_message_detail(service, _message_id)
+
                 msg = self._call_gmail_api_with_retry(
                     "get_message_detail",
-                    lambda: get_message_detail(service, msg_id),
+                    _get_detail,
                 )
             except Exception as exc:
                 raise MessageDecodeError(

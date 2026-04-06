@@ -31,6 +31,7 @@ For design background, see `docs/HYBRID_ARCHITECTURE_JA.md` and `docs/engineerin
 - `message_detail_failed`: message detail fetch failed; ordered frontier stops at failure point.
 - `auth_failed`: token/credential issue; run `amazon-notify --reauth`.
 - `checkpoint_failed`: persistence path failed (for example `events.jsonl`/`runs.jsonl` write failure).
+- Short-lived transient failures that never crossed the alert threshold are silently cleared, so no recovery notification is sent in that case.
 
 ## Disk Full / ENOSPC Operations
 ### Symptoms

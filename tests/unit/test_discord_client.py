@@ -273,6 +273,7 @@ def test_read_and_prune_dedupe_entries_variants(tmp_path: Path) -> None:
                 "entries": {
                     "k1": 123,
                     "k2": {"last_sent_at": "x", "inflight_until": "y", "inflight_owner": ""},
+                    "k2b": {"inflight_owner": "dangling-owner"},
                     "k3": {"last_sent_at": 2_999_900.0, "inflight_until": 150.0, "inflight_owner": "p1"},
                     "k4": {"inflight_until": 80.0, "inflight_owner": "p2"},
                     "k5": {"last_sent_at": 0.0},
@@ -284,6 +285,7 @@ def test_read_and_prune_dedupe_entries_variants(tmp_path: Path) -> None:
     entries = discord_client._read_dedupe_entries(state_path)
     assert entries["k1"]["last_sent_at"] == 123.0
     assert "k2" not in entries
+    assert "k2b" not in entries
     assert entries["k3"]["inflight_owner"] == "p1"
 
     changed = discord_client._prune_dedupe_entries(entries, now_epoch=3_000_000.0)

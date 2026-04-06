@@ -69,6 +69,8 @@
 - `auth_failed` が出たら:
   - `amazon-notify --reauth`
   - `token.json` と `credentials.json` の配置を確認
+- transient 障害が短時間で自己復旧した場合:
+  - しきい値未到達で alert 未送信のケースは recovery 通知も送信されません（silent clear）。
 - checkpoint が進まないとき:
   - `events.jsonl` の `message_detail_failed` / `delivery_failed` を確認
   - ordered frontier 仕様で中断している可能性を確認

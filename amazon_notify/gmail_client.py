@@ -215,9 +215,17 @@ def record_transient_issue(
     alert_cooldown_seconds: float = DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
 ) -> bool:
     if min_alert_duration_seconds < 0:
-        raise ValueError("min_alert_duration_seconds must be >= 0")
+        LOGGER.warning(
+            "TRANSIENT_ALERT_MIN_DURATION_CLAMPED: value=%s -> 0",
+            min_alert_duration_seconds,
+        )
+        min_alert_duration_seconds = 0.0
     if alert_cooldown_seconds < 0:
-        raise ValueError("alert_cooldown_seconds must be >= 0")
+        LOGGER.warning(
+            "TRANSIENT_ALERT_COOLDOWN_CLAMPED: value=%s -> 0",
+            alert_cooldown_seconds,
+        )
+        alert_cooldown_seconds = 0.0
 
     with _state_update_lock(state_file):
         persisted_state = load_state(state_file)
