@@ -170,3 +170,7 @@ sudo journalctl -u amazon-notify-pubsub.service -f
 sudo journalctl -u amazon-notify-fallback.service -f
 amazon-notify --config ./config.json --health-check
 ```
+
+- If `dedupe_lock_supported` is `false`, Discord dedupe lock is unavailable on this platform (Linux + `fcntl` expected).
+- When `--config` changes, dedupe-state resolution (`.discord_dedupe_state.json`) also changes accordingly, including `--test-discord`.
+- If `events.jsonl` / `runs.jsonl` reads look stale or inconsistent, rebuild indexes with `amazon-notify --config ./config.json --rebuild-indexes`.

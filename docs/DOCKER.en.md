@@ -59,4 +59,6 @@ docker run --rm \
 ## Host Responsibilities
 - Provide and manage `config.json`, `credentials.json`, and `token.json` on the host.
 - Manage logs/runtime artifacts lifecycle on the host.
+  - Example artifacts: `events.jsonl.checkpoint.index.json`, `runs.jsonl.summary.index.json`, `.discord_dedupe_state.json`.
 - Own production operations (`systemd`, watchdog policy, monitoring, restart strategy) outside this thin container scope.
+- When `--config` is changed, dedupe-state resolution also follows that runtime directory (including `--test-discord`).

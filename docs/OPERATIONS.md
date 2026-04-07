@@ -60,10 +60,17 @@
 - lock 競合の確認:
   - `.state.json.lock` と `.discord_dedupe_state.lock` の残存状態を確認します。
 
-## v0.3.0 移行仕様
+## v0.4.0 移行仕様
 - checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
 - `state.json` は互換スナップショット（派生物）として更新されます。
 - 初回起動時に `events.jsonl` が空で `state.json.last_message_id` がある場合のみ、bootstrap 用 `checkpoint_advanced` を 1 回記録します。
+- Discord dedupe state は runtime directory 配下（`.discord_dedupe_state.json`）に統一されます。
+  - `--config` を切り替えた場合、`--test-discord` / 通常通知 / alert / recovery で同じ runtime 基準の dedupe state を参照します。
+- index snapshot（`events.jsonl.checkpoint.index.json` / `runs.jsonl.summary.index.json`）は再生成可能 cache です。
+  - 読み取り不整合や起動時遅延が疑われる場合は `amazon-notify --rebuild-indexes` を実行します。
+- Polling catch-up は Gmail 一覧をページング走査します。checkpoint が一覧窓で見つからない場合、未知境界を飛び越えて checkpoint を進めません（fail-safe）。
+- `transient_alert_min_duration_seconds` に負値が入った場合は、停止ではなく warning を出して `0` として扱います。
+- guard 経路の未処理例外は `source_failed` + `RunResult` に収束し、通常の障害確認導線（`events.jsonl` / `runs.jsonl`）で追跡できます。
 - rollback 観点:
   - `state.json` は継続更新されるため、0.1 系の境界情報は保持されます。
   - ただし 0.2 系の監査情報（events/runs）は 0.1 系では参照されません。
@@ -83,7 +90,7 @@
 - Discord 通知に失敗した場合は `state.json` を進めません。
 - そのため、通知に失敗したメールは次周期で再試行されます。
 
-## 障害時の見方（v0.3.0）
+## 障害時の見方（v0.4.0）
 - 優先確認先:
   - `events.jsonl`: 失敗種別と checkpoint 進行
   - `runs.jsonl`: 実行単位の要約（before/after, counts, failure_kind）

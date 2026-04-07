@@ -11,6 +11,7 @@ This checklist lists environment-dependent parameters required when moving `amaz
 | Filesystem | `BASE_DIR` | `/opt/amazon-notify` | `install-systemd.sh --base-dir` | code directory |
 | Linux user | `SYSTEM_USER` | `ubuntu` / `yuki` | `install-systemd.sh --system-user` | reflected in systemd `User=` |
 | Config path | `CONFIG_PATH` | `/opt/amazon-notify/config.json` | `install-systemd.sh --config-path` | used by `ExecStart --config` |
+| Runtime-dir anchored artifacts | dedupe/index files | `.discord_dedupe_state.json`, `*.index.json` | resolved from config directory | destination changes when `--config` changes |
 | Heartbeat path | `HEARTBEAT_PATH` | `/opt/amazon-notify/runtime/pubsub-heartbeat.txt` | `install-systemd.sh --heartbeat-path` | used by pubsub + fallback |
 | GCP | `PROJECT_ID` | `my-gcp-project` | `config.json`, CLI args | parent of topic/subscription |
 | Pub/Sub | `TOPIC_ID` | `amazon-notify-topic` | `--setup-watch --pubsub-topic` | `projects/<PROJECT_ID>/topics/<TOPIC_ID>` |
@@ -84,3 +85,4 @@ amazon-notify --config ./config.json --health-check
 - assuming `gcloud auth login` also sets ADC
 - starting systemd units with unresolved placeholders (`YOUR_USER`, `/opt/amazon-notify`)
 - project mismatch between topic/subscription and `config.json`
+- switching `--config` but inspecting dedupe/index artifacts from the previous runtime directory

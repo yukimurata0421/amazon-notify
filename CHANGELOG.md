@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.4.0] - 2026-04-07
 
 Summary:
 - Runtime state handling was reorganized around explicit path injection, incident-state storage separation, and index rebuild tooling.
@@ -12,7 +12,6 @@ Summary:
 
 ### Changed
 - Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
-- Set the next intended release cut to `0.4.0` to group runtime-state model upgrades (checkpoint/run-summary indices, guard-path normalization, and incident-memory refactor) into one semantically-visible update.
 - Added lock/state runtime artifact ignores for dedupe coordination files (`.state.json.lock`, `.discord_dedupe_state.json`, `.discord_dedupe_state.lock`).
 - Hardened Discord dedupe-state parsing/pruning to explicitly drop malformed inflight entries (no dangling owner-only entries).
 - Added paginated Gmail listing for polling catch-up and fail-safe behavior when the checkpoint is not found in listing results, so checkpoint advancement never skips unseen frontier messages under backlog pressure.
@@ -41,6 +40,7 @@ Summary:
 - Added coverage-focused Discord dedupe branch tests so CI coverage gate (`--cov-fail-under=90`) remains stable.
 - Added tests for malformed dedupe-state entries and transient-threshold clamp behavior.
 - Added frontier/backlog regression tests for paginated polling catch-up and checkpoint-not-found fail-safe behavior.
+- Added contract tests to verify runtime-anchored Discord dedupe path propagation across `--test-discord`, notifier incident lifecycle, and failover watchdog flows.
 
 ## [0.3.0] - 2026-04-05
 

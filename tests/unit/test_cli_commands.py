@@ -130,6 +130,38 @@ def test_main_test_discord_sends_and_exits(monkeypatch, tmp_path: Path, capsys) 
     assert calls[0][0] == "https://discord.invalid/webhook"
 
 
+def test_main_test_discord_passes_runtime_dedupe_state_path(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "amazon_from_pattern": r"amazon\.co\.jp",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    captured: dict = {}
+
+    def fake_send_discord_test(webhook: str, message: str, **kwargs) -> bool:
+        captured["webhook"] = webhook
+        captured["message"] = message
+        captured["kwargs"] = kwargs
+        return True
+
+    monkeypatch.setattr(cli, "send_discord_test", fake_send_discord_test)
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--test-discord"])
+
+    cli.main()
+
+    assert captured["webhook"] == "https://discord.invalid/webhook"
+    assert captured["kwargs"]["dedupe_state_path"] == tmp_path / ".discord_dedupe_state.json"
+
+
 def test_main_test_discord_failure_exits_nonzero(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(

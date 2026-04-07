@@ -60,7 +60,7 @@ class JsonlCheckpointStore:
         if checkpoint_from_index is not None:
             return Checkpoint(message_id=checkpoint_from_index)
 
-        # v0.3.0 以降は events.jsonl を正本とする。
+        # checkpoint の正本は events.jsonl とする。
         event_entries, eof_size = self._load_jsonl_entries(self.events_file)
         checkpoint_entry = self._find_last_checkpoint_entry(event_entries)
         if checkpoint_entry is not None:

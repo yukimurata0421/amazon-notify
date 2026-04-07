@@ -12,6 +12,7 @@ English version: [PORTABILITY_PARAMS.en.md](./PORTABILITY_PARAMS.en.md)
 | ファイルシステム | `BASE_DIR` | `/opt/amazon-notify` | `install-systemd.sh --base-dir` | コード配置ディレクトリ |
 | Linuxユーザー | `SYSTEM_USER` | `ubuntu` / `yuki` | `install-systemd.sh --system-user` | systemd `User=` に反映 |
 | 設定ファイル | `CONFIG_PATH` | `/opt/amazon-notify/config.json` | `install-systemd.sh --config-path` | `ExecStart --config` に反映 |
+| runtime directory 基準 | dedupe/index 派生ファイル | `.discord_dedupe_state.json`, `*.index.json` | `CONFIG_PATH` の配置ディレクトリ基準 | `--config` を変えると参照先も変わる |
 | heartbeat | `HEARTBEAT_PATH` | `/opt/amazon-notify/runtime/pubsub-heartbeat.txt` | `install-systemd.sh --heartbeat-path` | pubsub/fallback 両方に反映 |
 | GCP | `PROJECT_ID` | `my-gcp-project` | `config.json`, CLI 引数 | topic/subscription の親 |
 | Pub/Sub | `TOPIC_ID` | `amazon-notify-topic` | `--setup-watch --pubsub-topic` | `projects/<PROJECT_ID>/topics/<TOPIC_ID>` |
@@ -89,3 +90,4 @@ amazon-notify --config ./config.json --health-check
 - `gcloud auth login` のみで ADC を設定したつもりになる
 - systemd unit の `User=YOUR_USER` / `/opt/amazon-notify` を未置換のまま起動する
 - topic/subscription の project が `config.json` と一致していない
+- `--config` を変えたのに、前の runtime directory 側の `.discord_dedupe_state.json` / `*.index.json` を見て原因調査してしまう

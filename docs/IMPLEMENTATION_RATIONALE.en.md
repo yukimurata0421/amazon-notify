@@ -29,6 +29,11 @@ For stable architecture-level decisions, see `docs/engineering-decisions.en.md`.
 - Split Gmail runtime logic by responsibility (`gmail_auth.py` and `gmail_transient_state.py`) while keeping `gmail_client.py` as compatibility facade.
 - Added explicit runtime-artifact role documentation in README/operations docs (source-of-truth vs derived vs rebuildable cache vs coordination/lock).
 - Added domain-intent comments in StreamingPull for history aggregation, duplicate skip behavior, and heartbeat atomic-write rationale.
+- Hardened polling catch-up with paginated listing and checkpoint-not-found fail-safe behavior.
+- Changed negative `transient_alert_min_duration_seconds` handling to warning + clamp (`0`) instead of runtime abort.
+- Tightened Discord dedupe-state parsing/pruning so malformed inflight entries are explicitly dropped.
+- Bound Gmail source loop lambdas with default arguments to avoid future closure-capture pitfalls.
+- Applied least-privilege CI permission defaults (`contents: read` by default, `contents: write` only for coverage-badge update job).
 
 ### 2.1 Hybrid topology (Pub/Sub main + polling fallback)
 - main: StreamingPull service for low latency

@@ -24,7 +24,7 @@ Japanese README: [README.ja.md](./README.ja.md)
 |---|---|
 | `main` branch | Latest implementation (may be ahead of a release tag) |
 | Latest release | Last tagged release on GitHub |
-| Next intended release | `0.4.0` (see `CHANGELOG.md` Unreleased) |
+| Current release target | `0.4.0` (see `CHANGELOG.md` `0.4.0` section) |
 
 ## Behavior Example
 

@@ -226,3 +226,7 @@ sudo journalctl -u amazon-notify-fallback.service -f
 ```bash
 amazon-notify --config ./config.json --health-check
 ```
+
+- `dedupe_lock_supported` が `false` の場合、現在環境では Discord dedupe lock が使えません（Linux + `fcntl` 前提）。
+- `--config` を切り替えると dedupe state の参照先（`.discord_dedupe_state.json`）も切り替わります（`--test-discord` 含む）。
+- `events.jsonl` / `runs.jsonl` の読み取りが不整合に見える場合は `amazon-notify --config ./config.json --rebuild-indexes` で index を再生成します。

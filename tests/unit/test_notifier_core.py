@@ -261,6 +261,7 @@ def test_run_once_sends_amazon_notification_and_updates_state(monkeypatch, tmp_p
     assert len(sent) == 1
     assert sent[0]["from_addr"] == "order-update@amazon.co.jp"
     assert sent[0]["url"].endswith("/new-id")
+    assert sent[0]["dedupe_state_path"] == runtime.discord_dedupe_state_file
 
     saved = _read_json(state_file)
     assert saved["last_message_id"] == "new-id"

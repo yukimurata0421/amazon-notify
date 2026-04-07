@@ -7,7 +7,7 @@ English version: [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.
 構造全体の設計判断は `docs/engineering-decisions.md` を参照してください。
 
 対象:
-- `main` ブランチの実装（v0.3.0 系の改善を含む）
+- `main` ブランチの実装（v0.4.0 系の改善を含む）
 - 単一ホスト運用（systemd + ローカルファイル）前提
 
 ## 1. 判断の基準
@@ -35,6 +35,11 @@ English version: [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.
 - Gmail 実装を責務単位で分割（`gmail_auth.py` / `gmail_transient_state.py`）。
 - README/運用文書で runtime artifacts の役割を分類して明示。
 - StreamingPull 実装に、history 集約・duplicate skip・heartbeat atomic write の意図コメントを追加。
+- Polling catch-up をページング走査 + checkpoint-not-found fail-safe に強化。
+- `transient_alert_min_duration_seconds` の負値は warning + `0` clamp で継続。
+- Discord dedupe state の異常 entry（不正な inflight など）を明示的に除外する方向へ調整。
+- Gmail source の loop lambda をデフォルト引数バインドに変更し、将来の実装変更に対する安全性を上げる。
+- CI 権限を最小権限化（既定 `contents: read`、coverage badge 更新 job のみ `contents: write`）。
 
 ## 2.1 ハイブリッド構成（Pub/Sub メイン + Polling サブ）
 

@@ -59,4 +59,6 @@ docker run --rm \
 ## host 側の運用責務
 - `config.json` / `credentials.json` / `token.json` の配置と管理
 - ログと runtime artifact の保持・掃除
+  - 例: `events.jsonl.checkpoint.index.json`, `runs.jsonl.summary.index.json`, `.discord_dedupe_state.json`
 - 本番運用（`systemd`、watchdog、監視、restart 戦略）は host 側で設計・実施
+- `--config` を切り替える場合、dedupe state の参照先も runtime directory 基準で切り替わります（`--test-discord` 含む）。

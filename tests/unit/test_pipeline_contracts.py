@@ -228,10 +228,19 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
         },
     )
 
-    alerts: list[str] = []
-    recoveries: list[str] = []
-    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m, **_kwargs: alerts.append(m) or True)
-    monkeypatch.setattr(notifier, "send_discord_recovery", lambda _w, m, **_kwargs: recoveries.append(m) or True)
+    alerts: list[tuple[str, Path | None]] = []
+    recoveries: list[tuple[str, Path | None]] = []
+
+    def fake_send_discord_alert(_webhook_url: str, message: str, **kwargs) -> bool:
+        alerts.append((message, kwargs.get("dedupe_state_path")))
+        return True
+
+    def fake_send_discord_recovery(_webhook_url: str, message: str, **kwargs) -> bool:
+        recoveries.append((message, kwargs.get("dedupe_state_path")))
+        return True
+
+    monkeypatch.setattr(notifier, "send_discord_alert", fake_send_discord_alert)
+    monkeypatch.setattr(notifier, "send_discord_recovery", fake_send_discord_recovery)
 
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: False)
     notifier.run_once(runtime)
@@ -241,6 +250,7 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
     assert state_after_failures["active_incident_kind"] == "delivery_failed"
     assert state_after_failures["incident_suppressed_count"] == 1
     assert len(alerts) == 1
+    assert alerts[0][1] == runtime.discord_dedupe_state_file
 
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: True)
     notifier.run_once(runtime)
@@ -248,6 +258,7 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
     state_after_recovery = _read_json(runtime.state_file)
     assert "active_incident_kind" not in state_after_recovery
     assert len(recoveries) == 1
+    assert recoveries[0][1] == runtime.discord_dedupe_state_file
 
 
 def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(

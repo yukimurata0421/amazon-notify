@@ -33,6 +33,7 @@ Layer C (application level):
 - alert on persistent/auth failures
 - record failure kind in `events.jsonl` and `runs.jsonl`
 - reconnect StreamingPull in-process before relying on systemd restart
+- polling catch-up scans paginated Gmail listing and keeps checkpoint fail-safe when checkpoint is not found in listing windows
 
 ## 4. Silent-stall mitigation (heartbeat)
 
