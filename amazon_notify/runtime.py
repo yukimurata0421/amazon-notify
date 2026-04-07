@@ -57,7 +57,9 @@ class RuntimeConfig:
         return getattr(self, key, default)
 
     @classmethod
-    def from_mapping(cls, config: dict, *, dry_run: bool = False, paths: RuntimePaths | None = None) -> "RuntimeConfig":
+    def from_mapping(
+        cls, config: dict, *, dry_run: bool = False, paths: RuntimePaths | None = None
+    ) -> RuntimeConfig:
         runtime_paths = app_config.get_runtime_paths() if paths is None else paths
         base_dir = runtime_paths.runtime_dir
         return cls(
@@ -66,7 +68,9 @@ class RuntimeConfig:
                 str(config.get("amazon_from_pattern", r"amazon\.co\.jp")),
                 "amazon_from_pattern",
             ),
-            state_file=app_config.resolve_runtime_path(config.get("state_file", "state.json"), base_dir=base_dir),
+            state_file=app_config.resolve_runtime_path(
+                config.get("state_file", "state.json"), base_dir=base_dir
+            ),
             events_file=app_config.resolve_runtime_path(
                 config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
                 base_dir=base_dir,
@@ -82,22 +86,34 @@ class RuntimeConfig:
             max_messages=int(config.get("max_messages", 50)),
             dry_run=dry_run,
             gmail_api_max_retries=int(config.get("gmail_api_max_retries", 4)),
-            gmail_api_base_delay_seconds=float(config.get("gmail_api_base_delay_seconds", 1.0)),
-            gmail_api_max_delay_seconds=float(config.get("gmail_api_max_delay_seconds", 30.0)),
+            gmail_api_base_delay_seconds=float(
+                config.get("gmail_api_base_delay_seconds", 1.0)
+            ),
+            gmail_api_max_delay_seconds=float(
+                config.get("gmail_api_max_delay_seconds", 30.0)
+            ),
             discord_max_retries=int(config.get("discord_max_retries", 4)),
-            discord_base_delay_seconds=float(config.get("discord_base_delay_seconds", 1.0)),
-            discord_max_delay_seconds=float(config.get("discord_max_delay_seconds", 30.0)),
+            discord_base_delay_seconds=float(
+                config.get("discord_base_delay_seconds", 1.0)
+            ),
+            discord_max_delay_seconds=float(
+                config.get("discord_max_delay_seconds", 30.0)
+            ),
             pubsub_main_service_name=str(
                 config.get("pubsub_main_service_name", "amazon-notify-pubsub.service")
             ),
             pubsub_heartbeat_file=app_config.resolve_runtime_path(
-                config.get("pubsub_heartbeat_file", DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE),
+                config.get(
+                    "pubsub_heartbeat_file", DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE
+                ),
                 base_dir=base_dir,
             ),
             pubsub_heartbeat_interval_seconds=float(
                 config.get("pubsub_heartbeat_interval_seconds", 30.0)
             ),
-            pubsub_heartbeat_max_age_seconds=float(config.get("pubsub_heartbeat_max_age_seconds", 300.0)),
+            pubsub_heartbeat_max_age_seconds=float(
+                config.get("pubsub_heartbeat_max_age_seconds", 300.0)
+            ),
             pubsub_trigger_failure_max_consecutive=int(
                 config.get("pubsub_trigger_failure_max_consecutive", 5)
             ),
@@ -123,27 +139,39 @@ class RuntimeConfig:
                 config.get("transient_alert_cooldown_seconds", 1800.0)
             ),
             runtime_paths=runtime_paths,
-            subject_pattern=compile_optional_pattern(config.get("amazon_subject_pattern"), "amazon_subject_pattern"),
+            subject_pattern=compile_optional_pattern(
+                config.get("amazon_subject_pattern"), "amazon_subject_pattern"
+            ),
             incident_memory_suppressed_until={},
         )
 
 
-def compile_optional_pattern(pattern: str | None, config_key: str) -> Pattern[str] | None:
+def compile_optional_pattern(
+    pattern: str | None, config_key: str
+) -> Pattern[str] | None:
     if not pattern:
         return None
     try:
         return re.compile(pattern)
     except re.error as exc:
-        app_config.LOGGER.error("CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc)
-        raise ValueError(f"config.json の {config_key} が不正な正規表現です: {exc}") from exc
+        app_config.LOGGER.error(
+            "CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc
+        )
+        raise ValueError(
+            f"config.json の {config_key} が不正な正規表現です: {exc}"
+        ) from exc
 
 
 def compile_required_pattern(pattern: str, config_key: str) -> Pattern[str]:
     try:
         return re.compile(pattern)
     except re.error as exc:
-        app_config.LOGGER.error("CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc)
-        raise ValueError(f"config.json の {config_key} が不正な正規表現です: {exc}") from exc
+        app_config.LOGGER.error(
+            "CONFIG_INVALID_REGEX: %s=%r error=%s", config_key, pattern, exc
+        )
+        raise ValueError(
+            f"config.json の {config_key} が不正な正規表現です: {exc}"
+        ) from exc
 
 
 def looks_like_discord_webhook_url(value: str) -> bool:
@@ -200,10 +228,14 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
         try:
             reconnect_attempts = int(config["pubsub_stream_reconnect_max_attempts"])
         except (TypeError, ValueError):
-            errors.append("pubsub_stream_reconnect_max_attempts は整数で指定してください。")
+            errors.append(
+                "pubsub_stream_reconnect_max_attempts は整数で指定してください。"
+            )
         else:
             if reconnect_attempts < 0:
-                errors.append("pubsub_stream_reconnect_max_attempts は 0 以上を指定してください。")
+                errors.append(
+                    "pubsub_stream_reconnect_max_attempts は 0 以上を指定してください。"
+                )
 
     delay_keys = (
         "gmail_api_base_delay_seconds",
@@ -241,24 +273,36 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
         if delay_value < 0:
             errors.append(f"{key} は 0 以上の値を指定してください。")
 
-    if "structured_logging" in config and not isinstance(config.get("structured_logging"), bool):
+    if "structured_logging" in config and not isinstance(
+        config.get("structured_logging"), bool
+    ):
         errors.append("structured_logging は true/false で指定してください。")
 
     pubsub_subscription = config.get("pubsub_subscription")
     if pubsub_subscription is not None:
         if not isinstance(pubsub_subscription, str) or not pubsub_subscription.strip():
-            errors.append("pubsub_subscription は空文字以外の文字列で指定してください。")
+            errors.append(
+                "pubsub_subscription は空文字以外の文字列で指定してください。"
+            )
 
     pubsub_main_service_name = config.get("pubsub_main_service_name")
     if pubsub_main_service_name is not None:
-        if not isinstance(pubsub_main_service_name, str) or not pubsub_main_service_name.strip():
-            errors.append("pubsub_main_service_name は空文字以外の文字列で指定してください。")
+        if (
+            not isinstance(pubsub_main_service_name, str)
+            or not pubsub_main_service_name.strip()
+        ):
+            errors.append(
+                "pubsub_main_service_name は空文字以外の文字列で指定してください。"
+            )
 
     for key in ("pubsub_heartbeat_file",):
         if key not in config:
             continue
         heartbeat_path_value = config.get(key)
-        if not isinstance(heartbeat_path_value, str) or not heartbeat_path_value.strip():
+        if (
+            not isinstance(heartbeat_path_value, str)
+            or not heartbeat_path_value.strip()
+        ):
             errors.append(f"{key} は空文字以外の文字列で指定してください。")
             continue
         try:
@@ -266,7 +310,10 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
         except Exception as exc:
             errors.append(f"{key} を runtime パスとして解決できません: {exc}")
 
-    for key in ("pubsub_heartbeat_interval_seconds", "pubsub_heartbeat_max_age_seconds"):
+    for key in (
+        "pubsub_heartbeat_interval_seconds",
+        "pubsub_heartbeat_max_age_seconds",
+    ):
         if key not in config:
             continue
         try:

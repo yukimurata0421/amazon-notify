@@ -52,7 +52,9 @@ def _ensure_dedupe_lock_supported() -> None:
         "DISCORD_DEDUPE_LOCK_UNSUPPORTED: fcntl が利用できない環境です。"
         " dedupe lock は利用できません。Linux 単一ホスト運用を推奨します。"
     )
-    raise OSError("fcntl is unavailable; discord dedupe lock is not supported on this platform")
+    raise OSError(
+        "fcntl is unavailable; discord dedupe lock is not supported on this platform"
+    )
 
 
 @contextmanager
@@ -108,7 +110,11 @@ def _read_dedupe_entries(state_path: Path) -> dict[str, dict[str, float | str]]:
 
         # inflight_owner は inflight_until とセットでのみ意味を持つ。
         inflight_owner = raw.get("inflight_owner")
-        if has_valid_inflight_until and isinstance(inflight_owner, str) and inflight_owner:
+        if (
+            has_valid_inflight_until
+            and isinstance(inflight_owner, str)
+            and inflight_owner
+        ):
             entry["inflight_owner"] = inflight_owner
 
         if not entry:
@@ -118,7 +124,9 @@ def _read_dedupe_entries(state_path: Path) -> dict[str, dict[str, float | str]]:
     return entries
 
 
-def _write_dedupe_entries(state_path: Path, entries: dict[str, dict[str, float | str]]) -> None:
+def _write_dedupe_entries(
+    state_path: Path, entries: dict[str, dict[str, float | str]]
+) -> None:
     payload = {
         "schema_version": _DEDUPE_SCHEMA_VERSION,
         "entries": entries,
@@ -136,7 +144,10 @@ def _prune_dedupe_entries(
         entry = dict(entries[key])
 
         inflight_until = entry.get("inflight_until")
-        if isinstance(inflight_until, (int, float)) and float(inflight_until) <= now_epoch:
+        if (
+            isinstance(inflight_until, (int, float))
+            and float(inflight_until) <= now_epoch
+        ):
             entry.pop("inflight_until", None)
             entry.pop("inflight_owner", None)
             changed = True
@@ -148,7 +159,9 @@ def _prune_dedupe_entries(
 
         last_sent_at = entry.get("last_sent_at")
         if isinstance(last_sent_at, (int, float)):
-            if (now_epoch - float(last_sent_at)) > _DEDUPE_MAX_RETENTION_SECONDS and "inflight_until" not in entry:
+            if (
+                now_epoch - float(last_sent_at)
+            ) > _DEDUPE_MAX_RETENTION_SECONDS and "inflight_until" not in entry:
                 entries.pop(key, None)
                 changed = True
                 continue
@@ -202,7 +215,10 @@ def _reserve_dedupe_claim(
                     return False, None, None, None
 
             inflight_until = entry.get("inflight_until")
-            if isinstance(inflight_until, (int, float)) and float(inflight_until) > now_epoch:
+            if (
+                isinstance(inflight_until, (int, float))
+                and float(inflight_until) > now_epoch
+            ):
                 LOGGER.warning(
                     "DISCORD_DEDUPE_SUPPRESSED_INFLIGHT: kind=%s remaining=%.1fs",
                     notification_kind,
@@ -220,7 +236,9 @@ def _reserve_dedupe_claim(
             entries[dedupe_key] = next_entry
             _write_dedupe_entries(state_path, entries)
     except OSError as exc:
-        LOGGER.warning("DISCORD_DEDUPE_BYPASS: kind=%s error=%s", notification_kind, exc)
+        LOGGER.warning(
+            "DISCORD_DEDUPE_BYPASS: kind=%s error=%s", notification_kind, exc
+        )
         return True, None, None, None
 
     return True, state_path, dedupe_key, owner
@@ -259,7 +277,9 @@ def _finalize_dedupe_claim(
             entries[dedupe_key] = entry
             _write_dedupe_entries(state_path, entries)
     except OSError as exc:
-        LOGGER.warning("DISCORD_DEDUPE_FINALIZE_FAILED: key=%s error=%s", dedupe_key, exc)
+        LOGGER.warning(
+            "DISCORD_DEDUPE_FINALIZE_FAILED: key=%s error=%s", dedupe_key, exc
+        )
 
 
 def _should_retry_request_exception(exc: Exception) -> bool:
@@ -317,10 +337,14 @@ def _post_webhook(
             retry_after = parse_retry_after_seconds(
                 getattr(response, "headers", {}).get("Retry-After")
             )
-            delay = retry_after if retry_after is not None else next_delay_seconds(
-                attempt,
-                base_delay=base_delay_seconds,
-                max_delay=max_delay_seconds,
+            delay = (
+                retry_after
+                if retry_after is not None
+                else next_delay_seconds(
+                    attempt,
+                    base_delay=base_delay_seconds,
+                    max_delay=max_delay_seconds,
+                )
             )
             LOGGER.warning(
                 "DISCORD_POST_RETRY_STATUS: attempt=%s/%s status=%s retry_in=%.2fs",

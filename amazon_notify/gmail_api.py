@@ -40,7 +40,9 @@ def list_recent_messages_page(
     return result.get("messages", []), result.get("nextPageToken")
 
 
-def list_recent_messages(service: Any, query: str, max_results: int) -> list[dict[str, str]]:
+def list_recent_messages(
+    service: Any, query: str, max_results: int
+) -> list[dict[str, str]]:
     messages, _next_page_token = list_recent_messages_page(
         service,
         query=query,
@@ -50,8 +52,13 @@ def list_recent_messages(service: Any, query: str, max_results: int) -> list[dic
 
 
 def get_message_detail(service: Any, message_id: str) -> dict[str, Any]:
-    return service.users().messages().get(
-        userId="me",
-        id=message_id,
-        format="full",
-    ).execute()
+    return (
+        service.users()
+        .messages()
+        .get(
+            userId="me",
+            id=message_id,
+            format="full",
+        )
+        .execute()
+    )

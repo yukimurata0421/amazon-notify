@@ -34,7 +34,9 @@ def handle_streaming_mode(
         stderr_error("--streaming-pull と --interval は同時に指定できません。")
         sys.exit(1)
 
-    subscription = (args.pubsub_subscription or config.get("pubsub_subscription", "")).strip()
+    subscription = (
+        args.pubsub_subscription or config.get("pubsub_subscription", "")
+    ).strip()
     if not subscription:
         stderr_error("StreamingPull には pubsub subscription が必要です。")
         sys.exit(1)
@@ -49,6 +51,7 @@ def handle_streaming_mode(
 
     while True:
         try:
+
             def _trigger(_runtime: RuntimeConfig = runtime) -> bool:
                 return run_once_with_guard_fn(_runtime)
 
@@ -73,7 +76,10 @@ def handle_streaming_mode(
                 reconnect_attempt,
                 exc,
             )
-            if reconnect_max_attempts > 0 and reconnect_attempt >= reconnect_max_attempts:
+            if (
+                reconnect_max_attempts > 0
+                and reconnect_attempt >= reconnect_max_attempts
+            ):
                 stderr_error(
                     "StreamingPull の再接続試行回数が上限に達しました。"
                     f" attempts={reconnect_attempt}"

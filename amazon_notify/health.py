@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from . import config as app_config
 from .checkpoint_store import JsonlCheckpointStore
@@ -83,7 +83,9 @@ def run_health_check(
     last_run_summary: dict | None = None
     active_incident: dict | None = None
     if config is not None:
-        state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"), base_dir=paths.runtime_dir)
+        state_file = app_config.resolve_runtime_path(
+            config.get("state_file", "state.json"), base_dir=paths.runtime_dir
+        )
         log_file = app_config.resolve_runtime_path(
             config.get("log_file", str(paths.default_log)),
             base_dir=paths.runtime_dir,

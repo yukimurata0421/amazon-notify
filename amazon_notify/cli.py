@@ -60,13 +60,15 @@ def load_config_or_exit(paths: RuntimePaths) -> dict[str, Any]:
         sys.exit(1)
 
 
-def load_config_for_health_check(paths: RuntimePaths) -> tuple[dict[str, Any] | None, list[str]]:
+def load_config_for_health_check(
+    paths: RuntimePaths,
+) -> tuple[dict[str, Any] | None, list[str]]:
     return health_command.load_config_for_health_check(
         paths,
         validate_config=lambda config: validate_config_impl(
             config,
             paths=paths,
-        )
+        ),
     )
 
 
@@ -120,7 +122,9 @@ def handle_health_check(args: argparse.Namespace, paths: RuntimePaths) -> bool:
     sys.exit(run_health_check(paths, health_config, health_validation_errors))
 
 
-def handle_validate_config(args: argparse.Namespace, validation_errors: list[str]) -> bool:
+def handle_validate_config(
+    args: argparse.Namespace, validation_errors: list[str]
+) -> bool:
     if not args.validate_config:
         return False
     if validation_errors:
@@ -130,7 +134,49 @@ def handle_validate_config(args: argparse.Namespace, validation_errors: list[str
     return True
 
 
-def handle_setup_watch(args: argparse.Namespace, config: dict[str, Any], *, paths: RuntimePaths) -> None:
+def handle_test_discord(
+    args: argparse.Namespace, config: dict[str, Any], runtime: RuntimeConfig
+) -> bool:
+    if not args.test_discord:
+        return False
+    webhook_url = config["discord_webhook_url"]
+    sent = send_discord_test(
+        webhook_url,
+        "Amazon Notify の test-discord コマンドから送信しました。",
+        dedupe_state_path=runtime.discord_dedupe_state_file,
+    )
+    if not sent:
+        app_config.LOGGER.error("TEST_DISCORD_FAILED")
+        _stderr_error("Discord テスト通知の送信に失敗しました。")
+        sys.exit(1)
+    app_config.LOGGER.info("TEST_DISCORD_SUCCESS")
+    sys.stdout.write("[OK] Discord テスト通知を送信しました。\n")
+    return True
+
+
+def validate_action_conflicts(args: argparse.Namespace) -> None:
+    action_flags = (
+        ("--reauth", args.reauth),
+        ("--health-check", args.health_check),
+        ("--validate-config", args.validate_config),
+        ("--test-discord", args.test_discord),
+        ("--setup-watch", args.setup_watch),
+        ("--rebuild-indexes", args.rebuild_indexes),
+        ("--streaming-pull", args.streaming_pull),
+    )
+    selected_actions = [name for name, enabled in action_flags if enabled]
+    if len(selected_actions) <= 1:
+        return
+    joined = ", ".join(selected_actions)
+    _stderr_error(
+        f"action flags は同時指定できません。1つだけ指定してください: {joined}"
+    )
+    sys.exit(1)
+
+
+def handle_setup_watch(
+    args: argparse.Namespace, config: dict[str, Any], *, paths: RuntimePaths
+) -> None:
     watch_command.handle_setup_watch(
         args,
         config,
@@ -200,7 +246,9 @@ def should_run_fallback_polling(
     )
 
 
-def run_polling_mode(args: argparse.Namespace, config: dict[str, Any], runtime: RuntimeConfig) -> None:
+def run_polling_mode(
+    args: argparse.Namespace, config: dict[str, Any], runtime: RuntimeConfig
+) -> None:
     polling_command.run_polling_mode(
         args,
         config,
@@ -238,27 +286,65 @@ def handle_rebuild_indexes(args: argparse.Namespace, runtime: RuntimeConfig) -> 
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Amazon配送メールを監視してDiscordに通知")
+    parser = argparse.ArgumentParser(
+        description="Amazon配送メールを監視してDiscordに通知"
+    )
     parser.add_argument(
         "--config",
         type=str,
         default="config.json",
         help="設定ファイルの保存先。相対パスはカレントディレクトリ基準。",
     )
-    parser.add_argument("--once", action="store_true", help="1回だけ実行して終了する（デフォルトはループ実行）")
-    parser.add_argument("--interval", type=int, help="ループ実行時の待ち時間（秒）。configのpoll_interval_secondsより優先される。")
-    parser.add_argument("--reauth", action="store_true", help="対話OAuthで token.json を再作成して終了する。")
-    parser.add_argument("--dry-run", action="store_true", help="Gmail取得と判定のみ実行し、Discord送信とstate更新を行わない。")
-    parser.add_argument("--test-discord", action="store_true", help="設定済み Discord Webhook へテスト通知を送信して終了する。")
-    parser.add_argument("--validate-config", action="store_true", help="設定ファイルを検証して終了する。")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="1回だけ実行して終了する（デフォルトはループ実行）",
+    )
+    parser.add_argument(
+        "--interval",
+        type=int,
+        help="ループ実行時の待ち時間（秒）。configのpoll_interval_secondsより優先される。",
+    )
+    parser.add_argument(
+        "--reauth",
+        action="store_true",
+        help="対話OAuthで token.json を再作成して終了する。",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Gmail取得と判定のみ実行し、Discord送信とstate更新を行わない。",
+    )
+    parser.add_argument(
+        "--test-discord",
+        action="store_true",
+        help="設定済み Discord Webhook へテスト通知を送信して終了する。",
+    )
+    parser.add_argument(
+        "--validate-config",
+        action="store_true",
+        help="設定ファイルを検証して終了する。",
+    )
     parser.add_argument(
         "--rebuild-indexes",
         action="store_true",
         help="events/runs の index snapshot を再構築して終了する。",
     )
-    parser.add_argument("--health-check", action="store_true", help="実行前提のヘルスチェック結果をJSONで出力して終了する。")
-    parser.add_argument("--log-file", type=str, help="ログファイルの保存先（未指定時は logs/amazon_mail_notifier.log）。")
-    parser.add_argument("--streaming-pull", action="store_true", help="Pub/Sub StreamingPull でイベント駆動実行する。")
+    parser.add_argument(
+        "--health-check",
+        action="store_true",
+        help="実行前提のヘルスチェック結果をJSONで出力して終了する。",
+    )
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        help="ログファイルの保存先（未指定時は logs/amazon_mail_notifier.log）。",
+    )
+    parser.add_argument(
+        "--streaming-pull",
+        action="store_true",
+        help="Pub/Sub StreamingPull でイベント駆動実行する。",
+    )
     parser.add_argument(
         "--pubsub-subscription",
         type=str,
@@ -303,8 +389,16 @@ def main() -> None:
         action="store_true",
         help="--once 実行時にメイン系を監視し、健全ならポーリングをスキップする。",
     )
-    parser.add_argument("--setup-watch", action="store_true", help="Gmail watch を Pub/Sub topic に登録して終了する。")
-    parser.add_argument("--pubsub-topic", type=str, help="watch 登録先 topic（projects/.../topics/...）。")
+    parser.add_argument(
+        "--setup-watch",
+        action="store_true",
+        help="Gmail watch を Pub/Sub topic に登録して終了する。",
+    )
+    parser.add_argument(
+        "--pubsub-topic",
+        type=str,
+        help="watch 登録先 topic（projects/.../topics/...）。",
+    )
     parser.add_argument(
         "--watch-label-ids",
         type=str,
@@ -317,11 +411,27 @@ def main() -> None:
         default="include",
         help="watch の labelFilterAction。",
     )
-    parser.add_argument("--watch-retries", type=int, default=4, help="watch API 登録時の最大リトライ回数。")
-    parser.add_argument("--watch-base-delay", type=float, default=1.0, help="watch API 登録リトライの初期待機秒。")
-    parser.add_argument("--watch-max-delay", type=float, default=60.0, help="watch API 登録リトライの最大待機秒。")
+    parser.add_argument(
+        "--watch-retries",
+        type=int,
+        default=4,
+        help="watch API 登録時の最大リトライ回数。",
+    )
+    parser.add_argument(
+        "--watch-base-delay",
+        type=float,
+        default=1.0,
+        help="watch API 登録リトライの初期待機秒。",
+    )
+    parser.add_argument(
+        "--watch-max-delay",
+        type=float,
+        default=60.0,
+        help="watch API 登録リトライの最大待機秒。",
+    )
 
     args = parser.parse_args()
+    validate_action_conflicts(args)
     paths = app_config.get_runtime_paths(args.config)
 
     if handle_reauth(args, paths):
@@ -339,9 +449,13 @@ def main() -> None:
     log_path = (
         app_config.resolve_runtime_path(args.log_file, base_dir=paths.runtime_dir)
         if args.log_file
-        else app_config.resolve_runtime_path(config.get("log_file", str(paths.default_log)), base_dir=paths.runtime_dir)
+        else app_config.resolve_runtime_path(
+            config.get("log_file", str(paths.default_log)), base_dir=paths.runtime_dir
+        )
     )
-    app_config.setup_logging(log_path, structured=bool(config.get("structured_logging", False)))
+    app_config.setup_logging(
+        log_path, structured=bool(config.get("structured_logging", False))
+    )
 
     if validation_errors:
         app_config.LOGGER.error("CONFIG_INVALID: %s", " | ".join(validation_errors))
@@ -360,19 +474,7 @@ def main() -> None:
         dry_run=args.dry_run,
     )
 
-    if args.test_discord:
-        webhook_url = config["discord_webhook_url"]
-        sent = send_discord_test(
-            webhook_url,
-            "Amazon Notify の test-discord コマンドから送信しました。",
-            dedupe_state_path=runtime.discord_dedupe_state_file,
-        )
-        if not sent:
-            app_config.LOGGER.error("TEST_DISCORD_FAILED")
-            _stderr_error("Discord テスト通知の送信に失敗しました。")
-            sys.exit(1)
-        app_config.LOGGER.info("TEST_DISCORD_SUCCESS")
-        sys.stdout.write("[OK] Discord テスト通知を送信しました。\n")
+    if handle_test_discord(args, config, runtime):
         return
 
     if args.setup_watch:
@@ -381,9 +483,12 @@ def main() -> None:
 
     if handle_rebuild_indexes(args, runtime):
         return
-    heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name = (
-        resolve_watchdog_options(args, runtime)
-    )
+    (
+        heartbeat_file,
+        heartbeat_interval_seconds,
+        heartbeat_max_age_seconds,
+        main_service_name,
+    ) = resolve_watchdog_options(args, runtime)
     validate_watchdog_options(
         heartbeat_interval_seconds,
         heartbeat_max_age_seconds,

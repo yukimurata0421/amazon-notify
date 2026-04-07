@@ -1,4 +1,4 @@
-.PHONY: setup setup-dev test coverage lint ruff typecheck run-once run reauth dry-run test-discord validate-config health-check install-systemd clean dist
+.PHONY: setup setup-dev test coverage lint ruff format-check typecheck release-check run-once run reauth dry-run test-discord validate-config health-check install-systemd clean dist
 
 VENV_BIN = .venv/bin
 PYTHON = $(VENV_BIN)/python
@@ -25,13 +25,25 @@ coverage:
 
 lint:
 	$(PYTHON) -m compileall -q amazon_notify
+	$(RUFF) format --check .
 	$(RUFF) check amazon_notify tests
 
 ruff:
 	$(RUFF) check amazon_notify tests
 
+format-check:
+	$(RUFF) format --check .
+
 typecheck:
 	$(MYPY) amazon_notify
+
+release-check:
+	$(RUFF) check .
+	$(RUFF) format --check .
+	$(MYPY) .
+	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
+	docker build -t amazon-notify:0.4.0 .
+	docker run --rm -v "$(CURDIR):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config
 
 run-once:
 	$(CLI) --once

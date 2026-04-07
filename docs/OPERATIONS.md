@@ -139,6 +139,21 @@ sudo systemctl restart amazon-notify-pubsub.service
 - ローテーション: 2MB x 5 世代
 - 標準出力にも同じログを出します。
 
+## リリース前チェック
+リリース直前は次を固定で実行します。
+
+```bash
+make release-check
+```
+
+実行内容:
+- `ruff check .`
+- `ruff format --check .`
+- `mypy .`
+- `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
+- `docker build -t amazon-notify:0.4.0 .`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`
+
 ## JSONL メンテナンス（長期運用向け）
 
 - index snapshot の再構築:

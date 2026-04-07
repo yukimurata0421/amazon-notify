@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .config import load_state, save_state
+from .gmail_transient_state import state_update_lock
 
 
 class IncidentStateStore:
@@ -28,10 +30,11 @@ class IncidentStateStore:
         }
 
     def suppress_incident(self, *, kind: str, run_id: str) -> int:
-        state = load_state(self.state_file)
-        suppressed_count = int(state.get("incident_suppressed_count", 0)) + 1
-        state["incident_suppressed_count"] = suppressed_count
-        save_state(self.state_file, state)
+        with state_update_lock(self.state_file):
+            state = load_state(self.state_file)
+            suppressed_count = int(state.get("incident_suppressed_count", 0)) + 1
+            state["incident_suppressed_count"] = suppressed_count
+            save_state(self.state_file, state)
         self._append_event(
             "incident_suppressed",
             run_id,
@@ -50,12 +53,13 @@ class IncidentStateStore:
         opened_at: str,
         run_id: str,
     ) -> None:
-        state = load_state(self.state_file)
-        state["active_incident_kind"] = kind
-        state["active_incident_message"] = message
-        state["active_incident_at"] = opened_at
-        state["incident_suppressed_count"] = 0
-        save_state(self.state_file, state)
+        with state_update_lock(self.state_file):
+            state = load_state(self.state_file)
+            state["active_incident_kind"] = kind
+            state["active_incident_message"] = message
+            state["active_incident_at"] = opened_at
+            state["incident_suppressed_count"] = 0
+            save_state(self.state_file, state)
         self._append_event(
             "incident_opened",
             run_id,
@@ -65,27 +69,28 @@ class IncidentStateStore:
         )
 
     def recover_incident(self, *, run_id: str) -> dict[str, Any] | None:
-        state = load_state(self.state_file)
-        kind = state.get("active_incident_kind")
-        if not kind:
-            return None
+        with state_update_lock(self.state_file):
+            state = load_state(self.state_file)
+            kind = state.get("active_incident_kind")
+            if not kind:
+                return None
 
-        message = state.get("active_incident_message")
-        at = state.get("active_incident_at")
-        suppressed_count = int(state.get("incident_suppressed_count", 0))
+            message = state.get("active_incident_message")
+            at = state.get("active_incident_at")
+            suppressed_count = int(state.get("incident_suppressed_count", 0))
 
-        self._append_event(
-            "incident_recovered",
-            run_id,
-            {
-                "kind": kind,
-            },
-        )
-        state.pop("active_incident_kind", None)
-        state.pop("active_incident_message", None)
-        state.pop("active_incident_at", None)
-        state.pop("incident_suppressed_count", None)
-        save_state(self.state_file, state)
+            self._append_event(
+                "incident_recovered",
+                run_id,
+                {
+                    "kind": kind,
+                },
+            )
+            state.pop("active_incident_kind", None)
+            state.pop("active_incident_message", None)
+            state.pop("active_incident_at", None)
+            state.pop("incident_suppressed_count", None)
+            save_state(self.state_file, state)
         return {
             "kind": kind,
             "message": message,

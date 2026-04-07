@@ -14,12 +14,20 @@ def _read_json(path: Path) -> dict:
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
-def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatch, tmp_path: Path) -> None:
+def test_contract_checkpoint_advances_only_when_notification_succeeds(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -38,7 +46,10 @@ def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatc
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": "配達済みのお知らせ",
@@ -54,9 +65,13 @@ def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatc
     assert any(event["event"] == "checkpoint_advanced" for event in events)
 
 
-def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatch, tmp_path: Path) -> None:
+def test_ordered_frontier_delivery_failure_stops_frontier_advancement(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -75,7 +90,10 @@ def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatc
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": "配達済みのお知らせ",
@@ -91,14 +109,19 @@ def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatc
     events = _read_jsonl(runtime.events_file)
     assert any(event["event"] == "delivery_failed" for event in events)
     assert not any(
-        event["event"] == "checkpoint_advanced" and event.get("source") == "pipeline_commit"
+        event["event"] == "checkpoint_advanced"
+        and event.get("source") == "pipeline_commit"
         for event in events
     )
 
 
-def test_ordered_frontier_message_detail_failure_preserves_frontier(monkeypatch, tmp_path: Path) -> None:
+def test_ordered_frontier_message_detail_failure_preserves_frontier(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -124,9 +147,13 @@ def test_ordered_frontier_message_detail_failure_preserves_frontier(monkeypatch,
     assert any(event["event"] == "message_detail_failed" for event in events)
 
 
-def test_contract_auth_failure_records_auth_failed_event(monkeypatch, tmp_path: Path) -> None:
+def test_contract_auth_failure_records_auth_failed_event(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -147,7 +174,9 @@ def test_ordered_frontier_stops_processing_newer_messages_after_midstream_failur
     tmp_path: Path,
 ) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     # Gmail list は新しい順を想定。
     monkeypatch.setattr(
@@ -175,7 +204,10 @@ def test_ordered_frontier_stops_processing_newer_messages_after_midstream_failur
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": f"snippet-{message_id}",
@@ -202,7 +234,9 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
     tmp_path: Path,
 ) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -221,7 +255,10 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": "配達済みのお知らせ",
@@ -266,7 +303,9 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
     tmp_path: Path,
 ) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -285,7 +324,10 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": "配達済みのお知らせ",
@@ -293,11 +335,17 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
     )
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: True)
     alerts: list[str] = []
-    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m, **_kwargs: alerts.append(m) or True)
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_alert",
+        lambda _w, m, **_kwargs: alerts.append(m) or True,
+    )
     monkeypatch.setattr(
         notifier.JsonlCheckpointStore,
         "append_run_result",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(CheckpointError("run result 保存に失敗しました: disk full")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            CheckpointError("run result 保存に失敗しました: disk full")
+        ),
     )
 
     result = notifier.run_once(runtime)
@@ -312,7 +360,9 @@ def test_run_once_does_not_crash_when_failure_event_persist_fails(
     tmp_path: Path,
 ) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
     runtime.events_file.write_text(
         json.dumps(
             {
@@ -349,7 +399,9 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
     tmp_path: Path,
 ) -> None:
     runtime = build_runtime(tmp_path)
-    runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
 
     monkeypatch.setattr(
         notifier,
@@ -368,7 +420,10 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": "配達済みのお知らせ",
@@ -376,7 +431,11 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
     )
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: False)
     alerts: list[str] = []
-    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m, **_kwargs: alerts.append(m) or True)
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_alert",
+        lambda _w, m, **_kwargs: alerts.append(m) or True,
+    )
     monkeypatch.setattr(
         notifier.JsonlCheckpointStore,
         "open_incident",

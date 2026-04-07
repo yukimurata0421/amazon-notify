@@ -44,16 +44,24 @@ def test_build_runtime_raises_for_invalid_amazon_from_pattern(tmp_path: Path) ->
 
 
 def test_compile_optional_pattern_and_discord_webhook_shape() -> None:
-    compiled = runtime.compile_optional_pattern(r"(発送|配達済み)", "amazon_subject_pattern")
+    compiled = runtime.compile_optional_pattern(
+        r"(発送|配達済み)", "amazon_subject_pattern"
+    )
     assert compiled is not None
     assert compiled.search("発送のお知らせ")
     assert runtime.compile_optional_pattern("", "amazon_subject_pattern") is None
     with pytest.raises(ValueError):
         runtime.compile_optional_pattern("[", "amazon_subject_pattern")
 
-    assert runtime.looks_like_discord_webhook_url("https://discord.com/api/webhooks/1/token")
-    assert not runtime.looks_like_discord_webhook_url("http://discord.com/api/webhooks/1/token")
-    assert not runtime.looks_like_discord_webhook_url("https://example.com/api/webhooks/1/token")
+    assert runtime.looks_like_discord_webhook_url(
+        "https://discord.com/api/webhooks/1/token"
+    )
+    assert not runtime.looks_like_discord_webhook_url(
+        "http://discord.com/api/webhooks/1/token"
+    )
+    assert not runtime.looks_like_discord_webhook_url(
+        "https://example.com/api/webhooks/1/token"
+    )
     assert not runtime.looks_like_discord_webhook_url("https://discord.com/channels/1")
 
 
@@ -103,14 +111,18 @@ def test_validate_config_reports_numeric_and_retry_errors(tmp_path: Path) -> Non
     assert "log_file は空文字以外の文字列" in joined
 
 
-def test_validate_config_reports_runtime_path_resolution_failures(monkeypatch, tmp_path: Path) -> None:
+def test_validate_config_reports_runtime_path_resolution_failures(
+    monkeypatch, tmp_path: Path
+) -> None:
     def fake_resolve_runtime_path(path_value, base_dir=None):
         if str(path_value) == "raise-path":
             raise ValueError("boom")
         base = tmp_path if base_dir is None else base_dir
         return base / str(path_value)
 
-    monkeypatch.setattr(runtime.app_config, "resolve_runtime_path", fake_resolve_runtime_path)
+    monkeypatch.setattr(
+        runtime.app_config, "resolve_runtime_path", fake_resolve_runtime_path
+    )
     errors = runtime.validate_config(
         {
             "discord_webhook_url": "https://discord.com/api/webhooks/1/token",
@@ -127,7 +139,9 @@ def test_validate_config_reports_runtime_path_resolution_failures(monkeypatch, t
     assert "events_file を runtime パスとして解決できません" in joined
 
 
-def test_validate_config_transient_alert_thresholds_allow_zero_and_reject_negative(tmp_path: Path) -> None:
+def test_validate_config_transient_alert_thresholds_allow_zero_and_reject_negative(
+    tmp_path: Path,
+) -> None:
     ok_errors = runtime.validate_config(
         {
             "discord_webhook_url": "https://discord.com/api/webhooks/1/token",

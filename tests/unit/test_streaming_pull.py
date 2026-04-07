@@ -80,7 +80,9 @@ def test_ensure_pubsub_dependencies_raises_when_missing(monkeypatch) -> None:
         streaming_pull.ensure_pubsub_dependencies()
 
 
-def test_run_streaming_pull_processes_messages_and_updates_heartbeat(monkeypatch, tmp_path: Path) -> None:
+def test_run_streaming_pull_processes_messages_and_updates_heartbeat(
+    monkeypatch, tmp_path: Path
+) -> None:
     class _FakeMessage:
         def __init__(self, payload: dict):
             self.data = json.dumps(payload).encode("utf-8")
@@ -122,8 +124,12 @@ def test_run_streaming_pull_processes_messages_and_updates_heartbeat(monkeypatch
             future = _FakeFuture(
                 callback,
                 [
-                    _FakeMessage({"emailAddress": "user@example.com", "historyId": "100"}),
-                    _FakeMessage({"emailAddress": "user@example.com", "historyId": "101"}),
+                    _FakeMessage(
+                        {"emailAddress": "user@example.com", "historyId": "100"}
+                    ),
+                    _FakeMessage(
+                        {"emailAddress": "user@example.com", "historyId": "101"}
+                    ),
                 ],
             )
             _FakeSubscriber.last_future = future
@@ -211,7 +217,9 @@ def test_run_streaming_pull_skips_invalid_message_payload(monkeypatch) -> None:
     assert triggers == []
 
 
-def test_run_streaming_pull_stops_when_trigger_fails_consecutively(monkeypatch, caplog) -> None:
+def test_run_streaming_pull_stops_when_trigger_fails_consecutively(
+    monkeypatch, caplog
+) -> None:
     class _FakeMessage:
         def __init__(self, payload: dict):
             self.data = json.dumps(payload).encode("utf-8")
@@ -234,7 +242,9 @@ def test_run_streaming_pull_stops_when_trigger_fails_consecutively(monkeypatch, 
             _ = timeout
             if not callback_invoked:
                 callback_invoked = True
-                self._callback(_FakeMessage({"emailAddress": "user@example.com", "historyId": "1"}))
+                self._callback(
+                    _FakeMessage({"emailAddress": "user@example.com", "historyId": "1"})
+                )
             raise streaming_pull.FutureTimeoutError()
 
         def cancel(self) -> None:

@@ -53,7 +53,9 @@ def _paths_for(tmp_path: Path) -> RuntimePaths:
     )
 
 
-def test_run_oauth_flow_uses_local_server_and_saves_token(monkeypatch, tmp_path: Path) -> None:
+def test_run_oauth_flow_uses_local_server_and_saves_token(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = _paths_for(tmp_path)
     token_path = paths.token
     credentials_path = paths.credentials
@@ -103,7 +105,11 @@ def test_run_oauth_flow_falls_back_to_console(monkeypatch, tmp_path: Path) -> No
         type(
             "FlowFactory",
             (),
-            {"from_client_secrets_file": staticmethod(lambda *_args, **_kwargs: Flow())},
+            {
+                "from_client_secrets_file": staticmethod(
+                    lambda *_args, **_kwargs: Flow()
+                )
+            },
         ),
     )
 
@@ -112,7 +118,9 @@ def test_run_oauth_flow_falls_back_to_console(monkeypatch, tmp_path: Path) -> No
     assert token_path.read_text(encoding="utf-8") == '{"token":"console"}'
 
 
-def test_run_oauth_flow_returns_none_when_console_also_fails(monkeypatch, tmp_path: Path) -> None:
+def test_run_oauth_flow_returns_none_when_console_also_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = _paths_for(tmp_path)
     paths.credentials.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
@@ -130,14 +138,20 @@ def test_run_oauth_flow_returns_none_when_console_also_fails(monkeypatch, tmp_pa
         type(
             "FlowFactory",
             (),
-            {"from_client_secrets_file": staticmethod(lambda *_args, **_kwargs: Flow())},
+            {
+                "from_client_secrets_file": staticmethod(
+                    lambda *_args, **_kwargs: Flow()
+                )
+            },
         ),
     )
 
     assert gmail_client.run_oauth_flow(paths=paths) is None
 
 
-def test_notify_token_recovery_skips_when_state_not_active(monkeypatch, tmp_path: Path) -> None:
+def test_notify_token_recovery_skips_when_state_not_active(
+    monkeypatch, tmp_path: Path
+) -> None:
     state = {"last_message_id": "x"}
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps(state), encoding="utf-8")
@@ -149,16 +163,24 @@ def test_notify_token_recovery_skips_when_state_not_active(monkeypatch, tmp_path
         lambda webhook_url, message: calls.append(message) or True,
     )
 
-    gmail_client.notify_token_recovery_if_needed("https://discord.invalid/webhook", state, state_file)
+    gmail_client.notify_token_recovery_if_needed(
+        "https://discord.invalid/webhook", state, state_file
+    )
     assert calls == []
 
 
-def test_record_transient_issue_suppresses_alert_before_persistence_threshold(monkeypatch, tmp_path: Path) -> None:
+def test_record_transient_issue_suppresses_alert_before_persistence_threshold(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda _w, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda _w, message: alerts.append(message) or True,
+    )
     monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
 
     sent = gmail_client.record_transient_issue(
@@ -178,12 +200,18 @@ def test_record_transient_issue_suppresses_alert_before_persistence_threshold(mo
     assert saved["transient_network_issue_occurrences"] == 1
 
 
-def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(monkeypatch, tmp_path: Path) -> None:
+def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda _w, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda _w, message: alerts.append(message) or True,
+    )
 
     now_values = iter([1000.0, 1070.0, 1100.0, 1140.0])
     monkeypatch.setattr(gmail_client.time, "time", lambda: next(now_values))
@@ -232,12 +260,18 @@ def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(mon
     assert saved["transient_network_issue_notified"] is True
 
 
-def test_record_transient_issue_clamps_negative_thresholds(monkeypatch, tmp_path: Path) -> None:
+def test_record_transient_issue_clamps_negative_thresholds(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda _w, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda _w, message: alerts.append(message) or True,
+    )
     monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
 
     sent = gmail_client.record_transient_issue(
@@ -272,7 +306,9 @@ def test_refresh_with_retry_retries_on_transient_and_then_succeeds(monkeypatch) 
     assert sleeps == [1]
 
 
-def test_refresh_with_retry_returns_non_transient_error_without_sleep(monkeypatch) -> None:
+def test_refresh_with_retry_returns_non_transient_error_without_sleep(
+    monkeypatch,
+) -> None:
     creds = _DummyCreds()
     error = RuntimeError("fatal")
     creds.refresh_outcomes = [error]
@@ -296,9 +332,13 @@ def test_refresh_with_retry_raises_for_invalid_retries() -> None:
         gmail_client.refresh_with_retry(_DummyCreds(), retries=0)
 
 
-def test_refresh_with_retry_uses_dependency_guard_when_request_factory_missing(monkeypatch) -> None:
+def test_refresh_with_retry_uses_dependency_guard_when_request_factory_missing(
+    monkeypatch,
+) -> None:
     calls: list[bool] = []
-    monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: calls.append(True))
+    monkeypatch.setattr(
+        gmail_client, "ensure_google_dependencies", lambda: calls.append(True)
+    )
     monkeypatch.setattr(gmail_client, "Request", lambda: object())
 
     result = gmail_client.refresh_with_retry(_DummyCreds(), retries=1)
@@ -306,15 +346,25 @@ def test_refresh_with_retry_uses_dependency_guard_when_request_factory_missing(m
     assert calls == [True]
 
 
-def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_refresh_success_writes_token(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = _paths_for(tmp_path)
     token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
-    creds = _DummyCreds(valid=False, expired=True, refresh_token="r", json_text='{"new":"token"}')
-    monkeypatch.setattr(gmail_client.Credentials, "from_authorized_user_file", lambda *_args, **_kwargs: creds)
-    monkeypatch.setattr(gmail_client, "refresh_with_retry", lambda *_args, **_kwargs: None)
+    creds = _DummyCreds(
+        valid=False, expired=True, refresh_token="r", json_text='{"new":"token"}'
+    )
+    monkeypatch.setattr(
+        gmail_client.Credentials,
+        "from_authorized_user_file",
+        lambda *_args, **_kwargs: creds,
+    )
+    monkeypatch.setattr(
+        gmail_client, "refresh_with_retry", lambda *_args, **_kwargs: None
+    )
     service_obj = object()
     captured_kwargs: dict = {}
 
@@ -330,18 +380,32 @@ def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: P
     assert captured_kwargs["cache_discovery"] is False
 
 
-def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_refresh_transient_error_marks_issue(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = _paths_for(tmp_path)
     token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(valid=False, expired=True, refresh_token="r")
-    monkeypatch.setattr(gmail_client.Credentials, "from_authorized_user_file", lambda *_args, **_kwargs: creds)
-    monkeypatch.setattr(gmail_client, "refresh_with_retry", lambda *_args, **_kwargs: TimeoutError("timed out"))
+    monkeypatch.setattr(
+        gmail_client.Credentials,
+        "from_authorized_user_file",
+        lambda *_args, **_kwargs: creds,
+    )
+    monkeypatch.setattr(
+        gmail_client,
+        "refresh_with_retry",
+        lambda *_args, **_kwargs: TimeoutError("timed out"),
+    )
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda webhook_url, message: alerts.append(message) or True,
+    )
 
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
@@ -360,20 +424,38 @@ def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_
     assert saved["transient_network_issue_active"] is True
 
 
-def test_get_gmail_service_refresh_fatal_with_interactive_recovers(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_refresh_fatal_with_interactive_recovers(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = _paths_for(tmp_path)
     token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(valid=False, expired=True, refresh_token="r")
-    monkeypatch.setattr(gmail_client.Credentials, "from_authorized_user_file", lambda *_args, **_kwargs: creds)
-    monkeypatch.setattr(gmail_client, "refresh_with_retry", lambda *_args, **_kwargs: RuntimeError("fatal"))
-    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: _DummyCreds(valid=True))
+    monkeypatch.setattr(
+        gmail_client.Credentials,
+        "from_authorized_user_file",
+        lambda *_args, **_kwargs: creds,
+    )
+    monkeypatch.setattr(
+        gmail_client,
+        "refresh_with_retry",
+        lambda *_args, **_kwargs: RuntimeError("fatal"),
+    )
+    monkeypatch.setattr(
+        gmail_client,
+        "run_oauth_flow",
+        lambda *_args, **_kwargs: _DummyCreds(valid=True),
+    )
     monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: object())
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda webhook_url, message: alerts.append(message) or True,
+    )
 
     service = gmail_client.get_gmail_service(
         webhook_url="https://discord.invalid/webhook",
@@ -384,7 +466,9 @@ def test_get_gmail_service_refresh_fatal_with_interactive_recovers(monkeypatch, 
     assert alerts
 
 
-def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = _paths_for(tmp_path)
     token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
@@ -392,11 +476,17 @@ def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(monke
     monkeypatch.setattr(
         gmail_client.Credentials,
         "from_authorized_user_file",
-        lambda *_args, **_kwargs: _DummyCreds(valid=False, expired=False, refresh_token=None),
+        lambda *_args, **_kwargs: _DummyCreds(
+            valid=False, expired=False, refresh_token=None
+        ),
     )
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda webhook_url, message: alerts.append(message) or True,
+    )
 
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
@@ -425,7 +515,11 @@ def test_get_gmail_service_build_error_paths(monkeypatch, tmp_path: Path) -> Non
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
 
-    monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("timed out")))
+    monkeypatch.setattr(
+        gmail_client,
+        "build",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(TimeoutError("timed out")),
+    )
     transient = gmail_client.get_gmail_service(
         webhook_url="https://discord.invalid/webhook",
         state=state,
@@ -436,7 +530,11 @@ def test_get_gmail_service_build_error_paths(monkeypatch, tmp_path: Path) -> Non
     saved = json.loads(state_file.read_text(encoding="utf-8"))
     assert saved["transient_network_issue_active"] is True
 
-    monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fatal")))
+    monkeypatch.setattr(
+        gmail_client,
+        "build",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fatal")),
+    )
     fatal = gmail_client.get_gmail_service(paths=paths)
     assert fatal is None
 
@@ -467,7 +565,9 @@ def test_list_and_get_message_helpers() -> None:
             return self.payload
 
     class _Messages:
-        def list(self, *, userId: str, q: str, maxResults: int, pageToken: str | None = None):
+        def list(
+            self, *, userId: str, q: str, maxResults: int, pageToken: str | None = None
+        ):
             assert userId == "me"
             assert q == "in:inbox"
             assert maxResults == 20
@@ -490,7 +590,9 @@ def test_list_and_get_message_helpers() -> None:
             return _Users()
 
     service = _Service()
-    assert gmail_client.list_recent_messages(service, query="in:inbox", max_results=20) == [{"id": "m-1"}]
+    assert gmail_client.list_recent_messages(
+        service, query="in:inbox", max_results=20
+    ) == [{"id": "m-1"}]
     page_messages, page_token = gmail_client.list_recent_messages_page(
         service,
         query="in:inbox",
@@ -536,7 +638,9 @@ def test_start_gmail_watch_with_retry_retries_transient_errors(monkeypatch) -> N
     assert sleeps == [0.5]
 
 
-def test_get_gmail_service_uses_explicit_runtime_paths(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_uses_explicit_runtime_paths(
+    monkeypatch, tmp_path: Path
+) -> None:
     token_path = tmp_path / "runtime" / "token.json"
     token_path.parent.mkdir(parents=True, exist_ok=True)
     token_path.write_text("{}", encoding="utf-8")

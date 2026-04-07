@@ -1,5 +1,6 @@
 import errno
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -12,12 +13,18 @@ from amazon_notify.errors import CheckpointError
 def _read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line)
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
 
 
 def test_bootstrap_from_state_when_events_are_empty(tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
-    state_file.write_text(json.dumps({"last_message_id": "legacy-id"}), encoding="utf-8")
+    state_file.write_text(
+        json.dumps({"last_message_id": "legacy-id"}), encoding="utf-8"
+    )
     events_file = tmp_path / "events.jsonl"
 
     store = JsonlCheckpointStore(state_file=state_file, events_file=events_file)
@@ -240,7 +247,9 @@ def test_advance_checkpoint_raises_when_event_write_fails(
     assert exc_info.value.message_id == "new"
 
 
-def test_advance_checkpoint_error_message_includes_enospc_hint(monkeypatch, tmp_path: Path) -> None:
+def test_advance_checkpoint_error_message_includes_enospc_hint(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
     store = JsonlCheckpointStore(state_file=state_file)
@@ -248,7 +257,9 @@ def test_advance_checkpoint_error_message_includes_enospc_hint(monkeypatch, tmp_
     monkeypatch.setattr(
         store,
         "append_event",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError(errno.ENOSPC, "No space left on device")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError(errno.ENOSPC, "No space left on device")
+        ),
     )
 
     with pytest.raises(CheckpointError) as exc_info:
@@ -287,7 +298,9 @@ def test_append_run_result_raises_checkpoint_error_when_storage_write_fails(
     monkeypatch.setattr(
         store,
         "_append_jsonl",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError(errno.ENOSPC, "No space left on device")),
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            OSError(errno.ENOSPC, "No space left on device")
+        ),
     )
 
     with pytest.raises(CheckpointError) as exc_info:
@@ -309,7 +322,9 @@ def test_load_checkpoint_prefers_index_snapshot_when_available(tmp_path: Path) -
     )
 
     original_loader = store._load_jsonl_entries
-    store._load_jsonl_entries = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected scan"))
+    store._load_jsonl_entries = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("unexpected scan")
+    )
     try:
         checkpoint = store.load_checkpoint()
     finally:
@@ -318,7 +333,9 @@ def test_load_checkpoint_prefers_index_snapshot_when_available(tmp_path: Path) -
     assert checkpoint.message_id == "idx-checkpoint"
 
 
-def test_load_last_run_summary_prefers_index_snapshot_when_available(tmp_path: Path) -> None:
+def test_load_last_run_summary_prefers_index_snapshot_when_available(
+    tmp_path: Path,
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
     store = JsonlCheckpointStore(state_file=state_file)
@@ -343,7 +360,9 @@ def test_load_last_run_summary_prefers_index_snapshot_when_available(tmp_path: P
     store.append_run_result(result)
 
     original_loader = store._load_jsonl_entries
-    store._load_jsonl_entries = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected scan"))
+    store._load_jsonl_entries = lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("unexpected scan")
+    )
     try:
         summary = store.load_last_run_summary()
     finally:
@@ -381,7 +400,9 @@ def test_load_last_run_summary_falls_back_to_state_snapshot(tmp_path: Path) -> N
     assert summary["last_run_status"] == "ok"
 
 
-def test_rebuild_indexes_recreates_checkpoint_and_run_summary_indexes(tmp_path: Path) -> None:
+def test_rebuild_indexes_recreates_checkpoint_and_run_summary_indexes(
+    tmp_path: Path,
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
     store = JsonlCheckpointStore(state_file=state_file)
@@ -421,7 +442,9 @@ def test_rebuild_indexes_recreates_checkpoint_and_run_summary_indexes(tmp_path: 
     assert store.runs_summary_index_file.exists()
 
 
-def test_rebuild_indexes_removes_stale_indexes_when_jsonl_is_empty(tmp_path: Path) -> None:
+def test_rebuild_indexes_removes_stale_indexes_when_jsonl_is_empty(
+    tmp_path: Path,
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
     store = JsonlCheckpointStore(state_file=state_file)
@@ -435,6 +458,57 @@ def test_rebuild_indexes_removes_stale_indexes_when_jsonl_is_empty(tmp_path: Pat
     assert rebuilt["run_summary_index"] is False
     assert not store.events_checkpoint_index_file.exists()
     assert not store.runs_summary_index_file.exists()
+
+
+def test_advance_checkpoint_updates_snapshot_under_state_lock(
+    monkeypatch, tmp_path: Path
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    lock_calls: list[Path] = []
+
+    @contextmanager
+    def fake_state_update_lock(target: Path):
+        lock_calls.append(target)
+        yield
+
+    monkeypatch.setattr(
+        "amazon_notify.checkpoint_store.state_update_lock", fake_state_update_lock
+    )
+
+    store.advance_checkpoint(Checkpoint(message_id="new"), "run-1")
+
+    assert lock_calls == [state_file]
+
+
+def test_incident_store_writes_under_state_lock(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    lock_calls: list[Path] = []
+
+    @contextmanager
+    def fake_state_update_lock(target: Path):
+        lock_calls.append(target)
+        yield
+
+    monkeypatch.setattr(
+        "amazon_notify.incident_store.state_update_lock", fake_state_update_lock
+    )
+
+    store.open_incident(
+        kind="delivery_failed",
+        message="failed",
+        opened_at="2026-04-07 00:00:00",
+        run_id="run-1",
+    )
+    store.suppress_incident(kind="delivery_failed", run_id="run-1")
+    store.recover_incident(run_id="run-2")
+
+    assert lock_calls == [state_file, state_file, state_file]
 
 
 def test_private_helpers_cover_edge_cases(tmp_path: Path, monkeypatch) -> None:
@@ -472,6 +546,6 @@ def test_private_helpers_cover_edge_cases(tmp_path: Path, monkeypatch) -> None:
     assert store._safe_file_size(rows_path) is None
 
     assert store._find_last_checkpoint_event([{"event": "x"}]) is None
-    assert store._find_last_checkpoint_event([{"event": "x"}, {"event": "checkpoint_advanced"}]) == {
-        "event": "checkpoint_advanced"
-    }
+    assert store._find_last_checkpoint_event(
+        [{"event": "x"}, {"event": "checkpoint_advanced"}]
+    ) == {"event": "checkpoint_advanced"}

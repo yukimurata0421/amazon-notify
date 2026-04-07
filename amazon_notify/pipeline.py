@@ -62,7 +62,9 @@ class NotificationPipeline:
         try:
             self.source.notify_recovery_if_needed()
 
-            for envelope in self.source.iter_new_messages(checkpoint_before, self.max_messages):
+            for envelope in self.source.iter_new_messages(
+                checkpoint_before, self.max_messages
+            ):
                 processed_count += 1
                 candidate = self.classifier.classify(envelope)
                 if candidate is None:
@@ -152,7 +154,9 @@ class NotificationPipeline:
         self._log_result(result)
         return result
 
-    def _commit_if_needed(self, *, run_id: str, checkpoint: Checkpoint, dry_run: bool) -> Checkpoint:
+    def _commit_if_needed(
+        self, *, run_id: str, checkpoint: Checkpoint, dry_run: bool
+    ) -> Checkpoint:
         if dry_run:
             return checkpoint
         try:

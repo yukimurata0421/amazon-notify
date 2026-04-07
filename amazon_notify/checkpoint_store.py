@@ -9,6 +9,7 @@ from typing import Any
 from .config import LOGGER, load_state, save_state
 from .domain import Checkpoint, RunResult
 from .errors import CheckpointError
+from .gmail_transient_state import state_update_lock
 from .incident_store import IncidentStateStore
 from .time_utils import utc_now_iso
 
@@ -111,9 +112,10 @@ class JsonlCheckpointStore:
 
         try:
             # 互換 snapshot: state.json は派生物としてベストエフォートで更新する。
-            state = load_state(self.state_file)
-            state["last_message_id"] = checkpoint.message_id
-            save_state(self.state_file, state)
+            with state_update_lock(self.state_file):
+                state = load_state(self.state_file)
+                state["last_message_id"] = checkpoint.message_id
+                save_state(self.state_file, state)
         except OSError as exc:
             LOGGER.warning(
                 "STATE_SNAPSHOT_UPDATE_FAILED: checkpoint=%s error=%s",
@@ -121,7 +123,9 @@ class JsonlCheckpointStore:
                 exc,
             )
 
-    def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None:
+    def append_event(
+        self, event_type: str, run_id: str, payload: dict[str, Any]
+    ) -> None:
         event = {
             "schema_version": SCHEMA_VERSION,
             "event": event_type,
@@ -159,7 +163,9 @@ class JsonlCheckpointStore:
 
         # 集計 cache 更新はベストエフォート。
         try:
-            self._update_run_summary_caches(result=result, offset=offset, eof_size=eof_size)
+            self._update_run_summary_caches(
+                result=result, offset=offset, eof_size=eof_size
+            )
         except Exception as exc:
             LOGGER.warning(
                 "RUN_SUMMARY_CACHE_UPDATE_FAILED: run_id=%s error=%s",
@@ -303,27 +309,31 @@ class JsonlCheckpointStore:
                 stripped_line = raw_line.rstrip(b"\r\n")
                 try:
                     line = stripped_line.decode("utf-8")
-                except UnicodeDecodeError:
+                except UnicodeDecodeError as exc:
                     if is_tail_line:
-                        LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, line_no)
+                        LOGGER.warning(
+                            "JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, line_no
+                        )
                         continue
                     raise CheckpointError(
                         f"JSONL の途中行が破損しています: path={path} line={line_no}"
-                    )
+                    ) from exc
 
                 if not line.strip():
                     continue
 
                 try:
                     payload = json.loads(line)
-                except json.JSONDecodeError:
+                except json.JSONDecodeError as exc:
                     # 末尾 1 行破損は復旧可能な前提で無視する。
                     if is_tail_line:
-                        LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, line_no)
+                        LOGGER.warning(
+                            "JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, line_no
+                        )
                         continue
                     raise CheckpointError(
                         f"JSONL の途中行が破損しています: path={path} line={line_no}"
-                    )
+                    ) from exc
 
                 if isinstance(payload, dict):
                     entries.append((line_start, payload))
@@ -445,7 +455,9 @@ class JsonlCheckpointStore:
                 start_offset=eof_size,
             )
             for entry_offset, run_payload in appended_entries:
-                latest_summary = self._summary_from_run_payload(latest_summary, run_payload)
+                latest_summary = self._summary_from_run_payload(
+                    latest_summary, run_payload
+                )
                 candidate_run_id = run_payload.get("run_id")
                 if isinstance(candidate_run_id, str) and candidate_run_id:
                     latest_run_id = candidate_run_id
@@ -467,8 +479,13 @@ class JsonlCheckpointStore:
         self._update_state_summary_snapshot(latest_summary)
         return latest_summary
 
-    def _update_run_summary_caches(self, *, result: RunResult, offset: int, eof_size: int) -> None:
-        previous_summary = self._read_summary_from_index_snapshot() or self._load_run_summary_from_state()
+    def _update_run_summary_caches(
+        self, *, result: RunResult, offset: int, eof_size: int
+    ) -> None:
+        previous_summary = (
+            self._read_summary_from_index_snapshot()
+            or self._load_run_summary_from_state()
+        )
         summary = self._summary_from_result(result, previous_summary)
         self._update_run_summary_index(
             summary=summary,
@@ -507,9 +524,10 @@ class JsonlCheckpointStore:
 
     def _update_state_summary_snapshot(self, summary: dict[str, Any]) -> None:
         try:
-            state = load_state(self.state_file)
-            state[_RUN_SUMMARY_STATE_KEY] = summary
-            save_state(self.state_file, state)
+            with state_update_lock(self.state_file):
+                state = load_state(self.state_file)
+                state[_RUN_SUMMARY_STATE_KEY] = summary
+                save_state(self.state_file, state)
         except Exception as exc:
             LOGGER.warning(
                 "STATE_SUMMARY_SNAPSHOT_UPDATE_FAILED: path=%s error=%s",
@@ -553,10 +571,16 @@ class JsonlCheckpointStore:
         previous_summary: dict[str, Any] | None,
     ) -> dict[str, Any]:
         is_success = result.failure_kind is None
-        last_success_at = result.ended_at if is_success else (previous_summary or {}).get("last_success_at")
+        last_success_at = (
+            result.ended_at
+            if is_success
+            else (previous_summary or {}).get("last_success_at")
+        )
         return {
             "last_run_status": "ok" if is_success else "error",
-            "last_failure_kind": result.failure_kind.value if result.failure_kind else None,
+            "last_failure_kind": result.failure_kind.value
+            if result.failure_kind
+            else None,
             "checkpoint_before": result.checkpoint_before,
             "checkpoint_after": result.checkpoint_after,
             "auth_status": result.auth_status.value if result.auth_status else None,
@@ -569,7 +593,11 @@ class JsonlCheckpointStore:
         run_payload: dict[str, Any],
     ) -> dict[str, Any]:
         is_success = run_payload.get("failure_kind") in (None, "")
-        last_success_at = run_payload.get("ended_at") if is_success else current_summary.get("last_success_at")
+        last_success_at = (
+            run_payload.get("ended_at")
+            if is_success
+            else current_summary.get("last_success_at")
+        )
         return {
             "last_run_status": "ok" if is_success else "error",
             "last_failure_kind": run_payload.get("failure_kind"),
@@ -586,7 +614,9 @@ class JsonlCheckpointStore:
             None,
         )
         return {
-            "last_run_status": "ok" if last.get("failure_kind") in (None, "") else "error",
+            "last_run_status": "ok"
+            if last.get("failure_kind") in (None, "")
+            else "error",
             "last_failure_kind": last.get("failure_kind"),
             "checkpoint_before": last.get("checkpoint_before"),
             "checkpoint_after": last.get("checkpoint_after"),
@@ -605,7 +635,9 @@ class JsonlCheckpointStore:
             return None
         return raw
 
-    def _read_jsonl_row_at_offset(self, path: Path, offset: int) -> dict[str, Any] | None:
+    def _read_jsonl_row_at_offset(
+        self, path: Path, offset: int
+    ) -> dict[str, Any] | None:
         if not path.exists():
             return None
 
@@ -653,7 +685,9 @@ class JsonlCheckpointStore:
         return None
 
     @staticmethod
-    def _find_last_checkpoint_event(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    def _find_last_checkpoint_event(
+        events: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
         for event in reversed(events):
             if event.get("event") == "checkpoint_advanced":
                 return event

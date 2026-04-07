@@ -134,3 +134,18 @@ sudo systemctl start amazon-notify-pubsub.service amazon-notify-fallback.timer
 - Current implementation is single-host oriented.
 - Linux + `fcntl` is the supported lock environment for Discord dedupe coordination.
 - If you also have external monitoring (node exporter, cloud alerts), use those metrics as primary evidence and cross-check local app logs.
+
+## Release Checklist
+Run this fixed pre-release gate before cutting a release:
+
+```bash
+make release-check
+```
+
+What it executes:
+- `ruff check .`
+- `ruff format --check .`
+- `mypy .`
+- `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
+- `docker build -t amazon-notify:0.4.0 .`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`

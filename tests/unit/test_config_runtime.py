@@ -98,6 +98,9 @@ def test_load_config_and_state_helpers(tmp_path: Path) -> None:
 
 
 def test_resolve_runtime_path_uses_base_dir_for_relative_path(tmp_path: Path) -> None:
-    assert config.resolve_runtime_path("state.json", base_dir=tmp_path) == tmp_path / "state.json"
+    assert (
+        config.resolve_runtime_path("state.json", base_dir=tmp_path)
+        == tmp_path / "state.json"
+    )
     abs_path = tmp_path / "absolute.json"
     assert config.resolve_runtime_path(abs_path, base_dir=tmp_path) == abs_path

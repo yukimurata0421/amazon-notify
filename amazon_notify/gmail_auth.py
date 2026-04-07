@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from .backoff import next_delay_seconds
 from .config import LOGGER, RuntimePaths
@@ -69,7 +70,9 @@ def refresh_with_retry(
             return None
         except Exception as exc:
             last_exc = exc
-            is_transient = is_transient_network_error_fn(exc) or is_retryable_http_error_fn(exc)
+            is_transient = is_transient_network_error_fn(
+                exc
+            ) or is_retryable_http_error_fn(exc)
             if (not is_transient) or attempt == retries:
                 break
 
@@ -100,7 +103,9 @@ def load_initial_credentials(
     scopes: list[str],
     credentials_cls: Any,
     run_oauth_flow_fn: Callable[[RuntimePaths], Any | None],
-    record_token_issue_and_maybe_alert_fn: Callable[[str | None, dict | None, Path | None, str, str], None],
+    record_token_issue_and_maybe_alert_fn: Callable[
+        [str | None, dict | None, Path | None, str, str], None
+    ],
 ) -> tuple[Any | None, AuthStatus]:
     if not runtime_paths.token.exists():
         if allow_oauth_interactive:
@@ -120,7 +125,9 @@ def load_initial_credentials(
         return None, AuthStatus.TOKEN_MISSING
 
     try:
-        creds = credentials_cls.from_authorized_user_file(str(runtime_paths.token), scopes)
+        creds = credentials_cls.from_authorized_user_file(
+            str(runtime_paths.token), scopes
+        )
         if creds.valid:
             return creds, AuthStatus.TOKEN_VALID
         if creds.expired and creds.refresh_token:
@@ -157,8 +164,12 @@ def ensure_usable_credentials(
     refresh_with_retry_fn: Callable[[Any], Exception | None],
     is_transient_network_error_fn: Callable[[Exception], bool],
     run_oauth_flow_fn: Callable[[RuntimePaths], Any | None],
-    record_transient_issue_fn: Callable[[str | None, dict | None, Path | None, Exception | str, str, float, float], None],
-    record_token_issue_and_maybe_alert_fn: Callable[[str | None, dict | None, Path | None, str, str], None],
+    record_transient_issue_fn: Callable[
+        [str | None, dict | None, Path | None, Exception | str, str, float, float], None
+    ],
+    record_token_issue_and_maybe_alert_fn: Callable[
+        [str | None, dict | None, Path | None, str, str], None
+    ],
     send_discord_alert_fn: Callable[[str, str], bool],
 ) -> tuple[Any | None, AuthStatus]:
     if creds.valid:
@@ -202,7 +213,9 @@ def ensure_usable_credentials(
         if allow_oauth_interactive:
             if webhook_url:
                 send_discord_alert_fn(webhook_url, error_msg)
-            return run_oauth_flow_fn(runtime_paths), AuthStatus.REFRESH_PERMANENT_FAILURE
+            return run_oauth_flow_fn(
+                runtime_paths
+            ), AuthStatus.REFRESH_PERMANENT_FAILURE
 
         record_token_issue_and_maybe_alert_fn(
             webhook_url,
@@ -228,4 +241,3 @@ def ensure_usable_credentials(
         " `amazon-notify --reauth` で再認証してください。",
     )
     return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
-

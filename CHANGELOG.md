@@ -2,6 +2,8 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
 ## [0.4.0] - 2026-04-07
 
 Summary:
@@ -27,6 +29,8 @@ Summary:
 - Added `discord_dedupe_state_file` to `RuntimeConfig` and unified dedupe path usage across notification/incident/test flows by explicit injection.
 - Removed implicit dedupe-state path resolution from `discord_client.py` and made dedupe path an explicit argument path for alert/recovery/test/notification send paths.
 - Moved `--test-discord` path handling onto runtime config construction so dedupe state follows the same `--config`-based runtime directory resolution.
+- Extracted `handle_test_discord()` and added top-level action conflict validation in CLI dispatch (`--setup-watch/--rebuild-indexes`, `--setup-watch/--test-discord`, `--health-check/--test-discord`, `--validate-config/--rebuild-indexes`).
+- Unified `state.json` read-modify-write locking across checkpoint snapshots, incident lifecycle state updates, and Gmail transient/token state tracking through a shared `state_update_lock` helper.
 - Split Gmail runtime logic into dedicated modules:
   - `gmail_auth.py` for OAuth/credential/refresh/auth-state transitions
   - `gmail_transient_state.py` for transient/token issue lifecycle state management
@@ -34,6 +38,7 @@ Summary:
 - Clarified runtime artifact semantics in README/docs (source-of-truth vs derived snapshot vs rebuildable cache vs coordination/lock).
 - Added operations triage order documentation for runtime artifacts and `--rebuild-indexes` usage.
 - Added domain-intent comments to StreamingPull event aggregation/duplicate-skip/heartbeat write paths, and aligned hybrid architecture docs with that model.
+- Added `project.urls` package metadata and tightened static checks (Ruff `B/UP/RUF`, mypy warning strictness); introduced `make release-check` and CI `ruff format --check`.
 
 ### Tests
 - Added regression tests for stale-state recovery dedupe and cross-notification dedupe behavior (duplicate suppression, in-flight suppression, and per-message-key delivery behavior).
@@ -41,6 +46,7 @@ Summary:
 - Added tests for malformed dedupe-state entries and transient-threshold clamp behavior.
 - Added frontier/backlog regression tests for paginated polling catch-up and checkpoint-not-found fail-safe behavior.
 - Added contract tests to verify runtime-anchored Discord dedupe path propagation across `--test-discord`, notifier incident lifecycle, and failover watchdog flows.
+- Added lock-contract tests for `state_update_lock` usage in checkpoint snapshot and incident store updates, plus CLI action-conflict validation tests.
 
 ## [0.3.0] - 2026-04-05
 

@@ -40,14 +40,18 @@ def test_is_transient_network_error_for_library_exception_types(monkeypatch) -> 
         "_LIBRARY_TRANSIENT_EXCEPTION_TYPES",
         (FakeLibraryConnectionError,),
     )
-    assert gmail_client.is_transient_network_error(FakeLibraryConnectionError("no keyword required"))
+    assert gmail_client.is_transient_network_error(
+        FakeLibraryConnectionError("no keyword required")
+    )
 
 
 def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "msg-1"}
 
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(
+        gmail_client, "send_discord_alert", lambda *_args, **_kwargs: True
+    )
     gmail_client.record_transient_issue(
         state,
         state_file,
@@ -69,7 +73,9 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(gmail_client, "send_discord_recovery", fake_send_recovery)
 
-    gmail_client.notify_recovery_if_needed("https://discord.invalid/webhook", state, state_file)
+    gmail_client.notify_recovery_if_needed(
+        "https://discord.invalid/webhook", state, state_file
+    )
 
     assert len(calls) == 1
     assert "復旧" in calls[0][1]
@@ -80,7 +86,9 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     assert "last_transient_error" not in saved_after
 
 
-def test_notify_recovery_keeps_state_when_discord_send_fails(monkeypatch, tmp_path: Path) -> None:
+def test_notify_recovery_keeps_state_when_discord_send_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state = {
         "last_message_id": "msg-1",
@@ -91,7 +99,9 @@ def test_notify_recovery_keeps_state_when_discord_send_fails(monkeypatch, tmp_pa
     }
     state_file.write_text(json.dumps(state), encoding="utf-8")
 
-    monkeypatch.setattr(gmail_client, "send_discord_recovery", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        gmail_client, "send_discord_recovery", lambda *_args, **_kwargs: False
+    )
 
     gmail_client.notify_recovery_if_needed(
         "https://discord.invalid/webhook",
@@ -103,7 +113,9 @@ def test_notify_recovery_keeps_state_when_discord_send_fails(monkeypatch, tmp_pa
     assert saved["transient_network_issue_active"] is True
 
 
-def test_notify_recovery_silent_clear_when_transient_was_never_alerted(monkeypatch, tmp_path: Path) -> None:
+def test_notify_recovery_silent_clear_when_transient_was_never_alerted(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state = {
         "last_message_id": "msg-1",
@@ -119,14 +131,18 @@ def test_notify_recovery_silent_clear_when_transient_was_never_alerted(monkeypat
         "send_discord_recovery",
         lambda _webhook, message: calls.append(message) or True,
     )
-    gmail_client.notify_recovery_if_needed("https://discord.invalid/webhook", state, state_file)
+    gmail_client.notify_recovery_if_needed(
+        "https://discord.invalid/webhook", state, state_file
+    )
 
     assert calls == []
     saved = _read_json(state_file)
     assert saved["transient_network_issue_active"] is False
 
 
-def test_notify_recovery_uses_latest_persisted_state(monkeypatch, tmp_path: Path) -> None:
+def test_notify_recovery_uses_latest_persisted_state(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     # Disk state is already recovered, but in-memory state is stale.
     state_file.write_text(
@@ -215,7 +231,9 @@ def test_save_state_creates_parent_directories(tmp_path: Path) -> None:
     assert _read_json(state_file)["last_message_id"] == "msg-1"
 
 
-def test_run_once_sends_amazon_notification_and_updates_state(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_sends_amazon_notification_and_updates_state(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
@@ -267,7 +285,9 @@ def test_run_once_sends_amazon_notification_and_updates_state(monkeypatch, tmp_p
     assert saved["last_message_id"] == "new-id"
 
 
-def test_run_once_does_not_advance_state_when_notification_fails(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_does_not_advance_state_when_notification_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
@@ -315,7 +335,9 @@ def test_run_once_does_not_advance_state_when_notification_fails(monkeypatch, tm
     assert alerts
 
 
-def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_dry_run_does_not_send_notification_or_update_state(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
@@ -339,7 +361,10 @@ def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": "配達済みのお知らせ",
@@ -347,7 +372,11 @@ def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch
     )
 
     sent: list[dict] = []
-    monkeypatch.setattr(notifier, "send_discord_notification", lambda **kwargs: sent.append(kwargs) or True)
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_notification",
+        lambda **kwargs: sent.append(kwargs) or True,
+    )
 
     notifier.run_once(runtime)
 
@@ -356,7 +385,9 @@ def test_run_once_dry_run_does_not_send_notification_or_update_state(monkeypatch
     assert not sent
 
 
-def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
@@ -387,7 +418,11 @@ def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(monkeypatch,
     )
 
     sent: list[dict] = []
-    monkeypatch.setattr(notifier, "send_discord_notification", lambda **kwargs: sent.append(kwargs) or True)
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_notification",
+        lambda **kwargs: sent.append(kwargs) or True,
+    )
 
     logs: list[str] = []
 
@@ -404,7 +439,9 @@ def test_run_once_advances_state_for_non_amazon_mail_and_logs_count(monkeypatch,
     assert any("non_amazon_skipped=1" in message for message in logs)
 
 
-def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_marks_transient_issue_when_message_list_times_out(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "id-1"}), encoding="utf-8")
 
@@ -421,7 +458,9 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(monkeypatch,
         lambda **_: (object(), notifier.AuthStatus.READY),
     )
 
-    def raise_timeout(_service, *, query: str, max_results: int, page_token: str | None = None):
+    def raise_timeout(
+        _service, *, query: str, max_results: int, page_token: str | None = None
+    ):
         assert query == "in:inbox"
         _ = max_results
         _ = page_token
@@ -461,6 +500,7 @@ def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> 
         pass
 
     monkeypatch.setattr(notifier, "HttpError", DummyHttpError)
+
     def raise_http_error(
         _service,
         *,
@@ -490,7 +530,9 @@ def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> 
     assert "Gmail API" in alerts[0]
 
 
-def test_run_once_breaks_when_message_detail_fetch_fails(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_breaks_when_message_detail_fetch_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
@@ -554,7 +596,9 @@ def test_run_once_no_messages_logs_and_keeps_state(monkeypatch, tmp_path: Path) 
     assert any("RUN_ONCE_NO_MESSAGES" in message for message in logs)
 
 
-def test_run_once_preserves_frontier_when_backlog_exceeds_max_messages(monkeypatch, tmp_path: Path) -> None:
+def test_run_once_preserves_frontier_when_backlog_exceeds_max_messages(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
@@ -575,18 +619,25 @@ def test_run_once_preserves_frontier_when_backlog_exceeds_max_messages(monkeypat
         "page-2": ([{"id": "m2"}, {"id": "m1"}, {"id": "old-id"}], None),
     }
 
-    def fake_list_recent_messages_page(_service, *, query: str, max_results: int, page_token: str | None = None):
+    def fake_list_recent_messages_page(
+        _service, *, query: str, max_results: int, page_token: str | None = None
+    ):
         assert query == "in:inbox"
         return pages[page_token]
 
-    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
+    monkeypatch.setattr(
+        notifier, "list_recent_messages_page", fake_list_recent_messages_page
+    )
 
     def fake_message_detail(_service, message_id: str) -> dict:
         return {
             "payload": {
                 "headers": [
                     {"name": "Subject", "value": "配達済み: テスト注文"},
-                    {"name": "From", "value": "Amazon.co.jp <order-update@amazon.co.jp>"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
                 ]
             },
             "snippet": f"snippet-{message_id}",
@@ -634,11 +685,15 @@ def test_run_once_fails_safe_when_checkpoint_not_found_in_paginated_listing(
         "page-2": ([{"id": "m1"}], None),
     }
 
-    def fake_list_recent_messages_page(_service, *, query: str, max_results: int, page_token: str | None = None):
+    def fake_list_recent_messages_page(
+        _service, *, query: str, max_results: int, page_token: str | None = None
+    ):
         assert query == "in:inbox"
         return pages[page_token]
 
-    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
+    monkeypatch.setattr(
+        notifier, "list_recent_messages_page", fake_list_recent_messages_page
+    )
 
     sent_alerts: list[str] = []
     monkeypatch.setattr(
@@ -655,7 +710,9 @@ def test_run_once_fails_safe_when_checkpoint_not_found_in_paginated_listing(
     assert "checkpoint_not_found_in_listing" in sent_alerts[0]
 
 
-def test_report_unhandled_exception_persists_run_and_events(monkeypatch, tmp_path: Path) -> None:
+def test_report_unhandled_exception_persists_run_and_events(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = build_runtime(tmp_path)
     monkeypatch.setattr(notifier, "send_discord_alert", lambda *_args, **_kwargs: True)
 
@@ -672,12 +729,18 @@ def test_report_unhandled_exception_persists_run_and_events(monkeypatch, tmp_pat
     assert any(event.get("event") == "source_failed" for event in events)
     assert any(event.get("event") == "incident_opened" for event in events)
 
-    runs = [json.loads(line) for line in runtime.runs_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    runs = [
+        json.loads(line)
+        for line in runtime.runs_file.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
     assert len(runs) == 1
     assert runs[0]["failure_kind"] == "source_failed"
 
 
-def test_report_unhandled_exception_handles_persistence_failures(monkeypatch, tmp_path: Path) -> None:
+def test_report_unhandled_exception_handles_persistence_failures(
+    monkeypatch, tmp_path: Path
+) -> None:
     runtime = build_runtime(tmp_path, dry_run=True)
 
     class _BrokenStore:
@@ -693,9 +756,13 @@ def test_report_unhandled_exception_handles_persistence_failures(monkeypatch, tm
         def load_incident_state(self):
             return None
 
-    monkeypatch.setattr(notifier, "JsonlCheckpointStore", lambda *_args, **_kwargs: _BrokenStore())
+    monkeypatch.setattr(
+        notifier, "JsonlCheckpointStore", lambda *_args, **_kwargs: _BrokenStore()
+    )
 
-    result = notifier.report_unhandled_exception(runtime, RuntimeError("guard exploded"))
+    result = notifier.report_unhandled_exception(
+        runtime, RuntimeError("guard exploded")
+    )
 
     assert result.failure_kind == notifier.FailureKind.SOURCE_FAILED
     assert result.failure_message == "guard exploded"

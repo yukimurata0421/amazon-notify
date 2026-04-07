@@ -34,7 +34,12 @@ def resolve_watchdog_options(
         if args.main_service_name
         else str(runtime.pubsub_main_service_name)
     )
-    return heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name
+    return (
+        heartbeat_file,
+        heartbeat_interval_seconds,
+        heartbeat_max_age_seconds,
+        main_service_name,
+    )
 
 
 def validate_watchdog_options(
@@ -91,7 +96,9 @@ def run_polling_mode(
 ) -> None:
     poll_interval = args.interval or int(config.get("poll_interval_seconds", 60))
     if poll_interval < MIN_POLL_INTERVAL_SECONDS:
-        stderr_error(f"interval は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。")
+        stderr_error(
+            f"interval は {MIN_POLL_INTERVAL_SECONDS} 以上を指定してください。"
+        )
         sys.exit(1)
 
     first_run_ok = run_once_with_guard_fn(runtime)

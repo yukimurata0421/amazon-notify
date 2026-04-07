@@ -32,4 +32,3 @@ def single_page(messages: list[dict[str, str]]):
         return messages, None
 
     return _page
-

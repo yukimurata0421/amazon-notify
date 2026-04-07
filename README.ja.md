@@ -24,7 +24,7 @@ English README: [README.md](./README.md)
 |---|---|
 | `main` ブランチ | 最新実装（リリースタグより先行する場合あり） |
 | Latest release | GitHub 上の最新タグ付きリリース |
-| Current release target | `0.4.0`（`CHANGELOG.md` の `0.4.0` セクションを参照） |
+| Next intended release | `0.4.1`（`CHANGELOG.md` の Unreleased を参照） |
 
 ## 動作例
 
