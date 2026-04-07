@@ -8,14 +8,14 @@ Discord に通知するスクリプト。
 ・Gmail へのログインはアプリパスワードを使用
 """
 
-import os
-import time
-import imaplib
 import email
-from email.header import decode_header
-import requests
+import imaplib
+import os
 import re
+import time
+from email.header import decode_header
 
+import requests
 
 # ======== 設定（環境変数） ========
 

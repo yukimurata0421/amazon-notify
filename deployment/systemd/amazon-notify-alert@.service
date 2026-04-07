@@ -1,0 +1,10 @@
+[Unit]
+Description=Amazon Notify restart-storm alert for %i
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=YOUR_USER
+WorkingDirectory=/opt/amazon-notify
+EnvironmentFile=-/opt/amazon-notify/deployment/systemd/amazon-notify-alert.env
+ExecStart=/opt/amazon-notify/deployment/systemd/notify-on-failure.sh %i
