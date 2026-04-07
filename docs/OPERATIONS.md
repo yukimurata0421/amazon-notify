@@ -81,7 +81,7 @@
   - `amazon-notify --reauth`
   - `token.json` と `credentials.json` の配置を確認
 - `source_failed` が出たら:
-  - source 側障害、または `run_once_with_guard` 経路の未処理例外が `RunResult`/event に収束したケースです
+  - source 側障害、または予期しないエラーが発生したケースです
   - `runs.jsonl` の `failure_message` と `events.jsonl` (`source_failed`) を合わせて確認
 - transient 障害が短時間で自己復旧した場合:
   - しきい値未到達で alert 未送信のケースは recovery 通知も送信されません（silent clear）。
@@ -117,6 +117,30 @@ sudo systemctl restart amazon-notify-pubsub.service
 - 既定の保存先: `logs/amazon_mail_notifier.log`
 - ローテーション: 2MB x 5 世代
 - 標準出力にも同じログを出します。
+
+## JSONL メンテナンス（長期運用向け）
+
+- index snapshot の再構築:
+
+```bash
+amazon-notify --config ./config.json --rebuild-indexes
+```
+
+- `events.jsonl` / `runs.jsonl` のアーカイブ手順（例）:
+  - 実行中サービスを停止
+  - 退避コピーを圧縮保存
+  - 必要なら `--rebuild-indexes` で index を再生成
+
+```bash
+sudo systemctl stop amazon-notify-pubsub.service amazon-notify-fallback.timer
+ts=$(date +%Y%m%d-%H%M%S)
+mkdir -p archive
+cp events.jsonl "archive/events-${ts}.jsonl"
+cp runs.jsonl "archive/runs-${ts}.jsonl"
+gzip -f "archive/events-${ts}.jsonl" "archive/runs-${ts}.jsonl"
+amazon-notify --config ./config.json --rebuild-indexes
+sudo systemctl start amazon-notify-pubsub.service amazon-notify-fallback.timer
+```
 
 ## systemd 運用
 `deployment/systemd/amazon-notify.service` は restart storm 抑止を有効にしています。

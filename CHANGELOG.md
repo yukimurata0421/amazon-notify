@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+Summary:
+- Runtime state handling was reorganized around explicit path injection, incident-state storage separation, and index rebuild tooling.
+- StreamingPull internals were split for maintainability while preserving existing runtime behavior and health/heartbeat outputs.
+- Documentation was expanded in Japanese/English, including hybrid setup, portability notes, and a thin Docker evaluation path.
+
 ### Changed
 - Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
 - Set the next intended release cut to `0.4.0` to group runtime-state model upgrades (checkpoint/run-summary indices, guard-path normalization, and incident-memory refactor) into one semantically-visible update.

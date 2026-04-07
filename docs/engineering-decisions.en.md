@@ -2,6 +2,7 @@
 
 This document explains why `amazon-notify` uses its current architecture and operational behaviors.
 Target: `main` branch implementation.
+For release-focused change intent, see `docs/IMPLEMENTATION_RATIONALE.en.md`.
 
 ## 1. Product Constraints
 - Single-operator, self-hosted notification tool.

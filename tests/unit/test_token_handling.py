@@ -27,12 +27,13 @@ def test_ensure_google_dependencies_gives_install_hint(monkeypatch) -> None:
 
 
 def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path) -> None:
-    missing_token_path = tmp_path / "missing-token.json"
+    paths = config.get_runtime_paths(tmp_path / "config.json")
+    missing_token_path = paths.token
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
     state = config.load_state(state_file)
-
-    monkeypatch.setattr(config, "TOKEN_PATH", missing_token_path)
+    if missing_token_path.exists():
+        missing_token_path.unlink()
 
     alerts: list[str] = []
     monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message))
@@ -42,6 +43,7 @@ def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
+        paths=paths,
     )
     assert first is None
     assert len(alerts) == 1
@@ -52,6 +54,7 @@ def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path
         state=state_after_first,
         state_file=state_file,
         allow_oauth_interactive=False,
+        paths=paths,
     )
     assert second is None
     assert len(alerts) == 1
@@ -62,20 +65,20 @@ def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path
 
 
 def test_get_gmail_service_allow_oauth_interactive_uses_run_oauth_flow(monkeypatch, tmp_path: Path) -> None:
-    missing_token_path = tmp_path / "missing-token.json"
-    monkeypatch.setattr(config, "TOKEN_PATH", missing_token_path)
+    paths = config.get_runtime_paths(tmp_path / "config.json")
+    if paths.token.exists():
+        paths.token.unlink()
 
     monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: DummyCreds(valid=True))
     monkeypatch.setattr(gmail_client, "build", lambda *args, **kwargs: object())
 
-    service = gmail_client.get_gmail_service(allow_oauth_interactive=True)
+    service = gmail_client.get_gmail_service(allow_oauth_interactive=True, paths=paths)
     assert service is not None
 
 
 def test_get_gmail_service_token_recovery_notifies_once(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
-    token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
+    paths = config.get_runtime_paths(tmp_path / "config.json")
+    paths.token.write_text("{}", encoding="utf-8")
 
     state_file = tmp_path / "state.json"
     state = {
@@ -97,6 +100,7 @@ def test_get_gmail_service_token_recovery_notifies_once(monkeypatch, tmp_path: P
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
+        paths=paths,
     )
     assert service is not None
     assert len(recoveries) == 1
@@ -110,9 +114,8 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    token_path = tmp_path / "token.json"
-    token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
+    paths = config.get_runtime_paths(tmp_path / "config.json")
+    paths.token.write_text("{}", encoding="utf-8")
 
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
@@ -140,6 +143,7 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
+        paths=paths,
     )
 
     assert service is None
@@ -160,24 +164,14 @@ def test_compile_optional_pattern_exits_for_invalid_regex(capsys) -> None:
 
 
 def test_configure_runtime_paths_updates_default_locations(tmp_path: Path) -> None:
-    original_config_path = config.CONFIG_PATH
-    original_credentials_path = config.CREDENTIALS_PATH
-    original_token_path = config.TOKEN_PATH
-    original_default_log_path = config.DEFAULT_LOG_PATH
-    original_runtime_dir = config.RUNTIME_DIR
-
     config_path = tmp_path / "runtime" / "config.json"
-    try:
-        runtime_dir = config.configure_runtime_paths(config_path)
+    runtime_dir = config.configure_runtime_paths(config_path)
+    paths = config.get_runtime_paths(config_path)
 
-        assert runtime_dir == config_path.parent.resolve()
-        assert config.CONFIG_PATH == config_path.resolve()
-        assert config.CREDENTIALS_PATH == config_path.parent.resolve() / "credentials.json"
-        assert config.TOKEN_PATH == config_path.parent.resolve() / "token.json"
-        assert config.resolve_runtime_path("state.json") == config_path.parent.resolve() / "state.json"
-    finally:
-        config.CONFIG_PATH = original_config_path
-        config.CREDENTIALS_PATH = original_credentials_path
-        config.TOKEN_PATH = original_token_path
-        config.DEFAULT_LOG_PATH = original_default_log_path
-        config.RUNTIME_DIR = original_runtime_dir
+    assert runtime_dir == config_path.parent.resolve()
+    assert paths.config == config_path.resolve()
+    assert paths.credentials == config_path.parent.resolve() / "credentials.json"
+    assert paths.token == config_path.parent.resolve() / "token.json"
+    assert config.resolve_runtime_path("state.json", base_dir=paths.runtime_dir) == (
+        config_path.parent.resolve() / "state.json"
+    )

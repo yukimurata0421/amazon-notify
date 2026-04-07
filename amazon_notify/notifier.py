@@ -25,7 +25,6 @@ from .gmail_client import (
     get_message_detail,
     is_retryable_http_error,
     is_transient_network_error,
-    list_recent_messages,
     list_recent_messages_page,
     notify_recovery_if_needed,
     record_transient_issue,
@@ -189,32 +188,24 @@ def _incident_memory_map(runtime: RuntimeConfig) -> dict[str, float]:
     return {}
 
 
-def run_once(runtime: RuntimeConfig) -> RunResult:
-    discord_webhook_url = runtime.discord_webhook_url
-    amazon_pattern = runtime.amazon_pattern
-    state_file = runtime.state_file
-    max_messages = runtime.max_messages
-    subject_pattern = runtime.subject_pattern
-    dry_run = runtime.dry_run
-    events_file = runtime.events_file
-    runs_file = runtime.runs_file
-    runtime_paths_raw = runtime.runtime_paths
-    incident_memory_suppressed_until = _incident_memory_map(runtime)
+def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
+    runtime_paths = runtime.runtime_paths
+    if isinstance(runtime_paths, RuntimePaths):
+        return runtime_paths
+    return get_runtime_paths()
 
-    state = load_state(state_file)
-    LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
 
-    runtime_paths: RuntimePaths
-    if isinstance(runtime_paths_raw, RuntimePaths):
-        runtime_paths = runtime_paths_raw
-    else:
-        runtime_paths = get_runtime_paths()
-
+def _build_pipeline(
+    *,
+    runtime: RuntimeConfig,
+    state: dict,
+    runtime_paths: RuntimePaths,
+) -> tuple[NotificationPipeline, JsonlCheckpointStore]:
     source = GmailMailSource(
-        discord_webhook_url=discord_webhook_url,
+        discord_webhook_url=runtime.discord_webhook_url,
         state=state,
-        state_file=state_file,
-        dry_run=dry_run,
+        state_file=runtime.state_file,
+        dry_run=runtime.dry_run,
         gmail_api_max_retries=runtime.gmail_api_max_retries,
         gmail_api_base_delay_seconds=runtime.gmail_api_base_delay_seconds,
         gmail_api_max_delay_seconds=runtime.gmail_api_max_delay_seconds,
@@ -222,7 +213,6 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
         transient_alert_min_duration_seconds=runtime.transient_alert_min_duration_seconds,
         transient_alert_cooldown_seconds=runtime.transient_alert_cooldown_seconds,
         get_gmail_service_with_status_fn=get_gmail_service_with_status,
-        list_recent_messages_fn=list_recent_messages,
         list_recent_messages_page_fn=list_recent_messages_page,
         get_message_detail_fn=get_message_detail,
         notify_recovery_if_needed_fn=notify_recovery_if_needed,
@@ -232,29 +222,44 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
         http_error_type=HttpError,
     )
     classifier = RegexClassifier(
-        amazon_pattern=amazon_pattern,
-        subject_pattern=subject_pattern,
+        amazon_pattern=runtime.amazon_pattern,
+        subject_pattern=runtime.subject_pattern,
     )
     notifier = DiscordNotifier(
-        webhook_url=discord_webhook_url,
-        dry_run=dry_run,
+        webhook_url=runtime.discord_webhook_url,
+        dry_run=runtime.dry_run,
         max_attempts=runtime.discord_max_retries,
         base_delay_seconds=runtime.discord_base_delay_seconds,
         max_delay_seconds=runtime.discord_max_delay_seconds,
     )
     checkpoint_store = JsonlCheckpointStore(
-        state_file=state_file,
-        events_file=events_file,
-        runs_file=runs_file,
+        state_file=runtime.state_file,
+        events_file=runtime.events_file,
+        runs_file=runtime.runs_file,
     )
-
     pipeline = NotificationPipeline(
         source=source,
         classifier=classifier,
         notifier=notifier,
         checkpoint_store=checkpoint_store,
-        max_messages=max_messages,
-        dry_run=dry_run,
+        max_messages=runtime.max_messages,
+        dry_run=runtime.dry_run,
+    )
+    return pipeline, checkpoint_store
+
+
+def run_once(runtime: RuntimeConfig) -> RunResult:
+    discord_webhook_url = runtime.discord_webhook_url
+    dry_run = runtime.dry_run
+    incident_memory_suppressed_until = _incident_memory_map(runtime)
+
+    state = load_state(runtime.state_file)
+    LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
+
+    pipeline, checkpoint_store = _build_pipeline(
+        runtime=runtime,
+        state=state,
+        runtime_paths=_resolve_runtime_paths(runtime),
     )
     result = pipeline.run_once()
     _handle_incident_lifecycle(

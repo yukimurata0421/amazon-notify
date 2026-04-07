@@ -9,6 +9,7 @@ from typing import Any
 from .config import LOGGER, load_state, save_state
 from .domain import Checkpoint, RunResult
 from .errors import CheckpointError
+from .incident_store import IncidentStateStore
 from .time_utils import utc_now_iso
 
 SCHEMA_VERSION = 1
@@ -48,6 +49,10 @@ class JsonlCheckpointStore:
         )
         self.runs_summary_index_file = self.runs_file.with_name(
             f"{self.runs_file.name}{_RUN_SUMMARY_INDEX_SUFFIX}"
+        )
+        self._incident_store = IncidentStateStore(
+            state_file=self.state_file,
+            append_event_fn=self.append_event,
         )
 
     def load_checkpoint(self) -> Checkpoint:
@@ -188,30 +193,10 @@ class JsonlCheckpointStore:
         return summary
 
     def load_incident_state(self) -> dict[str, Any] | None:
-        state = load_state(self.state_file)
-        if not state.get("active_incident_kind"):
-            return None
-        return {
-            "kind": state.get("active_incident_kind"),
-            "at": state.get("active_incident_at"),
-            "suppressed_count": state.get("incident_suppressed_count", 0),
-            "message": state.get("active_incident_message"),
-        }
+        return self._incident_store.load_incident_state()
 
     def suppress_incident(self, *, kind: str, run_id: str) -> int:
-        state = load_state(self.state_file)
-        suppressed_count = int(state.get("incident_suppressed_count", 0)) + 1
-        state["incident_suppressed_count"] = suppressed_count
-        save_state(self.state_file, state)
-        self.append_event(
-            "incident_suppressed",
-            run_id,
-            {
-                "kind": kind,
-                "suppressed_count": suppressed_count,
-            },
-        )
-        return suppressed_count
+        return self._incident_store.suppress_incident(kind=kind, run_id=run_id)
 
     def open_incident(
         self,
@@ -221,48 +206,53 @@ class JsonlCheckpointStore:
         opened_at: str,
         run_id: str,
     ) -> None:
-        state = load_state(self.state_file)
-        state["active_incident_kind"] = kind
-        state["active_incident_message"] = message
-        state["active_incident_at"] = opened_at
-        state["incident_suppressed_count"] = 0
-        save_state(self.state_file, state)
-        self.append_event(
-            "incident_opened",
-            run_id,
-            {
-                "kind": kind,
-            },
+        self._incident_store.open_incident(
+            kind=kind,
+            message=message,
+            opened_at=opened_at,
+            run_id=run_id,
         )
 
     def recover_incident(self, *, run_id: str) -> dict[str, Any] | None:
-        state = load_state(self.state_file)
-        kind = state.get("active_incident_kind")
-        if not kind:
-            return None
+        return self._incident_store.recover_incident(run_id=run_id)
 
-        message = state.get("active_incident_message")
-        at = state.get("active_incident_at")
-        suppressed_count = int(state.get("incident_suppressed_count", 0))
-
-        self.append_event(
-            "incident_recovered",
-            run_id,
-            {
-                "kind": kind,
-            },
-        )
-        state.pop("active_incident_kind", None)
-        state.pop("active_incident_message", None)
-        state.pop("active_incident_at", None)
-        state.pop("incident_suppressed_count", None)
-        save_state(self.state_file, state)
-        return {
-            "kind": kind,
-            "message": message,
-            "at": at,
-            "suppressed_count": suppressed_count,
+    def rebuild_indexes(self) -> dict[str, bool]:
+        rebuilt = {
+            "checkpoint_index": False,
+            "run_summary_index": False,
         }
+
+        event_entries, events_eof_size = self._load_jsonl_entries(self.events_file)
+        checkpoint_entry = self._find_last_checkpoint_entry(event_entries)
+        if checkpoint_entry is not None:
+            checkpoint_offset, checkpoint_payload = checkpoint_entry
+            self._update_checkpoint_index(
+                checkpoint=checkpoint_payload.get("checkpoint"),
+                offset=checkpoint_offset,
+                eof_size=events_eof_size,
+            )
+            rebuilt["checkpoint_index"] = True
+        else:
+            self._safe_unlink(self.events_checkpoint_index_file)
+
+        run_entries, runs_eof_size = self._load_jsonl_entries(self.runs_file)
+        if run_entries:
+            summary = self._build_summary_from_runs([row for _, row in run_entries])
+            run_offset, run_payload = run_entries[-1]
+            run_id_obj = run_payload.get("run_id")
+            run_id = run_id_obj if isinstance(run_id_obj, str) else None
+            self._update_run_summary_index(
+                summary=summary,
+                run_id=run_id,
+                offset=run_offset,
+                eof_size=runs_eof_size,
+            )
+            self._update_state_summary_snapshot(summary)
+            rebuilt["run_summary_index"] = True
+        else:
+            self._safe_unlink(self.runs_summary_index_file)
+
+        return rebuilt
 
     def _append_jsonl(self, path: Path, payload: dict[str, Any]) -> tuple[int, int]:
         try:
@@ -292,53 +282,53 @@ class JsonlCheckpointStore:
         if not path.exists():
             return [], 0
 
-        file_bytes = path.read_bytes()
-        file_size = len(file_bytes)
+        file_size = path.stat().st_size
         if start_offset < 0 or start_offset > file_size:
             raise CheckpointError(
                 f"JSONL offset が不正です: path={path} offset={start_offset} size={file_size}"
             )
 
-        segment = file_bytes[start_offset:]
-        lines = segment.splitlines(keepends=True)
         entries: list[tuple[int, dict[str, Any]]] = []
-        cursor = start_offset
-        total = len(lines)
+        with path.open("rb") as handle:
+            handle.seek(start_offset)
+            line_no = 0
+            while True:
+                line_start = handle.tell()
+                raw_line = handle.readline()
+                if raw_line == b"":
+                    break
+                line_no += 1
+                line_end = handle.tell()
+                is_tail_line = line_end == file_size
+                stripped_line = raw_line.rstrip(b"\r\n")
+                try:
+                    line = stripped_line.decode("utf-8")
+                except UnicodeDecodeError:
+                    if is_tail_line:
+                        LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, line_no)
+                        continue
+                    raise CheckpointError(
+                        f"JSONL の途中行が破損しています: path={path} line={line_no}"
+                    )
 
-        for idx, raw_line in enumerate(lines):
-            stripped_line = raw_line.rstrip(b"\r\n")
-            try:
-                line = stripped_line.decode("utf-8")
-            except UnicodeDecodeError:
-                if idx == total - 1:
-                    LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, idx + 1)
-                    cursor += len(raw_line)
+                if not line.strip():
                     continue
-                raise CheckpointError(
-                    f"JSONL の途中行が破損しています: path={path} line={idx + 1}"
-                )
 
-            if not line.strip():
-                cursor += len(raw_line)
-                continue
+                try:
+                    payload = json.loads(line)
+                except json.JSONDecodeError:
+                    # 末尾 1 行破損は復旧可能な前提で無視する。
+                    if is_tail_line:
+                        LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, line_no)
+                        continue
+                    raise CheckpointError(
+                        f"JSONL の途中行が破損しています: path={path} line={line_no}"
+                    )
 
-            try:
-                payload = json.loads(line)
-            except json.JSONDecodeError:
-                # 末尾 1 行破損は復旧可能な前提で無視する。
-                if idx == total - 1:
-                    LOGGER.warning("JSONL_TAIL_CORRUPTED_IGNORED: %s line=%s", path, idx + 1)
-                    cursor += len(raw_line)
-                    continue
-                raise CheckpointError(
-                    f"JSONL の途中行が破損しています: path={path} line={idx + 1}"
-                )
+                if isinstance(payload, dict):
+                    entries.append((line_start, payload))
 
-            if isinstance(payload, dict):
-                entries.append((cursor, payload))
-            cursor += len(raw_line)
-
-        return entries, cursor
+        return entries, file_size
 
     def _load_checkpoint_from_index(self) -> str | None:
         payload = self._read_json_file(self.events_checkpoint_index_file)
@@ -646,6 +636,12 @@ class JsonlCheckpointStore:
             return path.stat().st_size
         except OSError:
             return None
+
+    def _safe_unlink(self, path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+        except OSError as exc:
+            LOGGER.warning("INDEX_FILE_REMOVE_FAILED: path=%s error=%s", path, exc)
 
     @staticmethod
     def _find_last_checkpoint_entry(

@@ -4,6 +4,7 @@ English version: [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.
 
 このドキュメントは、`amazon-notify` の直近改善で「何を、なぜ採用したか」を明文化したものです。  
 設計の正しさだけでなく、運用時の認知負荷・復旧性・保守性を重視した判断を記録します。
+構造全体の設計判断は `docs/engineering-decisions.md` を参照してください。
 
 対象:
 - `main` ブランチの実装（v0.3.0 系の改善を含む）

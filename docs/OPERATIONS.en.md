@@ -42,7 +42,7 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 - `message_detail_failed`: message detail fetch failed; ordered frontier stops at failure point.
 - `auth_failed`: token/credential issue; run `amazon-notify --reauth`.
 - `checkpoint_failed`: persistence path failed (for example `events.jsonl`/`runs.jsonl` write failure).
-- `source_failed`: source/guard-path failure (including previously-unhandled `run_once_with_guard` errors) normalized into persisted run/event records.
+- `source_failed`: source-side failure or an unexpected runtime error path.
 - Short-lived transient failures that never crossed the alert threshold are silently cleared, so no recovery notification is sent in that case.
 
 ## Disk Full / ENOSPC Operations
@@ -75,6 +75,30 @@ sudo systemctl status amazon-notify-pubsub.service
 sudo systemctl status amazon-notify-fallback.timer
 sudo journalctl -u amazon-notify-pubsub.service -f
 sudo journalctl -u amazon-notify-fallback.service -f
+```
+
+## JSONL Maintenance (Long-Running Deployments)
+
+- Rebuild index snapshots:
+
+```bash
+amazon-notify --config ./config.json --rebuild-indexes
+```
+
+- Archive `events.jsonl` / `runs.jsonl` example:
+  - stop running services
+  - copy and compress archives
+  - rebuild indexes if needed
+
+```bash
+sudo systemctl stop amazon-notify-pubsub.service amazon-notify-fallback.timer
+ts=$(date +%Y%m%d-%H%M%S)
+mkdir -p archive
+cp events.jsonl "archive/events-${ts}.jsonl"
+cp runs.jsonl "archive/runs-${ts}.jsonl"
+gzip -f "archive/events-${ts}.jsonl" "archive/runs-${ts}.jsonl"
+amazon-notify --config ./config.json --rebuild-indexes
+sudo systemctl start amazon-notify-pubsub.service amazon-notify-fallback.timer
 ```
 
 ## Notes

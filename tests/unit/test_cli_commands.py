@@ -6,22 +6,20 @@ import pytest
 
 from amazon_notify import cli, config
 from amazon_notify import runtime as app_runtime
+from amazon_notify.config import RuntimePaths
 from amazon_notify.domain import AuthStatus
 
 
-@pytest.fixture(autouse=True)
-def restore_runtime_paths() -> None:
-    original_config_path = config.CONFIG_PATH
-    original_credentials_path = config.CREDENTIALS_PATH
-    original_token_path = config.TOKEN_PATH
-    original_default_log_path = config.DEFAULT_LOG_PATH
-    original_runtime_dir = config.RUNTIME_DIR
-    yield
-    config.CONFIG_PATH = original_config_path
-    config.CREDENTIALS_PATH = original_credentials_path
-    config.TOKEN_PATH = original_token_path
-    config.DEFAULT_LOG_PATH = original_default_log_path
-    config.RUNTIME_DIR = original_runtime_dir
+def _paths_for(config_path: Path) -> RuntimePaths:
+    resolved_config = config_path.resolve()
+    runtime_dir = resolved_config.parent
+    return RuntimePaths(
+        runtime_dir=runtime_dir,
+        config=resolved_config,
+        credentials=runtime_dir / "credentials.json",
+        token=runtime_dir / "token.json",
+        default_log=runtime_dir / "logs" / "amazon_mail_notifier.log",
+    )
 
 
 def test_validate_config_detects_invalid_values() -> None:
@@ -261,6 +259,70 @@ def test_main_health_check_includes_runtime_status_summary(monkeypatch, tmp_path
     assert runtime_status["active_incident"]["kind"] == "delivery_failed"
 
 
+def test_main_rebuild_indexes_outputs_summary(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "amazon_from_pattern": r"amazon\.co\.jp",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "run-1",
+                "at": "2026-04-04 00:00:00",
+                "checkpoint": "cp-1",
+                "source": "pipeline_commit",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-1",
+                "started_at": "2026-04-04 00:00:00",
+                "ended_at": "2026-04-04 00:00:01",
+                "checkpoint_before": "old",
+                "checkpoint_after": "cp-1",
+                "processed_count": 1,
+                "matched_count": 1,
+                "notified_count": 1,
+                "non_target_count": 0,
+                "failure_kind": None,
+                "failure_message": None,
+                "failure_message_id": None,
+                "should_retry": False,
+                "should_alert": False,
+                "auth_status": None,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--rebuild-indexes"])
+
+    cli.main()
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "ok"
+    assert report["checkpoint_index_rebuilt"] is True
+    assert report["run_summary_index_rebuilt"] is True
+
+
 def test_main_health_check_reports_corrupted_runtime_records(monkeypatch, tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
@@ -298,34 +360,34 @@ def test_main_health_check_reports_corrupted_runtime_records(monkeypatch, tmp_pa
 
 def test_load_config_or_exit_exits_for_missing_json_and_oserror(monkeypatch, tmp_path: Path) -> None:
     missing = tmp_path / "missing.json"
-    monkeypatch.setattr(config, "CONFIG_PATH", missing)
+    missing_paths = _paths_for(missing)
     with pytest.raises(SystemExit) as missing_exc:
-        cli.load_config_or_exit()
+        cli.load_config_or_exit(missing_paths)
     assert missing_exc.value.code == 1
 
     invalid = tmp_path / "invalid.json"
     invalid.write_text("{", encoding="utf-8")
-    monkeypatch.setattr(config, "CONFIG_PATH", invalid)
+    invalid_paths = _paths_for(invalid)
     with pytest.raises(SystemExit) as invalid_exc:
-        cli.load_config_or_exit()
+        cli.load_config_or_exit(invalid_paths)
     assert invalid_exc.value.code == 1
 
     valid = tmp_path / "valid.json"
     valid.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "CONFIG_PATH", valid)
+    valid_paths = _paths_for(valid)
     monkeypatch.setattr(config, "load_config", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("denied")))
     with pytest.raises(SystemExit) as os_exc:
-        cli.load_config_or_exit()
+        cli.load_config_or_exit(valid_paths)
     assert os_exc.value.code == 1
 
 
 def test_load_config_for_health_check_handles_oserror(monkeypatch, tmp_path: Path) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "CONFIG_PATH", config_path)
+    paths = _paths_for(config_path)
     monkeypatch.setattr(config, "load_config", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("denied")))
 
-    loaded, errors = cli.load_config_for_health_check()
+    loaded, errors = cli.load_config_for_health_check(paths)
     assert loaded is None
     assert errors
 

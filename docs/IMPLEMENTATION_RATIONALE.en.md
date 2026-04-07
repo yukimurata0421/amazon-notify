@@ -4,6 +4,7 @@ Japanese version: [IMPLEMENTATION_RATIONALE_JA.md](./IMPLEMENTATION_RATIONALE_JA
 
 This document records why recent `amazon-notify` changes were adopted.
 Focus is on consistency, recoverability, and maintainability.
+For stable architecture-level decisions, see `docs/engineering-decisions.en.md`.
 
 ## 1. Prioritization criteria
 

@@ -9,11 +9,11 @@ from datetime import datetime, timezone
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-RUNTIME_DIR = Path.cwd()
-CONFIG_PATH = RUNTIME_DIR / "config.json"
-CREDENTIALS_PATH = RUNTIME_DIR / "credentials.json"
-TOKEN_PATH = RUNTIME_DIR / "token.json"
-DEFAULT_LOG_PATH = RUNTIME_DIR / "logs" / "amazon_mail_notifier.log"
+DEFAULT_RUNTIME_DIR = Path.cwd()
+DEFAULT_CONFIG_PATH = DEFAULT_RUNTIME_DIR / "config.json"
+DEFAULT_CREDENTIALS_PATH = DEFAULT_RUNTIME_DIR / "credentials.json"
+DEFAULT_TOKEN_PATH = DEFAULT_RUNTIME_DIR / "token.json"
+DEFAULT_LOG_PATH = DEFAULT_RUNTIME_DIR / "logs" / "amazon_mail_notifier.log"
 
 
 @dataclass(frozen=True)
@@ -41,11 +41,13 @@ class JsonLogFormatter(logging.Formatter):
         return json.dumps(payload, ensure_ascii=False)
 
 
-def setup_logging(log_path: Path = DEFAULT_LOG_PATH, *, structured: bool = False) -> None:
+def setup_logging(log_path: Path | None = None, *, structured: bool = False) -> None:
     """Configure stdout and rotating file logging once."""
     if LOGGER.handlers:
         return
 
+    if log_path is None:
+        log_path = DEFAULT_LOG_PATH
     log_path.parent.mkdir(parents=True, exist_ok=True)
     LOGGER.setLevel(logging.INFO)
     formatter = JsonLogFormatter() if structured else logging.Formatter("%(asctime)s %(levelname)s %(message)s")
@@ -99,31 +101,27 @@ def save_state(path: Path, state: dict) -> None:
         raise
 
 
-def configure_runtime_paths(config_path: str | Path) -> Path:
-    global RUNTIME_DIR, CONFIG_PATH, CREDENTIALS_PATH, TOKEN_PATH, DEFAULT_LOG_PATH
-
-    resolved_config_path = Path(config_path).expanduser().resolve()
+def get_runtime_paths(config_path: str | Path | None = None) -> RuntimePaths:
+    if config_path is None:
+        resolved_config_path = DEFAULT_CONFIG_PATH.resolve()
+    else:
+        resolved_config_path = Path(config_path).expanduser().resolve()
     runtime_dir = resolved_config_path.parent
-
-    RUNTIME_DIR = runtime_dir
-    CONFIG_PATH = resolved_config_path
-    CREDENTIALS_PATH = runtime_dir / "credentials.json"
-    TOKEN_PATH = runtime_dir / "token.json"
-    DEFAULT_LOG_PATH = runtime_dir / "logs" / "amazon_mail_notifier.log"
-    return runtime_dir
-
-
-def get_runtime_paths() -> RuntimePaths:
     return RuntimePaths(
-        runtime_dir=RUNTIME_DIR,
-        config=CONFIG_PATH,
-        credentials=CREDENTIALS_PATH,
-        token=TOKEN_PATH,
-        default_log=DEFAULT_LOG_PATH,
+        runtime_dir=runtime_dir,
+        config=resolved_config_path,
+        credentials=runtime_dir / "credentials.json",
+        token=runtime_dir / "token.json",
+        default_log=runtime_dir / "logs" / "amazon_mail_notifier.log",
     )
+
+
+def configure_runtime_paths(config_path: str | Path) -> Path:
+    # Backward-compatible helper: no global mutation, only derived path resolution.
+    return get_runtime_paths(config_path).runtime_dir
 
 
 def resolve_runtime_path(path_value: str | Path, base_dir: Path | None = None) -> Path:
     path = Path(path_value)
-    runtime_dir = base_dir if base_dir is not None else RUNTIME_DIR
+    runtime_dir = base_dir if base_dir is not None else DEFAULT_RUNTIME_DIR
     return path if path.is_absolute() else runtime_dir / path

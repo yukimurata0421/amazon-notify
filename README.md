@@ -18,6 +18,21 @@ Two operating modes are supported:
 
 Japanese README: [README.ja.md](./README.ja.md)
 
+## Version Track
+
+| Track | Description |
+|---|---|
+| `main` branch | Latest implementation (may be ahead of a release tag) |
+| Latest release | Last tagged release on GitHub |
+| Next intended release | `0.4.0` (see `CHANGELOG.md` Unreleased) |
+
+## Behavior Example
+
+1. Message `A` is notified successfully -> checkpoint advances to `A`.
+2. Message `B` notification fails -> run stops at `B`.
+3. Checkpoint remains at `A` (no forward hole).
+4. Next run resumes from `B` and continues oldest-first.
+
 ## Highlights
 
 Note: the `main` branch may be ahead of the latest GitHub Release.
@@ -90,6 +105,9 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 
 # fallback watchdog single run
 amazon-notify --once --fallback-watchdog
+
+# rebuild index snapshots from current events/runs files
+amazon-notify --rebuild-indexes
 ```
 
 ## Try With Minimal Docker
@@ -128,20 +146,28 @@ pip install -e .[dev]
 
 ## Documentation
 
-- Hybrid quickstart (Japanese): [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+Run it:
 - Hybrid quickstart (English): [docs/HYBRID_QUICKSTART.en.md](./docs/HYBRID_QUICKSTART.en.md)
-- Portability parameters (Japanese): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
-- Portability parameters (English): [docs/PORTABILITY_PARAMS.en.md](./docs/PORTABILITY_PARAMS.en.md)
+- Hybrid quickstart (Japanese): [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
+
+Operate it:
 - Operations runbook (English): [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
 - Operations runbook (Japanese): [docs/OPERATIONS.md](./docs/OPERATIONS.md)
-- Minimal Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
-- Minimal Docker guide (Japanese): [docs/DOCKER.md](./docs/DOCKER.md)
-- Hybrid architecture and failover design (Japanese): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
-- Hybrid architecture and failover design (English): [docs/HYBRID_ARCHITECTURE.en.md](./docs/HYBRID_ARCHITECTURE.en.md)
+- Portability parameters (English): [docs/PORTABILITY_PARAMS.en.md](./docs/PORTABILITY_PARAMS.en.md)
+- Portability parameters (Japanese): [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
+
+Understand design:
 - Engineering decisions and design rationale (English): [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - Engineering decisions and design rationale (Japanese): [docs/engineering-decisions.md](./docs/engineering-decisions.md)
-- Implementation rationale (Japanese): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - Implementation rationale (English): [docs/IMPLEMENTATION_RATIONALE.en.md](./docs/IMPLEMENTATION_RATIONALE.en.md)
+- Implementation rationale (Japanese): [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
+- Hybrid architecture and failover design (English): [docs/HYBRID_ARCHITECTURE.en.md](./docs/HYBRID_ARCHITECTURE.en.md)
+- Hybrid architecture and failover design (Japanese): [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+
+Docker:
+- Minimal Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
+- Minimal Docker guide (Japanese): [docs/DOCKER.md](./docs/DOCKER.md)
+
 - Japanese full README: [README.ja.md](./README.ja.md)
 - Language policy: operations, Docker, and engineering-decision docs are maintained in both English (`*.en.md`) and Japanese (`*.md`). This README prioritizes English links and also includes Japanese counterparts.
 - Optional structured logging (`structured_logging=true`) is supported.

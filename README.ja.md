@@ -17,6 +17,21 @@ Amazon.co.jp の配送関連メールを Gmail API で検出し、Discord Webhoo
 
 English README: [README.md](./README.md)
 
+## バージョントラック
+
+| トラック | 説明 |
+|---|---|
+| `main` ブランチ | 最新実装（リリースタグより先行する場合あり） |
+| Latest release | GitHub 上の最新タグ付きリリース |
+| Next intended release | `0.4.0`（`CHANGELOG.md` の Unreleased を参照） |
+
+## 動作例
+
+1. メッセージ `A` の通知に成功 -> checkpoint は `A` へ進む。
+2. メッセージ `B` の通知に失敗 -> run は `B` で停止。
+3. checkpoint は `A` のまま（境界の穴を作らない）。
+4. 次回 run は `B` から oldest-first で再開。
+
 ## できること
 
 補足: `main` ブランチは最新 GitHub Release より先行している場合があります。
@@ -89,6 +104,9 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 
 # fallback watchdog つき単発
 amazon-notify --once --fallback-watchdog
+
+# events/runs から index snapshot を再構築
+amazon-notify --rebuild-indexes
 ```
 
 ## 軽量 Docker で試す
@@ -127,20 +145,28 @@ pip install -e .[dev]
 
 ## ドキュメント
 
+試す（Run it）:
 - ハイブリッド導入手順（コピペ手順・エラー対処）: [docs/HYBRID_QUICKSTART_JA.md](./docs/HYBRID_QUICKSTART_JA.md)
 - Hybrid quickstart (English): [docs/HYBRID_QUICKSTART.en.md](./docs/HYBRID_QUICKSTART.en.md)
-- 環境依存パラメータ一覧（移植チェックリスト）: [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
-- Portability parameters (English): [docs/PORTABILITY_PARAMS.en.md](./docs/PORTABILITY_PARAMS.en.md)
+
+運用する（Operate it）:
 - 運用手順: [docs/OPERATIONS.md](./docs/OPERATIONS.md)
 - 運用手順（英語）: [docs/OPERATIONS.en.md](./docs/OPERATIONS.en.md)
-- 軽量 Docker ガイド: [docs/DOCKER.md](./docs/DOCKER.md)
-- Minimal Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
-- ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
-- Hybrid architecture guide (English): [docs/HYBRID_ARCHITECTURE.en.md](./docs/HYBRID_ARCHITECTURE.en.md)
+- 環境依存パラメータ一覧（移植チェックリスト）: [docs/PORTABILITY_PARAMS_JA.md](./docs/PORTABILITY_PARAMS_JA.md)
+- Portability parameters (English): [docs/PORTABILITY_PARAMS.en.md](./docs/PORTABILITY_PARAMS.en.md)
+
+設計を読む（Understand design）:
 - 設計判断と根拠: [docs/engineering-decisions.md](./docs/engineering-decisions.md)
 - 設計判断と根拠（英語）: [docs/engineering-decisions.en.md](./docs/engineering-decisions.en.md)
 - 実装判断の意図（なぜこの選択をしたか）: [docs/IMPLEMENTATION_RATIONALE_JA.md](./docs/IMPLEMENTATION_RATIONALE_JA.md)
 - Implementation rationale (English): [docs/IMPLEMENTATION_RATIONALE.en.md](./docs/IMPLEMENTATION_RATIONALE.en.md)
+- ハイブリッド構成の詳細記事: [docs/HYBRID_ARCHITECTURE_JA.md](./docs/HYBRID_ARCHITECTURE_JA.md)
+- Hybrid architecture guide (English): [docs/HYBRID_ARCHITECTURE.en.md](./docs/HYBRID_ARCHITECTURE.en.md)
+
+Docker:
+- 軽量 Docker ガイド: [docs/DOCKER.md](./docs/DOCKER.md)
+- Minimal Docker guide (English): [docs/DOCKER.en.md](./docs/DOCKER.en.md)
+
 - 英語版 README: [README.md](./README.md)
 - 言語ポリシー: 運用/Docker/設計ドキュメントは英語版（`*.en.md`）と日本語版（`*.md`）を併記しています。この README では日本語版を優先しつつ英語版も併記しています。
 - `structured_logging=true` で JSON 構造化ログを有効化できます。

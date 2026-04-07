@@ -21,7 +21,6 @@ from .gmail_client import (
     get_message_detail,
     is_retryable_http_error,
     is_transient_network_error,
-    list_recent_messages,
     list_recent_messages_page,
     notify_recovery_if_needed,
     record_transient_issue,
@@ -44,7 +43,6 @@ class GmailMailSource:
     transient_alert_min_duration_seconds: float
     transient_alert_cooldown_seconds: float
     get_gmail_service_with_status_fn: Callable[..., tuple[Any | None, AuthStatus]] = get_gmail_service_with_status
-    list_recent_messages_fn: Callable[..., list[dict[str, str]]] = list_recent_messages
     list_recent_messages_page_fn: Callable[..., tuple[list[dict[str, str]], str | None]] = (
         list_recent_messages_page
     )
@@ -139,22 +137,6 @@ class GmailMailSource:
 
         def _safe_fetch_page(page_token: str | None) -> tuple[list[dict[str, str]], str | None]:
             try:
-                # 単体テスト互換: service stub が users() を持たない場合は旧 helper を使う。
-                if page_token is None and not hasattr(service, "users"):
-
-                    def _list_recent_compat() -> list[dict[str, str]]:
-                        return self.list_recent_messages_fn(
-                            service,
-                            query="in:inbox",
-                            max_results=max_messages,
-                        )
-
-                    messages_compat = self._call_gmail_api_with_retry(
-                        "list_recent_messages",
-                        _list_recent_compat,
-                    )
-                    return messages_compat, None
-
                 def _list_page(_page_token: str | None = page_token) -> tuple[list[dict[str, str]], str | None]:
                     return self.list_recent_messages_page_fn(
                         service,

@@ -71,6 +71,18 @@ from .backoff import next_delay_seconds
 from .config import LOGGER, RuntimePaths, load_state, save_state
 from .discord_client import send_discord_alert, send_discord_recovery
 from .domain import AuthStatus
+from .gmail_api import (
+    get_message_detail as get_message_detail_impl,
+)
+from .gmail_api import (
+    list_recent_messages as list_recent_messages_impl,
+)
+from .gmail_api import (
+    list_recent_messages_page as list_recent_messages_page_impl,
+)
+from .gmail_api import (
+    start_gmail_watch as start_gmail_watch_impl,
+)
 from .time_utils import utc_now_iso
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -624,16 +636,12 @@ def start_gmail_watch(
     label_ids: list[str] | None = None,
     label_filter_action: str = "include",
 ) -> dict[str, Any]:
-    action = label_filter_action.strip().lower()
-    if action not in {"include", "exclude"}:
-        raise ValueError("label_filter_action must be 'include' or 'exclude'")
-
-    body: dict[str, Any] = {"topicName": topic_name}
-    if label_ids:
-        body["labelIds"] = label_ids
-        body["labelFilterAction"] = action.upper()
-
-    return service.users().watch(userId="me", body=body).execute()
+    return start_gmail_watch_impl(
+        service,
+        topic_name=topic_name,
+        label_ids=label_ids,
+        label_filter_action=label_filter_action,
+    )
 
 
 def start_gmail_watch_with_retry(
@@ -753,12 +761,11 @@ def get_gmail_service(
 
 
 def list_recent_messages(service: Any, query: str, max_results: int) -> list[dict[str, str]]:
-    messages, _next_page_token = list_recent_messages_page(
+    return list_recent_messages_impl(
         service,
         query=query,
         max_results=max_results,
     )
-    return messages
 
 
 def list_recent_messages_page(
@@ -768,20 +775,13 @@ def list_recent_messages_page(
     max_results: int,
     page_token: str | None = None,
 ) -> tuple[list[dict[str, str]], str | None]:
-    request_payload: dict[str, Any] = {
-        "userId": "me",
-        "q": query,
-        "maxResults": max_results,
-    }
-    if page_token:
-        request_payload["pageToken"] = page_token
-    result = service.users().messages().list(**request_payload).execute()
-    return result.get("messages", []), result.get("nextPageToken")
+    return list_recent_messages_page_impl(
+        service,
+        query=query,
+        max_results=max_results,
+        page_token=page_token,
+    )
 
 
 def get_message_detail(service: Any, message_id: str) -> dict[str, Any]:
-    return service.users().messages().get(
-        userId="me",
-        id=message_id,
-        format="full",
-    ).execute()
+    return get_message_detail_impl(service, message_id)

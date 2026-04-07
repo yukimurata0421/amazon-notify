@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass
 from enum import Enum
-from typing import Iterable, Protocol
+from typing import Any, Iterable, Protocol
 
 
 class FailureKind(str, Enum):
@@ -64,7 +64,7 @@ class RunResult:
     should_alert: bool
     auth_status: AuthStatus | None
 
-    def to_json_dict(self) -> dict:
+    def to_json_dict(self) -> dict[str, Any]:
         payload = asdict(self)
         payload["failure_kind"] = self.failure_kind.value if self.failure_kind else None
         payload["auth_status"] = self.auth_status.value if self.auth_status else None
@@ -94,6 +94,6 @@ class CheckpointStore(Protocol):
 
     def advance_checkpoint(self, checkpoint: Checkpoint, run_id: str) -> None: ...
 
-    def append_event(self, event_type: str, run_id: str, payload: dict) -> None: ...
+    def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None: ...
 
     def append_run_result(self, result: RunResult) -> None: ...

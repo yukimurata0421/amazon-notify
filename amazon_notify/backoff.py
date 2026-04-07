@@ -24,6 +24,8 @@ def next_delay_seconds(
     delay = base_delay * (2 ** (attempt - 1))
     capped_delay = min(delay, max_delay)
     if jitter_ratio == 0 or capped_delay >= max_delay:
+        # すでに上限に達している場合は jitter を加えても再び max_delay に吸収されるため、
+        # 実効値と意図が変わらない。ここでは分岐を明示して読みやすさを優先する。
         return capped_delay
 
     jitter = random.uniform(0.0, capped_delay * jitter_ratio)

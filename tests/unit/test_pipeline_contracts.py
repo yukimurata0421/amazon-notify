@@ -4,7 +4,7 @@ from pathlib import Path
 from amazon_notify import notifier
 from amazon_notify.domain import AuthStatus, FailureKind
 from amazon_notify.errors import CheckpointError
-from amazon_notify.runtime import RuntimeConfig
+from tests.unit.notifier_test_helpers import build_runtime, single_page
 
 
 def _read_json(path: Path) -> dict:
@@ -17,22 +17,8 @@ def _read_jsonl(path: Path) -> list[dict]:
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
-def _runtime(tmp_path: Path, *, dry_run: bool = False) -> RuntimeConfig:
-    return RuntimeConfig.from_mapping(
-        {
-            "discord_webhook_url": "https://discord.invalid/webhook",
-            "amazon_from_pattern": r"amazon\.co\.jp",
-            "state_file": tmp_path / "state.json",
-            "events_file": tmp_path / "events.jsonl",
-            "runs_file": tmp_path / "runs.jsonl",
-            "max_messages": 10,
-        },
-        dry_run=dry_run,
-    )
-
-
 def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatch, tmp_path: Path) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -40,7 +26,11 @@ def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatc
         "get_gmail_service_with_status",
         lambda **_: (object(), AuthStatus.READY),
     )
-    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        single_page([{"id": "new-id"}, {"id": "old-id"}]),
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",
@@ -65,7 +55,7 @@ def test_contract_checkpoint_advances_only_when_notification_succeeds(monkeypatc
 
 
 def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatch, tmp_path: Path) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -73,7 +63,11 @@ def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatc
         "get_gmail_service_with_status",
         lambda **_: (object(), AuthStatus.READY),
     )
-    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        single_page([{"id": "new-id"}, {"id": "old-id"}]),
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",
@@ -103,7 +97,7 @@ def test_ordered_frontier_delivery_failure_stops_frontier_advancement(monkeypatc
 
 
 def test_ordered_frontier_message_detail_failure_preserves_frontier(monkeypatch, tmp_path: Path) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -111,7 +105,11 @@ def test_ordered_frontier_message_detail_failure_preserves_frontier(monkeypatch,
         "get_gmail_service_with_status",
         lambda **_: (object(), AuthStatus.READY),
     )
-    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        single_page([{"id": "new-id"}, {"id": "old-id"}]),
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",
@@ -127,7 +125,7 @@ def test_ordered_frontier_message_detail_failure_preserves_frontier(monkeypatch,
 
 
 def test_contract_auth_failure_records_auth_failed_event(monkeypatch, tmp_path: Path) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -148,19 +146,21 @@ def test_ordered_frontier_stops_processing_newer_messages_after_midstream_failur
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     # Gmail list は新しい順を想定。
     monkeypatch.setattr(
         notifier,
-        "list_recent_messages",
-        lambda *_args, **_kwargs: [
-            {"id": "msg-c"},
-            {"id": "msg-b"},
-            {"id": "msg-a"},
-            {"id": "old-id"},
-        ],
+        "list_recent_messages_page",
+        single_page(
+            [
+                {"id": "msg-c"},
+                {"id": "msg-b"},
+                {"id": "msg-a"},
+                {"id": "old-id"},
+            ]
+        ),
     )
     monkeypatch.setattr(
         notifier,
@@ -201,7 +201,7 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -209,7 +209,11 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
         "get_gmail_service_with_status",
         lambda **_: (object(), AuthStatus.READY),
     )
-    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        single_page([{"id": "new-id"}, {"id": "old-id"}]),
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",
@@ -250,7 +254,7 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -258,7 +262,11 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
         "get_gmail_service_with_status",
         lambda **_: (object(), AuthStatus.READY),
     )
-    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        single_page([{"id": "new-id"}, {"id": "old-id"}]),
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",
@@ -292,7 +300,7 @@ def test_run_once_does_not_crash_when_failure_event_persist_fails(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
     runtime.events_file.write_text(
         json.dumps(
@@ -329,7 +337,7 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
     monkeypatch,
     tmp_path: Path,
 ) -> None:
-    runtime = _runtime(tmp_path)
+    runtime = build_runtime(tmp_path)
     runtime.state_file.write_text(json.dumps({"last_message_id": "old-id"}), encoding="utf-8")
 
     monkeypatch.setattr(
@@ -337,7 +345,11 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
         "get_gmail_service_with_status",
         lambda **_: (object(), AuthStatus.READY),
     )
-    monkeypatch.setattr(notifier, "list_recent_messages", lambda *_args, **_kwargs: [{"id": "new-id"}, {"id": "old-id"}])
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        single_page([{"id": "new-id"}, {"id": "old-id"}]),
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",

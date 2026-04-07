@@ -41,24 +41,18 @@ try:
 except ModuleNotFoundError:
     fcntl = None  # type: ignore[assignment]
 
-_LOCK_SUPPORT_WARNING_EMITTED = False
-
 
 def has_dedupe_file_lock_support() -> bool:
     return fcntl is not None
 
 
 def _ensure_dedupe_lock_supported() -> None:
-    global _LOCK_SUPPORT_WARNING_EMITTED
     if has_dedupe_file_lock_support():
         return
-    if not _LOCK_SUPPORT_WARNING_EMITTED:
-        LOGGER.error(
-            "DISCORD_DEDUPE_LOCK_UNSUPPORTED: fcntl が利用できない環境です。"
-            " dedupe lock は無効化され、重複通知抑止はベストエフォートになります。"
-            " Linux 単一ホスト運用を推奨します。"
-        )
-        _LOCK_SUPPORT_WARNING_EMITTED = True
+    LOGGER.error(
+        "DISCORD_DEDUPE_LOCK_UNSUPPORTED: fcntl が利用できない環境です。"
+        " dedupe lock は利用できません。Linux 単一ホスト運用を推奨します。"
+    )
     raise OSError("fcntl is unavailable; discord dedupe lock is not supported on this platform")
 
 

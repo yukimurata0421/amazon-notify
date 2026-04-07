@@ -5,13 +5,16 @@ import json
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from . import config as app_config
+from .checkpoint_store import JsonlCheckpointStore
 from .commands import health as health_command
 from .commands import polling as polling_command
 from .commands import reauth as reauth_command
 from .commands import streaming as streaming_command
 from .commands import watch as watch_command
+from .config import RuntimePaths
 from .discord_client import send_discord_test
 from .failover import evaluate_failover_watchdog
 from .gmail_client import (
@@ -39,14 +42,14 @@ def _stderr_error(message: str) -> None:
     sys.stderr.write(f"[ERROR] {message}\n")
 
 
-def load_config_or_exit() -> dict:
-    if not app_config.CONFIG_PATH.exists():
-        app_config.LOGGER.error("CONFIG_MISSING: %s", app_config.CONFIG_PATH)
-        _stderr_error(f"{app_config.CONFIG_PATH} が見つかりません。")
+def load_config_or_exit(paths: RuntimePaths) -> dict[str, Any]:
+    if not paths.config.exists():
+        app_config.LOGGER.error("CONFIG_MISSING: %s", paths.config)
+        _stderr_error(f"{paths.config} が見つかりません。")
         sys.exit(1)
 
     try:
-        return app_config.load_config(app_config.CONFIG_PATH)
+        return app_config.load_config(paths.config)
     except json.JSONDecodeError as exc:
         app_config.LOGGER.error("CONFIG_JSON_INVALID: %s", exc)
         _stderr_error(f"config.json の JSON が不正です: {exc}")
@@ -57,17 +60,23 @@ def load_config_or_exit() -> dict:
         sys.exit(1)
 
 
-def load_config_for_health_check() -> tuple[dict | None, list[str]]:
+def load_config_for_health_check(paths: RuntimePaths) -> tuple[dict[str, Any] | None, list[str]]:
     return health_command.load_config_for_health_check(
+        paths,
         validate_config=lambda config: validate_config_impl(
             config,
-            paths=app_config.get_runtime_paths(),
+            paths=paths,
         )
     )
 
 
-def run_health_check(config: dict | None, validation_errors: list[str]) -> int:
+def run_health_check(
+    paths: RuntimePaths,
+    config: dict[str, Any] | None,
+    validation_errors: list[str],
+) -> int:
     exit_code, report = health_command.run_health_check(
+        paths,
         config=config,
         validation_errors=validation_errors,
     )
@@ -96,18 +105,19 @@ def run_once_with_guard(runtime: RuntimeConfig) -> bool:
         return False
 
 
-def handle_reauth(args: argparse.Namespace) -> bool:
+def handle_reauth(args: argparse.Namespace, paths: RuntimePaths) -> bool:
     return reauth_command.handle_reauth(
         args,
+        paths=paths,
         run_oauth_flow_fn=run_oauth_flow,
     )
 
 
-def handle_health_check(args: argparse.Namespace) -> bool:
+def handle_health_check(args: argparse.Namespace, paths: RuntimePaths) -> bool:
     if not args.health_check:
         return False
-    health_config, health_validation_errors = load_config_for_health_check()
-    sys.exit(run_health_check(health_config, health_validation_errors))
+    health_config, health_validation_errors = load_config_for_health_check(paths)
+    sys.exit(run_health_check(paths, health_config, health_validation_errors))
 
 
 def handle_validate_config(args: argparse.Namespace, validation_errors: list[str]) -> bool:
@@ -120,10 +130,11 @@ def handle_validate_config(args: argparse.Namespace, validation_errors: list[str
     return True
 
 
-def handle_setup_watch(args: argparse.Namespace, config: dict) -> None:
+def handle_setup_watch(args: argparse.Namespace, config: dict[str, Any], *, paths: RuntimePaths) -> None:
     watch_command.handle_setup_watch(
         args,
         config,
+        paths=paths,
         stderr_error=_stderr_error,
         load_state_fn=app_config.load_state,
         get_gmail_service_with_status_fn=get_gmail_service_with_status,
@@ -153,7 +164,7 @@ def validate_watchdog_options(
 
 def handle_streaming_mode(
     args: argparse.Namespace,
-    config: dict,
+    config: dict[str, Any],
     runtime: RuntimeConfig,
     heartbeat_file: Path,
     heartbeat_interval_seconds: float,
@@ -189,7 +200,7 @@ def should_run_fallback_polling(
     )
 
 
-def run_polling_mode(args: argparse.Namespace, config: dict, runtime: RuntimeConfig) -> None:
+def run_polling_mode(args: argparse.Namespace, config: dict[str, Any], runtime: RuntimeConfig) -> None:
     polling_command.run_polling_mode(
         args,
         config,
@@ -198,6 +209,32 @@ def run_polling_mode(args: argparse.Namespace, config: dict, runtime: RuntimeCon
         sleep_fn=time.sleep,
         stderr_error=_stderr_error,
     )
+
+
+def handle_rebuild_indexes(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.rebuild_indexes:
+        return False
+    store = JsonlCheckpointStore(
+        state_file=runtime.state_file,
+        events_file=runtime.events_file,
+        runs_file=runtime.runs_file,
+    )
+    rebuilt = store.rebuild_indexes()
+    sys.stdout.write(
+        json.dumps(
+            {
+                "status": "ok",
+                "checkpoint_index_rebuilt": rebuilt["checkpoint_index"],
+                "run_summary_index_rebuilt": rebuilt["run_summary_index"],
+                "events_file": str(runtime.events_file),
+                "runs_file": str(runtime.runs_file),
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
+    return True
 
 
 def main() -> None:
@@ -214,6 +251,11 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="Gmail取得と判定のみ実行し、Discord送信とstate更新を行わない。")
     parser.add_argument("--test-discord", action="store_true", help="設定済み Discord Webhook へテスト通知を送信して終了する。")
     parser.add_argument("--validate-config", action="store_true", help="設定ファイルを検証して終了する。")
+    parser.add_argument(
+        "--rebuild-indexes",
+        action="store_true",
+        help="events/runs の index snapshot を再構築して終了する。",
+    )
     parser.add_argument("--health-check", action="store_true", help="実行前提のヘルスチェック結果をJSONで出力して終了する。")
     parser.add_argument("--log-file", type=str, help="ログファイルの保存先（未指定時は logs/amazon_mail_notifier.log）。")
     parser.add_argument("--streaming-pull", action="store_true", help="Pub/Sub StreamingPull でイベント駆動実行する。")
@@ -280,24 +322,24 @@ def main() -> None:
     parser.add_argument("--watch-max-delay", type=float, default=60.0, help="watch API 登録リトライの最大待機秒。")
 
     args = parser.parse_args()
-    app_config.configure_runtime_paths(args.config)
+    paths = app_config.get_runtime_paths(args.config)
 
-    if handle_reauth(args):
+    if handle_reauth(args, paths):
         return
 
-    if handle_health_check(args):
+    if handle_health_check(args, paths):
         return
 
-    config = load_config_or_exit()
-    validation_errors = validate_config_impl(config, paths=app_config.get_runtime_paths())
+    config = load_config_or_exit(paths)
+    validation_errors = validate_config_impl(config, paths=paths)
 
     if handle_validate_config(args, validation_errors):
         return
 
     log_path = (
-        app_config.resolve_runtime_path(args.log_file)
+        app_config.resolve_runtime_path(args.log_file, base_dir=paths.runtime_dir)
         if args.log_file
-        else app_config.resolve_runtime_path(config.get("log_file", str(app_config.DEFAULT_LOG_PATH)))
+        else app_config.resolve_runtime_path(config.get("log_file", str(paths.default_log)), base_dir=paths.runtime_dir)
     )
     app_config.setup_logging(log_path, structured=bool(config.get("structured_logging", False)))
 
@@ -327,14 +369,16 @@ def main() -> None:
         return
 
     if args.setup_watch:
-        handle_setup_watch(args, config)
+        handle_setup_watch(args, config, paths=paths)
         return
 
     runtime = build_runtime_impl(
         config,
-        paths=app_config.get_runtime_paths(),
+        paths=paths,
         dry_run=args.dry_run,
     )
+    if handle_rebuild_indexes(args, runtime):
+        return
     heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name = (
         resolve_watchdog_options(args, runtime)
     )

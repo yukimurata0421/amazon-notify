@@ -209,3 +209,77 @@ def test_run_streaming_pull_skips_invalid_message_payload(monkeypatch) -> None:
             on_trigger=lambda: triggers.append(True) or True,
         )
     assert triggers == []
+
+
+def test_run_streaming_pull_stops_when_trigger_fails_consecutively(monkeypatch, caplog) -> None:
+    class _FakeMessage:
+        def __init__(self, payload: dict):
+            self.data = json.dumps(payload).encode("utf-8")
+            self.message_id = "msg-1"
+            self.publish_time = "2026-04-04T00:00:00Z"
+            self.acked = False
+
+        def ack(self) -> None:
+            self.acked = True
+
+    callback_invoked = False
+
+    class _FakeFuture:
+        def __init__(self, callback):
+            self._callback = callback
+            self.cancelled = False
+
+        def result(self, timeout=None) -> None:
+            nonlocal callback_invoked
+            _ = timeout
+            if not callback_invoked:
+                callback_invoked = True
+                self._callback(_FakeMessage({"emailAddress": "user@example.com", "historyId": "1"}))
+            raise streaming_pull.FutureTimeoutError()
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    class _FakeFlowControl:
+        def __init__(self, max_messages: int):
+            self.max_messages = max_messages
+
+    class _FakeSubscriber:
+        last_future = None
+        closed = False
+
+        def __init__(self):
+            self.future = None
+
+        def subscribe(self, _subscription_path: str, callback, flow_control):
+            _ = flow_control
+            self.future = _FakeFuture(callback)
+            _FakeSubscriber.last_future = self.future
+            return self.future
+
+        def close(self) -> None:
+            _FakeSubscriber.closed = True
+
+    class _FakePubSub:
+        class types:
+            FlowControl = _FakeFlowControl
+
+        SubscriberClient = _FakeSubscriber
+
+    monkeypatch.setattr(streaming_pull, "ensure_pubsub_dependencies", lambda: None)
+    monkeypatch.setattr(streaming_pull, "pubsub_v1", _FakePubSub)
+
+    try:
+        streaming_pull.run_streaming_pull(
+            subscription_path="projects/p/subscriptions/s",
+            on_trigger=lambda: False,
+            trigger_failure_max_consecutive=1,
+        )
+    except RuntimeError as exc:
+        assert "Pub/Sub trigger worker failed" in str(exc)
+
+    assert callback_invoked
+    assert _FakeSubscriber.last_future is not None
+    assert _FakeSubscriber.last_future.cancelled is True
+    assert _FakeSubscriber.closed is True
+    assert any("PUBSUB_WORKER_FATAL" in record.message for record in caplog.records)

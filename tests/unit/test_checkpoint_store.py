@@ -381,6 +381,62 @@ def test_load_last_run_summary_falls_back_to_state_snapshot(tmp_path: Path) -> N
     assert summary["last_run_status"] == "ok"
 
 
+def test_rebuild_indexes_recreates_checkpoint_and_run_summary_indexes(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    store.append_event(
+        "checkpoint_advanced",
+        "run-1",
+        {"checkpoint": "cp-1", "source": "pipeline_commit"},
+    )
+    result = RunResult(
+        run_id="run-1",
+        started_at="2026-04-04 00:00:00",
+        ended_at="2026-04-04 00:00:01",
+        checkpoint_before="a",
+        checkpoint_after="cp-1",
+        processed_count=1,
+        matched_count=1,
+        notified_count=1,
+        non_target_count=0,
+        failure_kind=None,
+        failure_message=None,
+        failure_message_id=None,
+        should_retry=False,
+        should_alert=False,
+        auth_status=None,
+    )
+    store.append_run_result(result)
+
+    store.events_checkpoint_index_file.unlink()
+    store.runs_summary_index_file.unlink()
+
+    rebuilt = store.rebuild_indexes()
+
+    assert rebuilt["checkpoint_index"] is True
+    assert rebuilt["run_summary_index"] is True
+    assert store.events_checkpoint_index_file.exists()
+    assert store.runs_summary_index_file.exists()
+
+
+def test_rebuild_indexes_removes_stale_indexes_when_jsonl_is_empty(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+
+    store.events_checkpoint_index_file.write_text("{}", encoding="utf-8")
+    store.runs_summary_index_file.write_text("{}", encoding="utf-8")
+
+    rebuilt = store.rebuild_indexes()
+
+    assert rebuilt["checkpoint_index"] is False
+    assert rebuilt["run_summary_index"] is False
+    assert not store.events_checkpoint_index_file.exists()
+    assert not store.runs_summary_index_file.exists()
+
+
 def test_private_helpers_cover_edge_cases(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")

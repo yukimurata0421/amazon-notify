@@ -39,13 +39,23 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
 
     sequence = [TimeoutError("timed out"), []]
 
-    def fake_list_recent_messages(service, query, max_results):
+    def fake_list_recent_messages_page(
+        _service,
+        *,
+        query: str,
+        max_results: int,
+        page_token: str | None = None,
+    ):
+        assert query == "in:inbox"
+        _ = max_results
+        if page_token is not None:
+            return [], None
         next_item = sequence.pop(0)
         if isinstance(next_item, Exception):
             raise next_item
-        return next_item
+        return next_item, None
 
-    monkeypatch.setattr(notifier, "list_recent_messages", fake_list_recent_messages)
+    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
 
     alerts: list[str] = []
     recoveries: list[str] = []

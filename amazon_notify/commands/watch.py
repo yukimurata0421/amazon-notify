@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable
 
 from .. import config as app_config
+from ..config import RuntimePaths
 from ..domain import AuthStatus
 
 
@@ -13,6 +14,7 @@ def handle_setup_watch(
     args: argparse.Namespace,
     config: dict,
     *,
+    paths: RuntimePaths,
     stderr_error: Callable[[str], None],
     load_state_fn: Callable[..., dict],
     get_gmail_service_with_status_fn: Callable[..., tuple[object | None, AuthStatus]],
@@ -23,14 +25,17 @@ def handle_setup_watch(
         stderr_error("--setup-watch には --pubsub-topic が必要です。")
         sys.exit(1)
 
-    state_file = app_config.resolve_runtime_path(config.get("state_file", "state.json"))
+    state_file = app_config.resolve_runtime_path(
+        config.get("state_file", "state.json"),
+        base_dir=paths.runtime_dir,
+    )
     state = load_state_fn(state_file)
     service, status = get_gmail_service_with_status_fn(
         webhook_url=config["discord_webhook_url"],
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
-        paths=app_config.get_runtime_paths(),
+        paths=paths,
     )
     if service is None:
         stderr_error(f"Gmail service を初期化できませんでした。auth_status={status.value}")

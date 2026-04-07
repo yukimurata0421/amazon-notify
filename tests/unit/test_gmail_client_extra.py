@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from amazon_notify import config, gmail_client
+from amazon_notify import gmail_client
 from amazon_notify.config import RuntimePaths
 from amazon_notify.domain import AuthStatus
 
@@ -36,21 +36,28 @@ class _DummyCreds:
 
 @pytest.fixture(autouse=True)
 def restore_globals() -> None:
-    original_token_path = config.TOKEN_PATH
-    original_credentials_path = config.CREDENTIALS_PATH
     original_import_error = gmail_client.GOOGLE_IMPORT_ERROR
     yield
-    config.TOKEN_PATH = original_token_path
-    config.CREDENTIALS_PATH = original_credentials_path
     gmail_client.GOOGLE_IMPORT_ERROR = original_import_error
 
 
+def _paths_for(tmp_path: Path) -> RuntimePaths:
+    runtime_dir = tmp_path / "runtime"
+    runtime_dir.mkdir(parents=True, exist_ok=True)
+    return RuntimePaths(
+        runtime_dir=runtime_dir,
+        config=runtime_dir / "config.json",
+        credentials=runtime_dir / "credentials.json",
+        token=runtime_dir / "token.json",
+        default_log=runtime_dir / "logs" / "amazon_mail_notifier.log",
+    )
+
+
 def test_run_oauth_flow_uses_local_server_and_saves_token(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
-    credentials_path = tmp_path / "credentials.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
+    credentials_path = paths.credentials
     credentials_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
-    monkeypatch.setattr(config, "CREDENTIALS_PATH", credentials_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(json_text='{"token":"x"}')
@@ -69,17 +76,16 @@ def test_run_oauth_flow_uses_local_server_and_saves_token(monkeypatch, tmp_path:
 
     monkeypatch.setattr(gmail_client, "InstalledAppFlow", FlowFactory)
 
-    returned = gmail_client.run_oauth_flow()
+    returned = gmail_client.run_oauth_flow(paths=paths)
     assert returned is creds
     assert token_path.read_text(encoding="utf-8") == '{"token":"x"}'
 
 
 def test_run_oauth_flow_falls_back_to_console(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
-    credentials_path = tmp_path / "credentials.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
+    credentials_path = paths.credentials
     credentials_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
-    monkeypatch.setattr(config, "CREDENTIALS_PATH", credentials_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(json_text='{"token":"console"}')
@@ -101,12 +107,14 @@ def test_run_oauth_flow_falls_back_to_console(monkeypatch, tmp_path: Path) -> No
         ),
     )
 
-    returned = gmail_client.run_oauth_flow()
+    returned = gmail_client.run_oauth_flow(paths=paths)
     assert returned is creds
     assert token_path.read_text(encoding="utf-8") == '{"token":"console"}'
 
 
-def test_run_oauth_flow_returns_none_when_console_also_fails(monkeypatch) -> None:
+def test_run_oauth_flow_returns_none_when_console_also_fails(monkeypatch, tmp_path: Path) -> None:
+    paths = _paths_for(tmp_path)
+    paths.credentials.write_text("{}", encoding="utf-8")
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     class Flow:
@@ -126,7 +134,7 @@ def test_run_oauth_flow_returns_none_when_console_also_fails(monkeypatch) -> Non
         ),
     )
 
-    assert gmail_client.run_oauth_flow() is None
+    assert gmail_client.run_oauth_flow(paths=paths) is None
 
 
 def test_notify_token_recovery_skips_when_state_not_active(monkeypatch, tmp_path: Path) -> None:
@@ -299,9 +307,9 @@ def test_refresh_with_retry_uses_dependency_guard_when_request_factory_missing(m
 
 
 def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(valid=False, expired=True, refresh_token="r", json_text='{"new":"token"}')
@@ -316,16 +324,16 @@ def test_get_gmail_service_refresh_success_writes_token(monkeypatch, tmp_path: P
 
     monkeypatch.setattr(gmail_client, "build", fake_build)
 
-    service = gmail_client.get_gmail_service()
+    service = gmail_client.get_gmail_service(paths=paths)
     assert service is service_obj
     assert token_path.read_text(encoding="utf-8") == '{"new":"token"}'
     assert captured_kwargs["cache_discovery"] is False
 
 
 def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(valid=False, expired=True, refresh_token="r")
@@ -342,6 +350,7 @@ def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
+        paths=paths,
         transient_alert_min_duration_seconds=0.0,
         transient_alert_cooldown_seconds=0.0,
     )
@@ -352,9 +361,9 @@ def test_get_gmail_service_refresh_transient_error_marks_issue(monkeypatch, tmp_
 
 
 def test_get_gmail_service_refresh_fatal_with_interactive_recovers(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
 
     creds = _DummyCreds(valid=False, expired=True, refresh_token="r")
@@ -369,15 +378,16 @@ def test_get_gmail_service_refresh_fatal_with_interactive_recovers(monkeypatch, 
     service = gmail_client.get_gmail_service(
         webhook_url="https://discord.invalid/webhook",
         allow_oauth_interactive=True,
+        paths=paths,
     )
     assert service is not None
     assert alerts
 
 
 def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
     monkeypatch.setattr(
         gmail_client.Credentials,
@@ -395,15 +405,16 @@ def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(monke
         state=state,
         state_file=state_file,
         allow_oauth_interactive=False,
+        paths=paths,
     )
     assert service is None
     assert alerts
 
 
 def test_get_gmail_service_build_error_paths(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
     monkeypatch.setattr(
         gmail_client.Credentials,
@@ -419,20 +430,21 @@ def test_get_gmail_service_build_error_paths(monkeypatch, tmp_path: Path) -> Non
         webhook_url="https://discord.invalid/webhook",
         state=state,
         state_file=state_file,
+        paths=paths,
     )
     assert transient is None
     saved = json.loads(state_file.read_text(encoding="utf-8"))
     assert saved["transient_network_issue_active"] is True
 
     monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("fatal")))
-    fatal = gmail_client.get_gmail_service()
+    fatal = gmail_client.get_gmail_service(paths=paths)
     assert fatal is None
 
 
 def test_get_gmail_service_exposes_auth_status(monkeypatch, tmp_path: Path) -> None:
-    token_path = tmp_path / "token.json"
+    paths = _paths_for(tmp_path)
+    token_path = paths.token
     token_path.write_text("{}", encoding="utf-8")
-    monkeypatch.setattr(config, "TOKEN_PATH", token_path)
     monkeypatch.setattr(gmail_client, "ensure_google_dependencies", lambda: None)
     monkeypatch.setattr(
         gmail_client.Credentials,
@@ -441,7 +453,7 @@ def test_get_gmail_service_exposes_auth_status(monkeypatch, tmp_path: Path) -> N
     )
     monkeypatch.setattr(gmail_client, "build", lambda *_args, **_kwargs: object())
 
-    service, status = gmail_client.get_gmail_service_with_status()
+    service, status = gmail_client.get_gmail_service_with_status(paths=paths)
     assert service is not None
     assert status == AuthStatus.READY
 
