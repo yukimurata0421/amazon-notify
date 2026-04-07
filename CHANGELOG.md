@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Added tag-based Release workflow (`.github/workflows/release.yml`) that:
+  - requires a successful CI run for the tagged commit
+  - builds distributable artifacts (`dist/amazon-notify.zip`, wheel, sdist)
+  - creates a GitHub Release with body extracted from the matching `CHANGELOG.md` section.
+- Added tag-based GHCR publish workflow (`.github/workflows/ghcr.yml`) that:
+  - requires a successful CI run for the tagged commit
+  - builds and publishes Docker images to `ghcr.io/<owner>/amazon-notify`.
+
+### Changed
+- Expanded Docker docs (JA/EN) with GHCR usage examples for tagged images.
+- Expanded operations docs (JA/EN) with explicit manual update and rollback procedures, keeping production deploy out of CI/CD scope.
+
 ## [0.4.0] - 2026-04-07
 
 Summary:

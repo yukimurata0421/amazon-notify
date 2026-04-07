@@ -30,6 +30,14 @@ This container target is intentionally small and limited.
 docker build -t amazon-notify:slim .
 ```
 
+## Use GHCR image
+On tagged releases, the same Dockerfile is published to GHCR.
+
+```bash
+docker pull ghcr.io/yukimurata0421/amazon-notify:v0.4.0
+docker run --rm ghcr.io/yukimurata0421/amazon-notify:v0.4.0 --help
+```
+
 ## Try Commands
 ### 1) Help
 ```bash

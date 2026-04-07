@@ -154,6 +154,35 @@ make release-check
 - `docker build -t amazon-notify:0.4.0 .`
 - `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`
 
+## 手動更新とロールバック（自動 deploy はしない）
+このリポジトリでは本番 host への自動デプロイは行いません。更新と切り戻しは手動で行います。
+
+更新:
+1. 新しいタグを checkout する（例: `v0.4.0`）。
+2. 依存を更新する（`pip install .`）。
+3. サービスを再起動して状態を確認する。
+
+```bash
+git fetch --tags
+git checkout v0.4.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+sudo systemctl status amazon-notify-pubsub.service
+```
+
+ロールバック:
+1. 直前の安定タグへ戻す。
+2. 同様に `pip install .` を実行する。
+3. サービス再起動後、`events.jsonl` / `runs.jsonl` / ログを確認する。
+
+```bash
+git checkout v0.3.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+```
+
 ## JSONL メンテナンス（長期運用向け）
 
 - index snapshot の再構築:

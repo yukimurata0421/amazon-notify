@@ -30,6 +30,14 @@
 docker build -t amazon-notify:slim .
 ```
 
+## GHCR イメージを使う
+タグ付きリリース時に GHCR へ同じ Dockerfile からイメージを配布します。
+
+```bash
+docker pull ghcr.io/yukimurata0421/amazon-notify:v0.4.0
+docker run --rm ghcr.io/yukimurata0421/amazon-notify:v0.4.0 --help
+```
+
 ## 試すコマンド
 ### 1) help
 ```bash

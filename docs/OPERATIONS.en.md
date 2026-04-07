@@ -149,3 +149,32 @@ What it executes:
 - `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
 - `docker build -t amazon-notify:0.4.0 .`
 - `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`
+
+## Manual update and rollback (no auto deploy)
+This repository intentionally does not auto-deploy to production hosts. Updates and rollback are manual.
+
+Update:
+1. Checkout the target tag (example: `v0.4.0`).
+2. Reinstall package dependencies (`pip install .`).
+3. Restart services and verify status.
+
+```bash
+git fetch --tags
+git checkout v0.4.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+sudo systemctl status amazon-notify-pubsub.service
+```
+
+Rollback:
+1. Checkout the previous stable tag.
+2. Run `pip install .` again.
+3. Restart services, then verify `events.jsonl`, `runs.jsonl`, and logs.
+
+```bash
+git checkout v0.3.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+```
