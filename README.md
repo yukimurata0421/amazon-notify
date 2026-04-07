@@ -110,6 +110,28 @@ amazon-notify --once --fallback-watchdog
 amazon-notify --rebuild-indexes
 ```
 
+## Runtime Artifacts
+
+Source of truth:
+- `events.jsonl`: authoritative checkpoint history (`checkpoint_advanced` events). Check this first when confirming frontier state.
+
+Derived / compatibility:
+- `state.json`: compatibility snapshot of the latest checkpoint boundary.
+- `runs.jsonl`: per-run summary log for failure kind, counters, and before/after checkpoint.
+
+Rebuildable cache:
+- `events.jsonl.checkpoint.index.json`: cached pointer for fast checkpoint reads.
+- `runs.jsonl.summary.index.json`: cached pointer for fast latest-run summary reads.
+- If these index files are stale/corrupted, rebuild with `amazon-notify --rebuild-indexes`.
+
+Coordination / lock:
+- `.state.json.lock`: lock file used during state updates.
+- `.discord_dedupe_state.json`: Discord notification dedupe coordination state.
+- `.discord_dedupe_state.lock`: lock file for Discord dedupe coordination.
+
+Logs:
+- `logs/`: runtime logs (default file: `logs/amazon_mail_notifier.log`).
+
 ## Try With Minimal Docker
 
 ```bash

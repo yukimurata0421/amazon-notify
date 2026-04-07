@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import uuid
 from dataclasses import dataclass
+from pathlib import Path
 from re import Pattern
 
 from .checkpoint_store import JsonlCheckpointStore
@@ -65,6 +66,7 @@ class RegexClassifier:
 @dataclass
 class DiscordNotifier:
     webhook_url: str
+    dedupe_state_path: Path
     dry_run: bool
     max_attempts: int
     base_delay_seconds: float
@@ -86,6 +88,7 @@ class DiscordNotifier:
             from_addr=candidate.from_addr,
             snippet=candidate.envelope.snippet,
             url=candidate.url,
+            dedupe_state_path=self.dedupe_state_path,
             max_attempts=self.max_attempts,
             base_delay_seconds=self.base_delay_seconds,
             max_delay_seconds=self.max_delay_seconds,
@@ -96,6 +99,7 @@ def _handle_incident_lifecycle(
     *,
     checkpoint_store: JsonlCheckpointStore,
     discord_webhook_url: str,
+    dedupe_state_path: Path,
     dry_run: bool,
     result: RunResult,
     incident_memory_suppressed_until: dict[str, float],
@@ -138,7 +142,11 @@ def _handle_incident_lifecycle(
         message = result.failure_message or failure_kind or "unknown failure"
         if result.failure_message_id:
             message = f"{message}\nmessage_id: {result.failure_message_id}"
-        sent = send_discord_alert(discord_webhook_url, message)
+        sent = send_discord_alert(
+            discord_webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        )
         if sent:
             try:
                 checkpoint_store.open_incident(
@@ -168,7 +176,11 @@ def _handle_incident_lifecycle(
             f"kind: {active_kind}\n"
             f"suppressed_count: {active_incident['suppressed_count']}"
         )
-        sent = send_discord_recovery(discord_webhook_url, recovery_msg)
+        sent = send_discord_recovery(
+            discord_webhook_url,
+            recovery_msg,
+            dedupe_state_path=dedupe_state_path,
+        )
         if sent:
             try:
                 checkpoint_store.recover_incident(run_id=result.run_id)
@@ -227,6 +239,7 @@ def _build_pipeline(
     )
     notifier = DiscordNotifier(
         webhook_url=runtime.discord_webhook_url,
+        dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=runtime.dry_run,
         max_attempts=runtime.discord_max_retries,
         base_delay_seconds=runtime.discord_base_delay_seconds,
@@ -265,6 +278,7 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
     _handle_incident_lifecycle(
         checkpoint_store=checkpoint_store,
         discord_webhook_url=discord_webhook_url,
+        dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=dry_run,
         result=result,
         incident_memory_suppressed_until=incident_memory_suppressed_until,
@@ -343,6 +357,7 @@ def report_unhandled_exception(runtime: RuntimeConfig, exc: Exception) -> RunRes
     _handle_incident_lifecycle(
         checkpoint_store=checkpoint_store,
         discord_webhook_url=runtime.discord_webhook_url,
+        dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=runtime.dry_run,
         result=result,
         incident_memory_suppressed_until=_incident_memory_map(runtime),

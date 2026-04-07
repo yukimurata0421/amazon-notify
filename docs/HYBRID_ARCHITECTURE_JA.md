@@ -78,6 +78,11 @@ StreamingPull で問題になるのは「プロセスは生きているが実質
 本プロジェクトは ordered frontier と checkpoint commit を前提にしているため、
 重複処理が発生しても境界整合性を保ちやすい設計です。
 
+補足:
+- Pub/Sub は durable workflow queue としては扱わず、trigger 経路として扱います。
+- StreamingPull 側の latest event aggregation は「取りこぼし許容」ではなく、Gmail 側 catch-up を前提にローカル backlog を簡略化するための設計です。
+- frontier consistency の判定は引き続き Gmail 側状態 + `events.jsonl` で行います。
+
 - 成功時のみ frontier を前進
 - 途中失敗時は checkpoint を進めない
 - サブ系が回収しても frontier 整合性を崩しにくい

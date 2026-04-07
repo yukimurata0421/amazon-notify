@@ -30,6 +30,12 @@ English version: [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.
 
 ## 2. 採用した主な判断
 
+### 2.0 今回の更新（概要）
+- Discord dedupe state の path 解決を runtime 注入へ統一（`--config` 基準で一貫）。
+- Gmail 実装を責務単位で分割（`gmail_auth.py` / `gmail_transient_state.py`）。
+- README/運用文書で runtime artifacts の役割を分類して明示。
+- StreamingPull 実装に、history 集約・duplicate skip・heartbeat atomic write の意図コメントを追加。
+
 ## 2.1 ハイブリッド構成（Pub/Sub メイン + Polling サブ）
 
 ### 採用

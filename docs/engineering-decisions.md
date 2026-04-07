@@ -55,6 +55,12 @@
 - `events.jsonl` が空で `state.json.last_message_id` がある初回のみ bootstrap
 - bootstrap 時に `checkpoint_advanced` を 1 回書いて移行完了
 
+### runtime artifact の役割境界
+- `events.jsonl`: checkpoint 正本（判断の一次情報）
+- `state.json` / `runs.jsonl`: 正本から派生する互換・監査情報
+- `*.index.json`: 再生成可能 cache（正本ではない）
+- `.discord_dedupe_state.json` + lock: 通知重複抑止の coordination state
+
 ## 4. Ordered Frontier（途中失敗で停止）を採用した理由
 
 ### 採用ポリシー

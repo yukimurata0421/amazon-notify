@@ -46,6 +46,20 @@
 - `amazon-notify --health-check` は `dedupe_lock_supported` を返します。
 - `dedupe_lock_supported=false` の場合、現在の実行環境では `fcntl` ベース lock が使えず、Discord dedupe lock 経路は非対応です。
 
+## runtime artifacts の確認順
+- frontier の正本確認: `events.jsonl`
+  - `checkpoint_advanced` が期待どおり進んでいるかを確認します。
+- 実行結果の確認: `runs.jsonl`
+  - 直近 run の `failure_kind`、`checkpoint_before`、`checkpoint_after` を確認します。
+- 互換スナップショットの確認: `state.json`
+  - `events.jsonl` と矛盾がないか、互換境界として確認します。
+- index cache の疑い:
+  - `events.jsonl.checkpoint.index.json` / `runs.jsonl.summary.index.json` が古い・壊れている疑いがある場合は `amazon-notify --rebuild-indexes` を実行します。
+- Discord 重複抑止の確認:
+  - `.discord_dedupe_state.json` と `.discord_dedupe_state.lock` の更新有無を確認します。
+- lock 競合の確認:
+  - `.state.json.lock` と `.discord_dedupe_state.lock` の残存状態を確認します。
+
 ## v0.3.0 移行仕様
 - checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
 - `state.json` は互換スナップショット（派生物）として更新されます。

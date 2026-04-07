@@ -37,6 +37,20 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 - `amazon-notify --health-check` includes `dedupe_lock_supported`.
 - If `dedupe_lock_supported=false`, file-lock-based Discord dedupe is unavailable on the current platform.
 
+## Runtime Artifact Triage Order
+- Check frontier source of truth first: `events.jsonl`
+  - confirm `checkpoint_advanced` progression is as expected.
+- Check per-run status next: `runs.jsonl`
+  - inspect latest `failure_kind`, `checkpoint_before`, and `checkpoint_after`.
+- Check compatibility snapshot: `state.json`
+  - use it as a derived compatibility view, not the checkpoint authority.
+- Suspect stale/corrupted index cache when reads look inconsistent:
+  - rebuild `events.jsonl.checkpoint.index.json` / `runs.jsonl.summary.index.json` with `amazon-notify --rebuild-indexes`.
+- Check Discord dedupe coordination state:
+  - inspect `.discord_dedupe_state.json` and `.discord_dedupe_state.lock`.
+- Check lock/coordination contention:
+  - inspect `.state.json.lock` and `.discord_dedupe_state.lock`.
+
 ## Failure Handling Summary
 - `delivery_failed`: Discord send failed; checkpoint is not advanced.
 - `message_detail_failed`: message detail fetch failed; ordered frontier stops at failure point.

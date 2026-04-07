@@ -354,11 +354,18 @@ def main() -> None:
             config["discord_webhook_url"],
         )
 
+    runtime = build_runtime_impl(
+        config,
+        paths=paths,
+        dry_run=args.dry_run,
+    )
+
     if args.test_discord:
         webhook_url = config["discord_webhook_url"]
         sent = send_discord_test(
             webhook_url,
             "Amazon Notify の test-discord コマンドから送信しました。",
+            dedupe_state_path=runtime.discord_dedupe_state_file,
         )
         if not sent:
             app_config.LOGGER.error("TEST_DISCORD_FAILED")
@@ -372,11 +379,6 @@ def main() -> None:
         handle_setup_watch(args, config, paths=paths)
         return
 
-    runtime = build_runtime_impl(
-        config,
-        paths=paths,
-        dry_run=args.dry_run,
-    )
     if handle_rebuild_indexes(args, runtime):
         return
     heartbeat_file, heartbeat_interval_seconds, heartbeat_max_age_seconds, main_service_name = (

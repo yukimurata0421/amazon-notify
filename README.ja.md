@@ -109,6 +109,28 @@ amazon-notify --once --fallback-watchdog
 amazon-notify --rebuild-indexes
 ```
 
+## Runtime Artifacts
+
+正本:
+- `events.jsonl`: checkpoint の正本履歴（`checkpoint_advanced`）。frontier を確認するときは最初にここを見ます。
+
+派生 / 互換:
+- `state.json`: 最新 checkpoint 境界の互換スナップショット。
+- `runs.jsonl`: 実行ごとの要約ログ（failure kind、件数、checkpoint before/after）。
+
+再生成可能 cache:
+- `events.jsonl.checkpoint.index.json`: checkpoint 参照高速化用のキャッシュ。
+- `runs.jsonl.summary.index.json`: 最新 run 要約参照高速化用のキャッシュ。
+- stale / 破損が疑われる場合は `amazon-notify --rebuild-indexes` で再生成できます。
+
+coordination / lock:
+- `.state.json.lock`: state 更新時に使う lock ファイル。
+- `.discord_dedupe_state.json`: Discord 通知の重複抑止用 coordination state。
+- `.discord_dedupe_state.lock`: Discord dedupe 用 lock ファイル。
+
+ログ:
+- `logs/`: 実行ログ（既定: `logs/amazon_mail_notifier.log`）。
+
 ## 軽量 Docker で試す
 
 ```bash

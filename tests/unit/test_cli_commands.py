@@ -118,7 +118,7 @@ def test_main_test_discord_sends_and_exits(monkeypatch, tmp_path: Path, capsys) 
     )
 
     calls: list[tuple[str, str]] = []
-    monkeypatch.setattr(cli, "send_discord_test", lambda webhook, message: calls.append((webhook, message)) or True)
+    monkeypatch.setattr(cli, "send_discord_test", lambda webhook, message, **_kwargs: calls.append((webhook, message)) or True)
     monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(sys, "argv", ["amazon-notify", "--config", str(config_path), "--test-discord"])
 

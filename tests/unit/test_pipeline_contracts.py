@@ -230,8 +230,8 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
 
     alerts: list[str] = []
     recoveries: list[str] = []
-    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m: alerts.append(m) or True)
-    monkeypatch.setattr(notifier, "send_discord_recovery", lambda _w, m: recoveries.append(m) or True)
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m, **_kwargs: alerts.append(m) or True)
+    monkeypatch.setattr(notifier, "send_discord_recovery", lambda _w, m, **_kwargs: recoveries.append(m) or True)
 
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: False)
     notifier.run_once(runtime)
@@ -282,7 +282,7 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
     )
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: True)
     alerts: list[str] = []
-    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m: alerts.append(m) or True)
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m, **_kwargs: alerts.append(m) or True)
     monkeypatch.setattr(
         notifier.JsonlCheckpointStore,
         "append_run_result",
@@ -365,7 +365,7 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
     )
     monkeypatch.setattr(notifier, "send_discord_notification", lambda **_kwargs: False)
     alerts: list[str] = []
-    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m: alerts.append(m) or True)
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda _w, m, **_kwargs: alerts.append(m) or True)
     monkeypatch.setattr(
         notifier.JsonlCheckpointStore,
         "open_incident",

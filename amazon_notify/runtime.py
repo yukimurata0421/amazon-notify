@@ -13,6 +13,7 @@ from .config import RuntimePaths
 DEFAULT_LOG_FILE_RELATIVE = "logs/amazon_mail_notifier.log"
 DEFAULT_EVENTS_FILE_RELATIVE = "events.jsonl"
 DEFAULT_RUNS_FILE_RELATIVE = "runs.jsonl"
+DEFAULT_DISCORD_DEDUPE_STATE_FILE_RELATIVE = ".discord_dedupe_state.json"
 DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE = "runtime/pubsub-heartbeat.txt"
 MIN_POLL_INTERVAL_SECONDS = 10
 
@@ -24,6 +25,7 @@ class RuntimeConfig:
     state_file: Path
     events_file: Path
     runs_file: Path
+    discord_dedupe_state_file: Path
     max_messages: int
     dry_run: bool
     gmail_api_max_retries: int
@@ -71,6 +73,10 @@ class RuntimeConfig:
             ),
             runs_file=app_config.resolve_runtime_path(
                 config.get("runs_file", DEFAULT_RUNS_FILE_RELATIVE),
+                base_dir=base_dir,
+            ),
+            discord_dedupe_state_file=app_config.resolve_runtime_path(
+                DEFAULT_DISCORD_DEDUPE_STATE_FILE_RELATIVE,
                 base_dir=base_dir,
             ),
             max_messages=int(config.get("max_messages", 50)),

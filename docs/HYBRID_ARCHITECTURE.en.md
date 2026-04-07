@@ -49,6 +49,11 @@ Suggested defaults:
 This project uses ordered frontier processing and checkpoint commit semantics.
 Even if fallback runs during partial overlap, boundary consistency is designed to remain stable:
 
+Additional context:
+- Pub/Sub is treated as a trigger path, not as a durable workflow queue.
+- Latest-event aggregation in StreamingPull is a local backlog simplification under the Gmail catch-up model, not a durability guarantee by itself.
+- Frontier consistency remains anchored by Gmail state and `events.jsonl`.
+
 - advance frontier only on success
 - do not advance checkpoint on midstream failure
 - fallback can recover without creating checkpoint holes

@@ -14,6 +14,39 @@ FAILOVER_ACTIVE_KEY = "pubsub_failover_active"
 FAILOVER_REASON_KEY = "pubsub_failover_reason"
 FAILOVER_AT_KEY = "pubsub_failover_at"
 FAILOVER_SUPPRESSED_KEY = "pubsub_failover_suppressed_count"
+_DISCORD_DEDUPE_STATE_FILENAME = ".discord_dedupe_state.json"
+
+
+def _send_discord_alert_with_dedupe(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path,
+) -> bool:
+    try:
+        return send_discord_alert(
+            webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        )
+    except TypeError:
+        return send_discord_alert(webhook_url, message)
+
+
+def _send_discord_recovery_with_dedupe(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path,
+) -> bool:
+    try:
+        return send_discord_recovery(
+            webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        )
+    except TypeError:
+        return send_discord_recovery(webhook_url, message)
 
 
 @dataclass(frozen=True)
@@ -164,6 +197,7 @@ def evaluate_failover_watchdog(
     heartbeat_max_age_seconds: float,
     dry_run: bool = False,
 ) -> bool:
+    dedupe_state_path = state_file.parent / _DISCORD_DEDUPE_STATE_FILENAME
     health = evaluate_main_health(
         service_name=service_name,
         heartbeat_file=heartbeat_file,
@@ -178,10 +212,11 @@ def evaluate_failover_watchdog(
             if dry_run:
                 return False
             if discord_webhook_url:
-                sent = send_discord_recovery(
+                sent = _send_discord_recovery_with_dedupe(
                     discord_webhook_url,
                     "Pub/Sub メイン系のヘルスが回復したため、フェールオーバー待機状態を解除しました。\n"
                     f"detail: {health.reason}",
+                    dedupe_state_path=dedupe_state_path,
                 )
                 if not sent:
                     LOGGER.warning("FALLBACK_RECOVERY_ALERT_FAILED")
@@ -196,10 +231,11 @@ def evaluate_failover_watchdog(
     LOGGER.warning("FALLBACK_WATCHDOG_FAILOVER: %s", health.reason)
     if not failover_active:
         if not dry_run and discord_webhook_url:
-            sent = send_discord_alert(
+            sent = _send_discord_alert_with_dedupe(
                 discord_webhook_url,
                 "⚠️ Pub/Sub が停止または異常のため、ポーリングへフェールオーバーします。\n"
                 f"detail: {health.reason}",
+                dedupe_state_path=dedupe_state_path,
             )
             if not sent:
                 LOGGER.warning("FALLBACK_FAILOVER_ALERT_FAILED")

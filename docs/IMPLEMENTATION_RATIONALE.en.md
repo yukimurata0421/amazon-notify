@@ -24,6 +24,12 @@ For stable architecture-level decisions, see `docs/engineering-decisions.en.md`.
 
 ## 2. Adopted decisions
 
+### 2.0 Current update scope
+- Unified Discord dedupe-state path handling via runtime path injection (`--config`-anchored resolution).
+- Split Gmail runtime logic by responsibility (`gmail_auth.py` and `gmail_transient_state.py`) while keeping `gmail_client.py` as compatibility facade.
+- Added explicit runtime-artifact role documentation in README/operations docs (source-of-truth vs derived vs rebuildable cache vs coordination/lock).
+- Added domain-intent comments in StreamingPull for history aggregation, duplicate skip behavior, and heartbeat atomic-write rationale.
+
 ### 2.1 Hybrid topology (Pub/Sub main + polling fallback)
 - main: StreamingPull service for low latency
 - fallback: timer-based polling for recovery

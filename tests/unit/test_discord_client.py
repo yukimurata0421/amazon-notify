@@ -18,13 +18,9 @@ class _DummyResponse:
             raise RuntimeError("http error")
 
 
-@pytest.fixture(autouse=True)
-def _isolate_dedupe_state(tmp_path: Path, monkeypatch) -> None:
-    monkeypatch.setattr(
-        discord_client,
-        "_discord_dedupe_state_path",
-        lambda: tmp_path / ".discord_dedupe_state.json",
-    )
+@pytest.fixture
+def dedupe_state_path(tmp_path: Path) -> Path:
+    return tmp_path / ".discord_dedupe_state.json"
 
 
 def test_post_webhook_success(monkeypatch) -> None:
@@ -99,7 +95,7 @@ def test_send_discord_functions_return_false_when_webhook_missing() -> None:
     assert not discord_client.send_discord_test("", "test")
 
 
-def test_send_discord_alert_formats_message(monkeypatch) -> None:
+def test_send_discord_alert_formats_message(monkeypatch, dedupe_state_path: Path) -> None:
     payloads: list[str] = []
     monkeypatch.setattr(
         discord_client,
@@ -107,12 +103,16 @@ def test_send_discord_alert_formats_message(monkeypatch) -> None:
         lambda webhook_url, content, **_kwargs: payloads.append(content) or True,
     )
 
-    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    assert discord_client.send_discord_alert(
+        "https://discord.invalid/webhook",
+        "warn",
+        dedupe_state_path=dedupe_state_path,
+    )
     assert payloads
     assert "Gmail監視システム警告" in payloads[0]
 
 
-def test_send_discord_notification_success_and_failure(monkeypatch) -> None:
+def test_send_discord_notification_success_and_failure(monkeypatch, dedupe_state_path: Path) -> None:
     now = {"value": 1000.0}
     monkeypatch.setattr(discord_client.time, "time", lambda: now["value"])
 
@@ -123,6 +123,7 @@ def test_send_discord_notification_success_and_failure(monkeypatch) -> None:
         from_addr="from@example.com",
         snippet="snippet",
         url="https://mail.google.com/1",
+        dedupe_state_path=dedupe_state_path,
     )
 
     now["value"] = 1000.0 + discord_client._DEDUPE_WINDOW_SECONDS["notification"] + 1.0
@@ -133,10 +134,11 @@ def test_send_discord_notification_success_and_failure(monkeypatch) -> None:
         from_addr="from@example.com",
         snippet="snippet",
         url="https://mail.google.com/1",
+        dedupe_state_path=dedupe_state_path,
     )
 
 
-def test_send_discord_alert_suppresses_duplicate_within_window(monkeypatch) -> None:
+def test_send_discord_alert_suppresses_duplicate_within_window(monkeypatch, dedupe_state_path: Path) -> None:
     posted: list[str] = []
 
     def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
@@ -147,13 +149,21 @@ def test_send_discord_alert_suppresses_duplicate_within_window(monkeypatch) -> N
     monkeypatch.setattr(discord_client, "_post_webhook", fake_post)
     monkeypatch.setattr(discord_client.time, "time", lambda: now["value"])
 
-    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    assert discord_client.send_discord_alert(
+        "https://discord.invalid/webhook",
+        "warn",
+        dedupe_state_path=dedupe_state_path,
+    )
     now["value"] = 1005.0
-    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    assert discord_client.send_discord_alert(
+        "https://discord.invalid/webhook",
+        "warn",
+        dedupe_state_path=dedupe_state_path,
+    )
     assert len(posted) == 1
 
 
-def test_send_discord_notification_allows_different_message_ids(monkeypatch) -> None:
+def test_send_discord_notification_allows_different_message_ids(monkeypatch, dedupe_state_path: Path) -> None:
     posted: list[str] = []
 
     def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
@@ -170,6 +180,7 @@ def test_send_discord_notification_allows_different_message_ids(monkeypatch) -> 
         from_addr="from@example.com",
         snippet="snippet",
         url="https://mail.google.com/mail/u/0/#inbox/msg-1",
+        dedupe_state_path=dedupe_state_path,
     )
     now["value"] = 2001.0
     assert discord_client.send_discord_notification(
@@ -178,6 +189,7 @@ def test_send_discord_notification_allows_different_message_ids(monkeypatch) -> 
         from_addr="from@example.com",
         snippet="snippet",
         url="https://mail.google.com/mail/u/0/#inbox/msg-1",
+        dedupe_state_path=dedupe_state_path,
     )
     now["value"] = 2002.0
     assert discord_client.send_discord_notification(
@@ -186,12 +198,13 @@ def test_send_discord_notification_allows_different_message_ids(monkeypatch) -> 
         from_addr="from@example.com",
         snippet="snippet",
         url="https://mail.google.com/mail/u/0/#inbox/msg-2",
+        dedupe_state_path=dedupe_state_path,
     )
     assert len(posted) == 2
 
 
-def test_send_discord_alert_suppresses_when_inflight_claim_exists(monkeypatch) -> None:
-    state_path = discord_client._discord_dedupe_state_path()
+def test_send_discord_alert_suppresses_when_inflight_claim_exists(monkeypatch, dedupe_state_path: Path) -> None:
+    state_path = dedupe_state_path
     dedupe_key = discord_client._build_dedupe_key(
         "alert",
         "⚠️ **Gmail監視システム警告**\nwarn",
@@ -220,7 +233,11 @@ def test_send_discord_alert_suppresses_when_inflight_claim_exists(monkeypatch) -
     monkeypatch.setattr(discord_client, "_post_webhook", fake_post)
     monkeypatch.setattr(discord_client.time, "time", lambda: 1400.0)
 
-    assert discord_client.send_discord_alert("https://discord.invalid/webhook", "warn")
+    assert discord_client.send_discord_alert(
+        "https://discord.invalid/webhook",
+        "warn",
+        dedupe_state_path=dedupe_state_path,
+    )
     assert posted == []
 
 
@@ -242,7 +259,7 @@ def test_post_webhook_returns_false_on_non_retryable_status(monkeypatch) -> None
     assert not discord_client._post_webhook("https://discord.invalid/webhook", "hello")
 
 
-def test_send_discord_recovery_and_test_format(monkeypatch) -> None:
+def test_send_discord_recovery_and_test_format(monkeypatch, dedupe_state_path: Path) -> None:
     payloads: list[str] = []
     monkeypatch.setattr(
         discord_client,
@@ -250,8 +267,16 @@ def test_send_discord_recovery_and_test_format(monkeypatch) -> None:
         lambda _webhook_url, content, **_kwargs: payloads.append(content) or True,
     )
 
-    assert discord_client.send_discord_recovery("https://discord.invalid/webhook", "recovered")
-    assert discord_client.send_discord_test("https://discord.invalid/webhook", "test")
+    assert discord_client.send_discord_recovery(
+        "https://discord.invalid/webhook",
+        "recovered",
+        dedupe_state_path=dedupe_state_path,
+    )
+    assert discord_client.send_discord_test(
+        "https://discord.invalid/webhook",
+        "test",
+        dedupe_state_path=dedupe_state_path,
+    )
     assert payloads[0].startswith("✅ **Gmail監視システム復旧**")
     assert payloads[1].startswith("🧪 **Amazon Notify テスト通知**")
 
@@ -298,14 +323,11 @@ def test_read_and_prune_dedupe_entries_variants(tmp_path: Path) -> None:
 
 def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Path) -> None:
     original_lock = discord_client._discord_dedupe_lock
-    monkeypatch.setattr(
-        discord_client,
-        "_discord_dedupe_state_path",
-        lambda: tmp_path / ".discord_dedupe_state.json",
-    )
+    state_file = tmp_path / ".discord_dedupe_state.json"
     assert discord_client._reserve_dedupe_claim(
         notification_kind="alert",
         content="x",
+        dedupe_state_path=state_file,
         dedupe_window_seconds=0,
     ) == (True, None, None, None)
 
@@ -320,13 +342,13 @@ def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Pat
     allowed, state_path, dedupe_key, owner = discord_client._reserve_dedupe_claim(
         notification_kind="alert",
         content="x",
+        dedupe_state_path=state_file,
         dedupe_window_seconds=60.0,
     )
     assert allowed and state_path is None and dedupe_key is None and owner is None
 
     # finalize no-op paths
     discord_client._finalize_dedupe_claim(state_path=None, dedupe_key=None, owner=None, sent=True)
-    state_file = tmp_path / ".discord_dedupe_state.json"
     state_file.write_text(
         json.dumps({"entries": {"key": {"inflight_owner": "other", "inflight_until": 9999.0}}}),
         encoding="utf-8",

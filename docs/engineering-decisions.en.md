@@ -37,6 +37,12 @@ Write order:
 
 This prevents the dangerous case where only derived state advances.
 
+Runtime artifact boundary:
+- `events.jsonl`: authoritative checkpoint source.
+- `state.json` / `runs.jsonl`: derived compatibility/audit views.
+- `*.index.json`: rebuildable caches, not authoritative state.
+- `.discord_dedupe_state.json` + lock files: notification dedupe coordination state.
+
 ## 4. Why Ordered Frontier (Stop on Midstream Failure)
 Policy:
 - Process oldest-first.

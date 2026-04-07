@@ -107,6 +107,8 @@ def write_heartbeat_snapshot(heartbeat_file: Path, snapshot: HeartbeatSnapshot) 
         "consecutive_trigger_failures": snapshot.consecutive_trigger_failures,
         "last_error": snapshot.last_error,
     }
+    # Heartbeat is a watchdog input, so avoid partial writes that can cause false negatives.
+    # save_state() uses temp-file + replace to keep each snapshot atomic.
     save_state(heartbeat_file, payload)
 
 
@@ -259,6 +261,9 @@ class _StreamingPullRunner:
             elif event.history_id is None or self.pending_event.history_id is None:
                 self.pending_event = event
             elif event.history_id >= self.pending_event.history_id:
+                # Pub/Sub is a trigger path, not the durable processing frontier.
+                # Catch-up correctness is anchored by Gmail state in run_once, so we can
+                # collapse local backlog to the latest history_id trigger.
                 self.pending_event = event
 
             if self.pending_count >= self.pending_warn_threshold and not self.backlog_warned:
@@ -305,6 +310,8 @@ class _StreamingPullRunner:
                         and last_history_id is not None
                         and latest.history_id <= last_history_id
                     ):
+                        # Same-or-older history_id means we already triggered from an
+                        # equivalent or newer frontier, so this trigger can be skipped.
                         LOGGER.info(
                             "PUBSUB_TRIGGER_SKIPPED_DUPLICATE: history_id=%s last_history_id=%s collapsed=%s",
                             latest.history_id,

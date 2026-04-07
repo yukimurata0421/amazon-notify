@@ -1,13 +1,7 @@
 import socket
 import time
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Callable, NoReturn
-
-try:
-    import fcntl
-except ModuleNotFoundError:
-    fcntl = None  # type: ignore[assignment]
 
 try:
     from requests import exceptions as requests_exceptions
@@ -67,8 +61,9 @@ except ModuleNotFoundError as exc:
         """Fallback error type when googleapiclient is unavailable."""
 
 from . import config as app_config
+from . import gmail_auth, gmail_transient_state
 from .backoff import next_delay_seconds
-from .config import LOGGER, RuntimePaths, load_state, save_state
+from .config import LOGGER, RuntimePaths
 from .discord_client import send_discord_alert, send_discord_recovery
 from .domain import AuthStatus
 from .gmail_api import (
@@ -83,12 +78,16 @@ from .gmail_api import (
 from .gmail_api import (
     start_gmail_watch as start_gmail_watch_impl,
 )
-from .time_utils import utc_now_iso
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 600.0
-DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 1800.0
+_DISCORD_DEDUPE_STATE_FILENAME = ".discord_dedupe_state.json"
+DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = (
+    gmail_transient_state.DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS
+)
+DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = (
+    gmail_transient_state.DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS
+)
 
 
 def _collect_exception_types(module: Any, names: tuple[str, ...]) -> tuple[type[BaseException], ...]:
@@ -129,23 +128,42 @@ def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:
     return app_config.get_runtime_paths() if paths is None else paths
 
 
-@contextmanager
-def _state_update_lock(state_file: Path):
-    lock_path = state_file.parent / f".{state_file.name}.lock"
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a+", encoding="utf-8") as lock_handle:
-        if fcntl is not None:
-            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+def _dedupe_state_path_for_state_file(state_file: Path) -> Path:
+    return state_file.parent / _DISCORD_DEDUPE_STATE_FILENAME
 
 
-def _sync_state_from_source(target: dict, source: dict) -> None:
-    target.clear()
-    target.update(source)
+def _send_discord_alert_with_dedupe(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path | None,
+) -> bool:
+    try:
+        return send_discord_alert(
+            webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        )
+    except TypeError:
+        # Test doubles may keep the legacy 2-arg shape.
+        return send_discord_alert(webhook_url, message)
+
+
+def _send_discord_recovery_with_dedupe(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path | None,
+) -> bool:
+    try:
+        return send_discord_recovery(
+            webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        )
+    except TypeError:
+        # Test doubles may keep the legacy 2-arg shape.
+        return send_discord_recovery(webhook_url, message)
 
 
 def ensure_google_dependencies() -> None:
@@ -158,62 +176,15 @@ def ensure_google_dependencies() -> None:
 
 def run_oauth_flow(paths: RuntimePaths | None = None) -> Credentials | None:
     runtime_paths = _resolve_runtime_paths(paths)
-    try:
-        ensure_google_dependencies()
-        flow = InstalledAppFlow.from_client_secrets_file(
-            str(runtime_paths.credentials),
-            SCOPES,
-        )
-    except Exception as exc:
-        LOGGER.error("OAUTH_PREPARE_FAILED: %s", exc)
+    creds = gmail_auth.run_oauth_flow(
+        runtime_paths=runtime_paths,
+        scopes=SCOPES,
+        ensure_google_dependencies_fn=ensure_google_dependencies,
+        flow_factory=InstalledAppFlow,
+    )
+    if creds is None:
         return None
-
-    try:
-        creds = flow.run_local_server(port=0)
-    except Exception as exc:
-        LOGGER.warning("OAUTH_LOCAL_SERVER_FAILED: %s", exc)
-        try:
-            creds = flow.run_console()
-        except Exception as fallback_exc:
-            LOGGER.error("OAUTH_CONSOLE_FAILED: %s", fallback_exc)
-            return None
-
-    with runtime_paths.token.open("w", encoding="utf-8") as token_file:
-        token_file.write(creds.to_json())
-        LOGGER.info("TOKEN_SAVED: %s", runtime_paths.token)
-
-    return creds
-
-
-def _clear_transient_issue_keys(state: dict) -> None:
-    state["transient_network_issue_active"] = False
-    state.pop("last_transient_error", None)
-    state.pop("last_transient_error_at", None)
-    state.pop("transient_network_issue_first_seen_at_epoch", None)
-    state.pop("transient_network_issue_last_seen_at_epoch", None)
-    state.pop("transient_network_issue_occurrences", None)
-    state.pop("transient_network_issue_last_alert_at_epoch", None)
-    state.pop("transient_network_issue_notified", None)
-
-
-def _should_send_transient_alert(
-    state: dict,
-    *,
-    now_epoch: float,
-    min_alert_duration_seconds: float,
-    alert_cooldown_seconds: float,
-) -> bool:
-    first_seen = state.get("transient_network_issue_first_seen_at_epoch")
-    if not isinstance(first_seen, (int, float)):
-        return False
-    if (now_epoch - float(first_seen)) < min_alert_duration_seconds:
-        return False
-
-    last_alert = state.get("transient_network_issue_last_alert_at_epoch")
-    if isinstance(last_alert, (int, float)):
-        if (now_epoch - float(last_alert)) < alert_cooldown_seconds:
-            return False
-    return True
+    return creds  # type: ignore[return-value]
 
 
 def record_transient_issue(
@@ -226,49 +197,21 @@ def record_transient_issue(
     min_alert_duration_seconds: float = DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS,
     alert_cooldown_seconds: float = DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS,
 ) -> bool:
-    if min_alert_duration_seconds < 0:
-        LOGGER.warning(
-            "TRANSIENT_ALERT_MIN_DURATION_CLAMPED: value=%s -> 0",
-            min_alert_duration_seconds,
-        )
-        min_alert_duration_seconds = 0.0
-    if alert_cooldown_seconds < 0:
-        LOGGER.warning(
-            "TRANSIENT_ALERT_COOLDOWN_CLAMPED: value=%s -> 0",
-            alert_cooldown_seconds,
-        )
-        alert_cooldown_seconds = 0.0
-
-    with _state_update_lock(state_file):
-        persisted_state = load_state(state_file)
-        now_epoch = time.time()
-        persisted_state["transient_network_issue_active"] = True
-        persisted_state["last_transient_error"] = str(err)
-        persisted_state["last_transient_error_at"] = utc_now_iso()
-        first_seen = persisted_state.get("transient_network_issue_first_seen_at_epoch")
-        if not isinstance(first_seen, (int, float)):
-            first_seen = now_epoch
-        persisted_state["transient_network_issue_first_seen_at_epoch"] = float(first_seen)
-        persisted_state["transient_network_issue_last_seen_at_epoch"] = float(now_epoch)
-        persisted_state["transient_network_issue_occurrences"] = int(
-            persisted_state.get("transient_network_issue_occurrences", 0)
-        ) + 1
-
-        sent_alert = False
-        if webhook_url and alert_message and _should_send_transient_alert(
-            persisted_state,
-            now_epoch=now_epoch,
-            min_alert_duration_seconds=min_alert_duration_seconds,
-            alert_cooldown_seconds=alert_cooldown_seconds,
-        ):
-            sent_alert = send_discord_alert(webhook_url, alert_message)
-            if sent_alert:
-                persisted_state["transient_network_issue_notified"] = True
-                persisted_state["transient_network_issue_last_alert_at_epoch"] = float(now_epoch)
-
-        save_state(state_file, persisted_state)
-        _sync_state_from_source(state, persisted_state)
-        return sent_alert
+    dedupe_state_path = _dedupe_state_path_for_state_file(state_file)
+    return gmail_transient_state.record_transient_issue(
+        state,
+        state_file,
+        err,
+        webhook_url=webhook_url,
+        alert_message=alert_message,
+        min_alert_duration_seconds=min_alert_duration_seconds,
+        alert_cooldown_seconds=alert_cooldown_seconds,
+        send_discord_alert_fn=lambda webhook_url, message: _send_discord_alert_with_dedupe(
+            webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        ),
+    )
 
 
 def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
@@ -276,66 +219,35 @@ def mark_transient_network_issue(state: dict, state_file: Path, err: Exception |
 
 
 def notify_recovery_if_needed(webhook_url: str, state: dict, state_file: Path) -> None:
-    with _state_update_lock(state_file):
-        persisted_state = load_state(state_file)
-        _sync_state_from_source(state, persisted_state)
-
-        if not persisted_state.get("transient_network_issue_active"):
-            return
-        if not persisted_state.get("transient_network_issue_notified"):
-            _clear_transient_issue_keys(persisted_state)
-            save_state(state_file, persisted_state)
-            _sync_state_from_source(state, persisted_state)
-            return
-
-        message = (
-            "一時的な通信障害から復旧しました。Gmail監視を再開しています。\n"
-            f"前回障害時刻: {persisted_state.get('last_transient_error_at', '(unknown)')}\n"
-            f"前回エラー: {persisted_state.get('last_transient_error', '(unknown)')}"
-        )
-        if not send_discord_recovery(webhook_url, message):
-            LOGGER.warning("TRANSIENT_RECOVERY_NOTIFICATION_SKIPPED")
-            return
-
-        _clear_transient_issue_keys(persisted_state)
-        save_state(state_file, persisted_state)
-        _sync_state_from_source(state, persisted_state)
+    dedupe_state_path = _dedupe_state_path_for_state_file(state_file)
+    gmail_transient_state.notify_recovery_if_needed(
+        webhook_url,
+        state,
+        state_file,
+        send_discord_recovery_fn=lambda _webhook_url, message: _send_discord_recovery_with_dedupe(
+            _webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        ),
+    )
 
 
 def mark_token_issue(state: dict, state_file: Path, reason: str) -> bool:
-    previous_active = bool(state.get("token_issue_active"))
-    previous_reason = state.get("token_issue_reason")
-
-    state["token_issue_active"] = True
-    state["token_issue_reason"] = reason
-    state["token_issue_at"] = utc_now_iso()
-    save_state(state_file, state)
-
-    return (not previous_active) or (previous_reason != reason)
+    return gmail_transient_state.mark_token_issue(state, state_file, reason)
 
 
 def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_file: Path) -> None:
-    if not state.get("token_issue_active"):
-        return
-
-    if not webhook_url:
-        LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED: missing_webhook")
-        return
-
-    message = (
-        "token 問題から復旧しました。監視を再開しています。\n"
-        f"前回障害時刻: {state.get('token_issue_at', '(unknown)')}\n"
-        f"前回理由: {state.get('token_issue_reason', '(unknown)')}"
+    dedupe_state_path = _dedupe_state_path_for_state_file(state_file)
+    gmail_transient_state.notify_token_recovery_if_needed(
+        webhook_url,
+        state,
+        state_file,
+        send_discord_recovery_fn=lambda _webhook_url, message: _send_discord_recovery_with_dedupe(
+            _webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        ),
     )
-    if not send_discord_recovery(webhook_url, message):
-        LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED")
-        return
-
-    LOGGER.info("TOKEN_RECOVERED: %s", message.replace("\n", " | "))
-    state["token_issue_active"] = False
-    state.pop("token_issue_reason", None)
-    state.pop("token_issue_at", None)
-    save_state(state_file, state)
 
 
 def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
@@ -390,39 +302,17 @@ def refresh_with_retry(
     max_delay: float = 30.0,
     request_factory: Callable[[], Any] | None = None,
 ) -> Exception | None:
-    if retries < 1:
-        raise ValueError("retries must be >= 1")
-    if request_factory is None:
-        ensure_google_dependencies()
-        request_factory = Request
-
-    last_exc: Exception | None = None
-
-    for attempt in range(1, retries + 1):
-        try:
-            creds.refresh(request_factory())
-            return None
-        except Exception as exc:
-            last_exc = exc
-            is_transient = is_transient_network_error(exc) or is_retryable_http_error(exc)
-            if (not is_transient) or attempt == retries:
-                break
-
-            sleep_sec = next_delay_seconds(
-                attempt,
-                base_delay=base_delay,
-                max_delay=max_delay,
-            )
-            LOGGER.warning(
-                "TOKEN_REFRESH_RETRY: attempt=%s/%s error=%s retry_in=%ss",
-                attempt,
-                retries,
-                exc,
-                sleep_sec,
-            )
-            time.sleep(sleep_sec)
-
-    return last_exc
+    return gmail_auth.refresh_with_retry(
+        creds,
+        retries=retries,
+        base_delay=base_delay,
+        max_delay=max_delay,
+        request_factory=request_factory,
+        ensure_google_dependencies_fn=ensure_google_dependencies,
+        default_request_factory=Request,
+        is_transient_network_error_fn=is_transient_network_error,
+        is_retryable_http_error_fn=is_retryable_http_error,
+    )
 
 
 def _record_token_issue_and_maybe_alert(
@@ -432,12 +322,23 @@ def _record_token_issue_and_maybe_alert(
     reason: str,
     alert_message: str,
 ) -> None:
-    # token 問題は state を使って重複通知を抑制する。
-    if state is None or state_file is None:
-        return
-    should_alert = mark_token_issue(state, state_file, reason)
-    if webhook_url and should_alert:
-        send_discord_alert(webhook_url, alert_message)
+    dedupe_state_path = (
+        _dedupe_state_path_for_state_file(state_file)
+        if state_file is not None
+        else None
+    )
+    gmail_transient_state.record_token_issue_and_maybe_alert(
+        webhook_url,
+        state,
+        state_file,
+        reason,
+        alert_message,
+        send_discord_alert_fn=lambda _webhook_url, message: _send_discord_alert_with_dedupe(
+            _webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        ),
+    )
 
 
 def _record_transient_issue(
@@ -449,19 +350,24 @@ def _record_transient_issue(
     min_alert_duration_seconds: float,
     alert_cooldown_seconds: float,
 ) -> None:
-    # transient 問題は持続時のみ通知して alert fatigue を抑える。
-    if state is None or state_file is None:
-        if webhook_url:
-            send_discord_alert(webhook_url, alert_message)
-        return
-    record_transient_issue(
+    dedupe_state_path = (
+        _dedupe_state_path_for_state_file(state_file)
+        if state_file is not None
+        else None
+    )
+    gmail_transient_state.record_transient_issue_or_alert(
+        webhook_url,
         state,
         state_file,
         error,
-        webhook_url=webhook_url,
-        alert_message=alert_message,
-        min_alert_duration_seconds=min_alert_duration_seconds,
-        alert_cooldown_seconds=alert_cooldown_seconds,
+        alert_message,
+        min_alert_duration_seconds,
+        alert_cooldown_seconds,
+        send_discord_alert_fn=lambda _webhook_url, message: _send_discord_alert_with_dedupe(
+            _webhook_url,
+            message,
+            dedupe_state_path=dedupe_state_path,
+        ),
     )
 
 
@@ -472,46 +378,18 @@ def _load_initial_credentials(
     allow_oauth_interactive: bool,
     runtime_paths: RuntimePaths,
 ) -> tuple[Credentials | None, AuthStatus]:
-    if not runtime_paths.token.exists():
-        if allow_oauth_interactive:
-            LOGGER.info("TOKEN_MISSING_INTERACTIVE_AUTH_START")
-            return run_oauth_flow(runtime_paths), AuthStatus.TOKEN_MISSING
-
-        reason = f"token.json が見つかりません: {runtime_paths.token}"
-        LOGGER.error("TOKEN_MISSING: %s", reason)
-        _record_token_issue_and_maybe_alert(
-            webhook_url,
-            state,
-            state_file,
-            reason,
-            "token.json が存在しないため Gmail API に接続できません。"
-            " `amazon-notify --reauth` で再認証してください。",
-        )
-        return None, AuthStatus.TOKEN_MISSING
-
-    try:
-        creds = Credentials.from_authorized_user_file(str(runtime_paths.token), SCOPES)
-        if creds.valid:
-            return creds, AuthStatus.TOKEN_VALID
-        if creds.expired and creds.refresh_token:
-            return creds, AuthStatus.TOKEN_EXPIRED_REFRESHABLE
-        return creds, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
-    except Exception as exc:
-        reason = f"token.json の読み込みに失敗: {exc}"
-        LOGGER.error("TOKEN_INVALID: %s", reason)
-        if allow_oauth_interactive:
-            LOGGER.info("TOKEN_INVALID_INTERACTIVE_AUTH_START")
-            return run_oauth_flow(runtime_paths), AuthStatus.TOKEN_CORRUPTED
-
-        _record_token_issue_and_maybe_alert(
-            webhook_url,
-            state,
-            state_file,
-            reason,
-            "token.json の読み込みに失敗しました。"
-            " `amazon-notify --reauth` で再認証してください。",
-        )
-        return None, AuthStatus.TOKEN_CORRUPTED
+    creds, status = gmail_auth.load_initial_credentials(
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=allow_oauth_interactive,
+        runtime_paths=runtime_paths,
+        scopes=SCOPES,
+        credentials_cls=Credentials,
+        run_oauth_flow_fn=run_oauth_flow,
+        record_token_issue_and_maybe_alert_fn=_record_token_issue_and_maybe_alert,
+    )
+    return creds, status
 
 
 def _ensure_usable_credentials(
@@ -524,73 +402,27 @@ def _ensure_usable_credentials(
     transient_alert_min_duration_seconds: float,
     transient_alert_cooldown_seconds: float,
 ) -> tuple[Credentials | None, AuthStatus]:
-    if creds.valid:
-        return creds, AuthStatus.TOKEN_VALID
-
-    if creds.expired and creds.refresh_token:
-        LOGGER.info("TOKEN_REFRESH_START")
-        refresh_error = refresh_with_retry(creds)
-        if refresh_error is None:
-            with runtime_paths.token.open("w", encoding="utf-8") as token_file:
-                token_file.write(creds.to_json())
-            LOGGER.info("TOKEN_REFRESH_SUCCESS: %s", runtime_paths.token)
-            return creds, AuthStatus.TOKEN_VALID
-
-        if is_transient_network_error(refresh_error):
-            error_msg = (
-                "トークン更新時に一時的な通信障害が発生しました。"
-                "今回の実行はスキップし、次周期で自動復旧を待ちます。\n"
-                f"エラー: {refresh_error}"
-            )
-            LOGGER.warning("TOKEN_REFRESH_TRANSIENT_FAILURE: %s", refresh_error)
-            _record_transient_issue(
-                webhook_url,
-                state,
-                state_file,
-                refresh_error,
-                error_msg,
-                transient_alert_min_duration_seconds,
-                transient_alert_cooldown_seconds,
-            )
-            return None, AuthStatus.REFRESH_TRANSIENT_FAILURE
-
-        reason = f"トークンの自動更新に失敗: {refresh_error}"
-        error_msg = (
-            "トークンの自動更新に失敗しました。"
-            " `amazon-notify --reauth` で再認証してください。\n"
-            f"エラー: {refresh_error}"
-        )
-        LOGGER.error("TOKEN_REFRESH_FAILED: %s", reason)
-        LOGGER.error("TOKEN_REFRESH_FATAL_FAILURE: %s", refresh_error)
-        if allow_oauth_interactive:
-            if webhook_url:
-                send_discord_alert(webhook_url, error_msg)
-            return run_oauth_flow(runtime_paths), AuthStatus.REFRESH_PERMANENT_FAILURE
-
-        _record_token_issue_and_maybe_alert(
-            webhook_url,
-            state,
-            state_file,
-            reason,
-            error_msg,
-        )
-        return None, AuthStatus.REFRESH_PERMANENT_FAILURE
-
-    reason = "token が無効で refresh_token も利用できません"
-    LOGGER.error("TOKEN_INVALID_NO_REFRESH: %s", reason)
-    if allow_oauth_interactive:
-        LOGGER.info("TOKEN_INVALID_NO_REFRESH_INTERACTIVE_AUTH_START")
-        return run_oauth_flow(runtime_paths), AuthStatus.INTERACTIVE_REAUTH_REQUIRED
-
-    _record_token_issue_and_maybe_alert(
-        webhook_url,
-        state,
-        state_file,
-        reason,
-        "token が無効で自動更新できません。"
-        " `amazon-notify --reauth` で再認証してください。",
+    usable_creds, status = gmail_auth.ensure_usable_credentials(
+        creds=creds,
+        webhook_url=webhook_url,
+        state=state,
+        state_file=state_file,
+        allow_oauth_interactive=allow_oauth_interactive,
+        runtime_paths=runtime_paths,
+        transient_alert_min_duration_seconds=transient_alert_min_duration_seconds,
+        transient_alert_cooldown_seconds=transient_alert_cooldown_seconds,
+        refresh_with_retry_fn=refresh_with_retry,
+        is_transient_network_error_fn=is_transient_network_error,
+        run_oauth_flow_fn=run_oauth_flow,
+        record_transient_issue_fn=_record_transient_issue,
+        record_token_issue_and_maybe_alert_fn=_record_token_issue_and_maybe_alert,
+        send_discord_alert_fn=lambda _webhook_url, message: _send_discord_alert_with_dedupe(
+            _webhook_url,
+            message,
+            dedupe_state_path=runtime_paths.runtime_dir / _DISCORD_DEDUPE_STATE_FILENAME,
+        ),
     )
-    return None, AuthStatus.INTERACTIVE_REAUTH_REQUIRED
+    return usable_creds, status
 
 
 def _build_gmail_service(

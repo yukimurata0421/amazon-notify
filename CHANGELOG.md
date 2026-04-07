@@ -8,6 +8,7 @@ Summary:
 - Runtime state handling was reorganized around explicit path injection, incident-state storage separation, and index rebuild tooling.
 - StreamingPull internals were split for maintainability while preserving existing runtime behavior and health/heartbeat outputs.
 - Documentation was expanded in Japanese/English, including hybrid setup, portability notes, and a thin Docker evaluation path.
+- Discord dedupe path resolution was aligned with runtime path injection, and Gmail runtime logic was split into auth/transient-state modules while preserving the public API surface.
 
 ### Changed
 - Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
@@ -24,6 +25,16 @@ Summary:
 - Clarified Docker positioning as a supplemental quick-evaluation path (portability/reproducibility aid), while keeping Linux single-host + systemd-first as the primary operations stance.
 - Added English companion docs for hybrid quickstart, portability parameters, architecture guide, and implementation rationale, and aligned cross-language links in README/docs.
 - Narrowed CI default permissions to `contents: read` and scoped `contents: write` to the test job that updates the coverage badge.
+- Added `discord_dedupe_state_file` to `RuntimeConfig` and unified dedupe path usage across notification/incident/test flows by explicit injection.
+- Removed implicit dedupe-state path resolution from `discord_client.py` and made dedupe path an explicit argument path for alert/recovery/test/notification send paths.
+- Moved `--test-discord` path handling onto runtime config construction so dedupe state follows the same `--config`-based runtime directory resolution.
+- Split Gmail runtime logic into dedicated modules:
+  - `gmail_auth.py` for OAuth/credential/refresh/auth-state transitions
+  - `gmail_transient_state.py` for transient/token issue lifecycle state management
+  - kept `gmail_client.py` as compatibility facade and orchestration entry.
+- Clarified runtime artifact semantics in README/docs (source-of-truth vs derived snapshot vs rebuildable cache vs coordination/lock).
+- Added operations triage order documentation for runtime artifacts and `--rebuild-indexes` usage.
+- Added domain-intent comments to StreamingPull event aggregation/duplicate-skip/heartbeat write paths, and aligned hybrid architecture docs with that model.
 
 ### Tests
 - Added regression tests for stale-state recovery dedupe and cross-notification dedupe behavior (duplicate suppression, in-flight suppression, and per-message-key delivery behavior).

@@ -10,7 +10,7 @@ from pathlib import Path
 import requests
 
 from .backoff import next_delay_seconds, parse_retry_after_seconds
-from .config import LOGGER, get_runtime_paths, save_state
+from .config import LOGGER, save_state
 
 DEFAULT_DISCORD_MAX_ATTEMPTS = 4
 DEFAULT_DISCORD_BASE_DELAY_SECONDS = 1.0
@@ -18,7 +18,6 @@ DEFAULT_DISCORD_MAX_DELAY_SECONDS = 30.0
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 _DEDUPE_SCHEMA_VERSION = 1
-_DEDUPE_STATE_FILENAME = ".discord_dedupe_state.json"
 _DEDUPE_LOCK_FILENAME = ".discord_dedupe_state.lock"
 _DEDUPE_MAX_RETENTION_SECONDS = 31 * 24 * 60 * 60
 _DEDUPE_INFLIGHT_TTL_SECONDS = 120.0
@@ -54,10 +53,6 @@ def _ensure_dedupe_lock_supported() -> None:
         " dedupe lock は利用できません。Linux 単一ホスト運用を推奨します。"
     )
     raise OSError("fcntl is unavailable; discord dedupe lock is not supported on this platform")
-
-
-def _discord_dedupe_state_path() -> Path:
-    return get_runtime_paths().runtime_dir / _DEDUPE_STATE_FILENAME
 
 
 @contextmanager
@@ -175,12 +170,13 @@ def _reserve_dedupe_claim(
     *,
     notification_kind: str,
     content: str,
+    dedupe_state_path: Path | None,
     dedupe_window_seconds: float,
 ) -> tuple[bool, Path | None, str | None, str | None]:
-    if dedupe_window_seconds <= 0:
+    if dedupe_window_seconds <= 0 or dedupe_state_path is None:
         return True, None, None, None
 
-    state_path = _discord_dedupe_state_path()
+    state_path = dedupe_state_path
     dedupe_key = _build_dedupe_key(notification_kind, content)
     owner = uuid.uuid4().hex
     now_epoch = time.time()
@@ -351,6 +347,7 @@ def _post_webhook_with_dedupe(
     webhook_url: str,
     content: str,
     notification_kind: str,
+    dedupe_state_path: Path | None = None,
     dedupe_window_seconds: float,
     max_attempts: int = DEFAULT_DISCORD_MAX_ATTEMPTS,
     base_delay_seconds: float = DEFAULT_DISCORD_BASE_DELAY_SECONDS,
@@ -359,6 +356,7 @@ def _post_webhook_with_dedupe(
     allowed, state_path, dedupe_key, owner = _reserve_dedupe_claim(
         notification_kind=notification_kind,
         content=content,
+        dedupe_state_path=dedupe_state_path,
         dedupe_window_seconds=dedupe_window_seconds,
     )
     if not allowed:
@@ -380,7 +378,12 @@ def _post_webhook_with_dedupe(
     return sent
 
 
-def send_discord_alert(webhook_url: str, message: str) -> bool:
+def send_discord_alert(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path | None = None,
+) -> bool:
     if not webhook_url:
         return False
 
@@ -389,11 +392,17 @@ def send_discord_alert(webhook_url: str, message: str) -> bool:
         webhook_url=webhook_url,
         content=content,
         notification_kind="alert",
+        dedupe_state_path=dedupe_state_path,
         dedupe_window_seconds=_DEDUPE_WINDOW_SECONDS["alert"],
     )
 
 
-def send_discord_recovery(webhook_url: str, message: str) -> bool:
+def send_discord_recovery(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path | None = None,
+) -> bool:
     if not webhook_url:
         return False
 
@@ -402,11 +411,17 @@ def send_discord_recovery(webhook_url: str, message: str) -> bool:
         webhook_url=webhook_url,
         content=content,
         notification_kind="recovery",
+        dedupe_state_path=dedupe_state_path,
         dedupe_window_seconds=_DEDUPE_WINDOW_SECONDS["recovery"],
     )
 
 
-def send_discord_test(webhook_url: str, message: str) -> bool:
+def send_discord_test(
+    webhook_url: str,
+    message: str,
+    *,
+    dedupe_state_path: Path | None = None,
+) -> bool:
     if not webhook_url:
         return False
 
@@ -415,6 +430,7 @@ def send_discord_test(webhook_url: str, message: str) -> bool:
         webhook_url=webhook_url,
         content=content,
         notification_kind="test",
+        dedupe_state_path=dedupe_state_path,
         dedupe_window_seconds=_DEDUPE_WINDOW_SECONDS["test"],
     )
 
@@ -426,6 +442,7 @@ def send_discord_notification(
     snippet: str,
     url: str,
     *,
+    dedupe_state_path: Path | None = None,
     max_attempts: int = DEFAULT_DISCORD_MAX_ATTEMPTS,
     base_delay_seconds: float = DEFAULT_DISCORD_BASE_DELAY_SECONDS,
     max_delay_seconds: float = DEFAULT_DISCORD_MAX_DELAY_SECONDS,
@@ -442,6 +459,7 @@ def send_discord_notification(
         webhook_url=webhook_url,
         content=content,
         notification_kind="notification",
+        dedupe_state_path=dedupe_state_path,
         dedupe_window_seconds=_DEDUPE_WINDOW_SECONDS["notification"],
         max_attempts=max_attempts,
         base_delay_seconds=base_delay_seconds,

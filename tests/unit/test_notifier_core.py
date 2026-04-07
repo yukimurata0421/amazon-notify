@@ -304,7 +304,7 @@ def test_run_once_does_not_advance_state_when_notification_fails(monkeypatch, tm
     monkeypatch.setattr(
         notifier,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message) or True,
+        lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     notifier.run_once(runtime)
@@ -478,7 +478,7 @@ def test_run_once_handles_http_error_and_alerts(monkeypatch, tmp_path: Path) -> 
     monkeypatch.setattr(
         notifier,
         "send_discord_alert",
-        lambda _webhook_url, message: alerts.append(message) or True,
+        lambda _webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     notifier.run_once(runtime)
@@ -515,7 +515,7 @@ def test_run_once_breaks_when_message_detail_fetch_fails(monkeypatch, tmp_path: 
     monkeypatch.setattr(
         notifier,
         "send_discord_alert",
-        lambda _webhook_url, message: alerts.append(message) or True,
+        lambda _webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     notifier.run_once(runtime)
@@ -643,7 +643,7 @@ def test_run_once_fails_safe_when_checkpoint_not_found_in_paginated_listing(
     monkeypatch.setattr(
         notifier,
         "send_discord_alert",
-        lambda _webhook_url, message: sent_alerts.append(message) or True,
+        lambda _webhook_url, message, **_kwargs: sent_alerts.append(message) or True,
     )
 
     notifier.run_once(runtime)
