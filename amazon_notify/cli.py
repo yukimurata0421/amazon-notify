@@ -306,7 +306,9 @@ def handle_doctor_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bo
     sys.exit(exit_code)
 
 
-def handle_verify_state_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+def handle_verify_state_report(
+    args: argparse.Namespace, runtime: RuntimeConfig
+) -> bool:
     if not args.verify_state:
         return False
     exit_code, report = status_command.build_doctor_report(runtime)

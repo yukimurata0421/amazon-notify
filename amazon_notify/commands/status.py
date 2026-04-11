@@ -26,12 +26,8 @@ def build_doctor_report(runtime: RuntimeConfig) -> tuple[int, dict]:
     return build_doctor_report_impl(runtime)
 
 
-def build_metrics_report(
-    runtime: RuntimeConfig, *, recent_run_window: int
-) -> dict:
-    return build_metrics_report_impl(
-        runtime, recent_run_window=recent_run_window
-    )
+def build_metrics_report(runtime: RuntimeConfig, *, recent_run_window: int) -> dict:
+    return build_metrics_report_impl(runtime, recent_run_window=recent_run_window)
 
 
 def format_status_summary(report: dict) -> str:

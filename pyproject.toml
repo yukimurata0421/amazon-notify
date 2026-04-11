@@ -48,6 +48,9 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "amazon_notify/cli.py" = ["RUF001"]
+# Legacy standalone scripts (if present): intentional Japanese full-width punctuation in UI strings/comments.
+"amazon_mail_notifier.py" = ["RUF001", "RUF002", "RUF003"]
+"amazon_mail_to_discord.py" = ["RUF001", "RUF003"]
 
 [tool.mypy]
 python_version = "3.11"

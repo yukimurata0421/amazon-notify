@@ -600,7 +600,9 @@ def test_main_doctor_outputs_degraded_when_frontier_mismatch(
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "degraded"
     check = next(
-        item for item in report["checks"] if item["name"] == "checkpoint_state_consistent"
+        item
+        for item in report["checks"]
+        if item["name"] == "checkpoint_state_consistent"
     )
     assert check["ok"] is False
 

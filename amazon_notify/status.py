@@ -104,9 +104,11 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
     runs_scan = _scan_runs_jsonl(runtime.runs_file)
 
     checkpoint_index_payload, checkpoint_index_error, checkpoint_index_exists = (
-        _read_json_object(runtime.events_file.with_name(
-            f"{runtime.events_file.name}.checkpoint.index.json"
-        ))
+        _read_json_object(
+            runtime.events_file.with_name(
+                f"{runtime.events_file.name}.checkpoint.index.json"
+            )
+        )
     )
     runs_index_payload, runs_index_error, runs_index_exists = _read_json_object(
         runtime.runs_file.with_name(f"{runtime.runs_file.name}.summary.index.json")
@@ -114,7 +116,9 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
 
     state_last_message_id = _state_last_message_id(state_payload)
     runs_state_summary = _normalize_summary(
-        state_payload.get("last_run_summary") if isinstance(state_payload, dict) else None
+        state_payload.get("last_run_summary")
+        if isinstance(state_payload, dict)
+        else None
     )
 
     frontier = events_scan["last_checkpoint"]
@@ -183,7 +187,9 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
     )
 
     runs_index_summary = _normalize_summary(
-        runs_index_payload.get("summary") if isinstance(runs_index_payload, dict) else None
+        runs_index_payload.get("summary")
+        if isinstance(runs_index_payload, dict)
+        else None
     )
     run_summary_ok, run_summary_detail = _check_run_summary_consistency(
         runs_summary=runs_summary,
@@ -244,7 +250,9 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
                 )
             ),
             "runs_summary_index_file": str(
-                runtime.runs_file.with_name(f"{runtime.runs_file.name}.summary.index.json")
+                runtime.runs_file.with_name(
+                    f"{runtime.runs_file.name}.summary.index.json"
+                )
             ),
         },
         "frontier": frontier,
@@ -433,7 +441,9 @@ def _state_last_message_id(state_payload: dict[str, Any] | None) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _active_incident_from_state(state_payload: dict[str, Any] | None) -> dict[str, Any] | None:
+def _active_incident_from_state(
+    state_payload: dict[str, Any] | None,
+) -> dict[str, Any] | None:
     if not isinstance(state_payload, dict):
         return None
     kind = state_payload.get("active_incident_kind")
@@ -793,8 +803,7 @@ def format_metrics_plain(report: dict[str, Any]) -> str:
         f"ok={rr.get('success_count')} err={rr.get('failure_count')} "
         f"ratio={rr.get('failure_ratio')}",
         f"dedupe_entries: {dd.get('entry_count')}",
-        f"incident: {inc.get('status')} "
-        f"duration_s={inc.get('open_duration_seconds')}",
+        f"incident: {inc.get('status')} duration_s={inc.get('open_duration_seconds')}",
     ]
     return "\n".join(lines)
 

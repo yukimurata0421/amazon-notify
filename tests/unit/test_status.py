@@ -385,9 +385,7 @@ def test_doctor_reports_runs_jsonl_middle_corruption(tmp_path: Path) -> None:
     (tmp_path / "state.json").write_text("{}", encoding="utf-8")
     (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
     (tmp_path / "runs.jsonl").write_text(
-        '{"schema_version":1,"run_id":"a"}\n'
-        "{bad}\n"
-        '{"schema_version":1,"run_id":"b"}\n',
+        '{"schema_version":1,"run_id":"a"}\n{bad}\n{"schema_version":1,"run_id":"b"}\n',
         encoding="utf-8",
     )
 

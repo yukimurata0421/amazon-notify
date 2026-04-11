@@ -189,4 +189,3 @@ def test_advance_checkpoint_surfaces_enospc_as_checkpoint_error(tmp_path: Path) 
     ):
         with pytest.raises(CheckpointError, match=r"ENOSPC|ディスク"):
             store.advance_checkpoint(Checkpoint(message_id="mid"), "r1")
-
