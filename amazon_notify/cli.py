@@ -12,6 +12,7 @@ from .checkpoint_store import JsonlCheckpointStore
 from .commands import health as health_command
 from .commands import polling as polling_command
 from .commands import reauth as reauth_command
+from .commands import status as status_command
 from .commands import streaming as streaming_command
 from .commands import watch as watch_command
 from .config import RuntimePaths
@@ -162,6 +163,10 @@ def validate_action_conflicts(args: argparse.Namespace) -> None:
         ("--test-discord", args.test_discord),
         ("--setup-watch", args.setup_watch),
         ("--rebuild-indexes", args.rebuild_indexes),
+        ("--status", args.status),
+        ("--doctor", args.doctor),
+        ("--verify-state", args.verify_state),
+        ("--metrics", args.metrics),
         ("--streaming-pull", args.streaming_pull),
     )
     selected_actions = [name for name, enabled in action_flags if enabled]
@@ -285,6 +290,43 @@ def handle_rebuild_indexes(args: argparse.Namespace, runtime: RuntimeConfig) -> 
     return True
 
 
+def handle_status_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.status:
+        return False
+    exit_code, report = status_command.build_status_report(runtime)
+    sys.stdout.write(status_command.format_status_summary(report) + "\n")
+    sys.exit(exit_code)
+
+
+def handle_doctor_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.doctor:
+        return False
+    exit_code, report = status_command.build_doctor_report(runtime)
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    sys.exit(exit_code)
+
+
+def handle_verify_state_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.verify_state:
+        return False
+    exit_code, report = status_command.build_doctor_report(runtime)
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    sys.exit(exit_code)
+
+
+def handle_metrics_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.metrics:
+        return False
+    report = status_command.build_metrics_report(
+        runtime, recent_run_window=args.metrics_window
+    )
+    if args.metrics_plain:
+        sys.stdout.write(status_command.format_metrics_plain(report) + "\n")
+    else:
+        sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    sys.exit(0)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Amazon配送メールを監視してDiscordに通知"
@@ -329,6 +371,37 @@ def main() -> None:
         "--rebuild-indexes",
         action="store_true",
         help="events/runs の index snapshot を再構築して終了する。",
+    )
+    parser.add_argument(
+        "--status",
+        action="store_true",
+        help="運用サマリ(frontier/incident/failure/整合性)を表示して終了する。",
+    )
+    parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="state/events/runs/index の整合性診断(JSON)を表示して終了する。",
+    )
+    parser.add_argument(
+        "--verify-state",
+        action="store_true",
+        help="--doctor と同じ整合性検査(JSON)。定期バッチ向けの別名。",
+    )
+    parser.add_argument(
+        "--metrics",
+        action="store_true",
+        help="運用メトリクス(JSON 既定)を表示して終了する。",
+    )
+    parser.add_argument(
+        "--metrics-plain",
+        action="store_true",
+        help="--metrics を簡易テキストで出力する。",
+    )
+    parser.add_argument(
+        "--metrics-window",
+        type=int,
+        default=50,
+        help="--metrics の直近 run 集計に使う最大件数。",
     )
     parser.add_argument(
         "--health-check",
@@ -482,6 +555,14 @@ def main() -> None:
         return
 
     if handle_rebuild_indexes(args, runtime):
+        return
+    if handle_status_report(args, runtime):
+        return
+    if handle_doctor_report(args, runtime):
+        return
+    if handle_verify_state_report(args, runtime):
+        return
+    if handle_metrics_report(args, runtime):
         return
     (
         heartbeat_file,

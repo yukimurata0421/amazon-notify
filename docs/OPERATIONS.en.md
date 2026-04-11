@@ -22,6 +22,9 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 - Dry run: `amazon-notify --once --dry-run`
 - Validate config: `amazon-notify --validate-config`
 - Health check JSON: `amazon-notify --health-check`
+- Operator summary (text): `amazon-notify --status`
+- Consistency audit JSON: `amazon-notify --doctor` or `amazon-notify --verify-state` (alias for scheduled jobs)
+- Operational metrics (JSON / plain text): `amazon-notify --metrics` / `--metrics-plain` (use `--metrics-window` for recent run window size)
 
 ## Runtime Files and Paths
 - Relative paths (`state_file`, `events_file`, `runs_file`, `log_file`) are resolved from the directory containing `config.json`.
@@ -108,16 +111,57 @@ sudo journalctl -u amazon-notify-fallback.service -f
 
 ## JSONL Maintenance (Long-Running Deployments)
 
-- Rebuild index snapshots:
+### Rotation policy (growth)
+
+- **Source of truth** is append-only `events.jsonl` and `runs.jsonl`. Do not delete or rewrite the middle of these files while running (it breaks frontier semantics and audit history).
+- When **rotation** is required, always **archive full copies** first and validate restore. Only under a planned maintenance window consider truncating or swapping files.
+- **Index files** (`*.checkpoint.index.json`, `*.summary.index.json`) are safe to delete; run `--rebuild-indexes`. Derived fields inside `state.json` can be rebuilt from JSONL in normal operation, but **do not casually delete `last_message_id`** by hand (it changes how much mail is rescanned).
+- **Never** truncate active `events.jsonl` / `runs.jsonl` without a backup.
+
+### Recommended archive format
+
+- Pair files with the same timestamp: `events-YYYYMMDD-HHMMSS.jsonl` and `runs-YYYYMMDD-HHMMSS.jsonl`.
+- Compress with `gzip`; lines remain JSONL (`zcat` / `gzip -dc` to inspect).
+- Optional **manifest** (`manifest-${ts}.txt`): store `sha256sum` output, byte sizes, and optionally the `status` line from `amazon-notify --doctor` taken at archive time.
+
+### Restore (summary)
+
+1. Stop services.
+2. Restore `events.jsonl` / `runs.jsonl` (or point `events_file` / `runs_file` in `config.json` at the restored paths).
+3. Prefer restoring `state.json` from the same backup window; if unknown, rely on rebuild + next runs, but manual edits to `last_message_id` risk skips or duplicate notifications.
+4. `amazon-notify --config ... --rebuild-indexes`
+5. `amazon-notify --doctor` → expect `status: ok`
+6. Start services
+
+### What may be deleted (recap)
+
+| Artifact | Safe to delete? |
+|----------|-----------------|
+| `events.jsonl.checkpoint.index.json` | Yes (rebuild) |
+| `runs.jsonl.summary.index.json` | Yes (rebuild) |
+| Entire `state.json` | Avoid without backup |
+| Active `events.jsonl` / `runs.jsonl` | No without archive |
+| `.discord_dedupe_state.json` | Yes, but dedupe windows reset |
+
+### Restore drill (e.g. yearly)
+
+1. Copy production `events.jsonl` / `runs.jsonl` / `state.json` (redacted OK) into a test directory.
+2. `amazon-notify --config ./config.json --doctor` → `ok`.
+3. Delete index JSON files, run `--rebuild-indexes`, `--doctor` still `ok`.
+4. `--metrics` / `--status` show expected frontier and recent-run stats.
+5. Optional: run `--once --dry-run` on a read-only mount and confirm failures are handled as expected.
+
+### Rebuild index snapshots
 
 ```bash
 amazon-notify --config ./config.json --rebuild-indexes
 ```
 
-- Archive `events.jsonl` / `runs.jsonl` example:
-  - stop running services
-  - copy and compress archives
-  - rebuild indexes if needed
+### Archive example
+
+- stop running services
+- copy and compress archives
+- rebuild indexes if needed
 
 ```bash
 sudo systemctl stop amazon-notify-pubsub.service amazon-notify-fallback.timer

@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- Documented long-term JSONL lifecycle in operations guides (JA/EN): rotation policy vs append-only authority, archive layout, restore steps, safe-to-delete table, and periodic restore drill; rationale captured in `docs/engineering-decisions.md` (§22).
+- Added composite fault scenario tests (`tests/scenarios/test_fault_scenarios.py`) for JSONL corruption, index rebuild, stale incident vs event log, and checkpoint persistence failure; rationale in `docs/engineering-decisions.md` (§23).
+- Added `--verify-state` (alias of `--doctor` JSON) for scheduled consistency checks; added `--metrics` / `--metrics-plain` / `--metrics-window` for thin operational export (checkpoint age, recent run stats, dedupe/incident summaries); rationale in `docs/engineering-decisions.md` (§24).
+- Added `time_utils.parse_utc_iso()` for metrics and timestamp parsing.
+- Documented path/layout independence in README and related docs (config-directory-relative paths, `--config`, placeholder install paths); rationale in `docs/engineering-decisions.md` (§25–26).
 - Added tag-based Release workflow (`.github/workflows/release.yml`) that:
   - requires a successful CI run for the tagged commit
   - builds distributable artifacts (`dist/amazon-notify.zip`, wheel, sdist)
@@ -12,6 +17,9 @@ All notable changes to this project will be documented in this file.
 - Added tag-based GHCR publish workflow (`.github/workflows/ghcr.yml`) that:
   - requires a successful CI run for the tagged commit
   - builds and publishes Docker images to `ghcr.io/<owner>/amazon-notify`.
+- Added runtime operator diagnostics commands:
+  - `--status` for a thin one-shot summary (frontier, last success, incident status, last failure, consistency overview)
+  - `--doctor` for detailed JSON diagnostics across `state/events/runs/index` consistency checks.
 
 ### Changed
 - Expanded Docker docs (JA/EN) with GHCR usage examples for tagged images.

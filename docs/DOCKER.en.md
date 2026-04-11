@@ -31,7 +31,7 @@ docker build -t amazon-notify:slim .
 ```
 
 ## Use GHCR image
-On tagged releases, the same Dockerfile is published to GHCR.
+On tagged releases, the same Dockerfile is published to GHCR. If you fork or build locally, substitute your registry namespace and tag; no fixed host filesystem path is required.
 
 ```bash
 docker pull ghcr.io/yukimurata0421/amazon-notify:v0.4.0

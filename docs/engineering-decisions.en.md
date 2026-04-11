@@ -209,3 +209,50 @@ Adopted:
 Reasoning:
 - Avoid full pipeline stop due to configuration mistakes.
 - Keep alert behavior explicit while preserving service continuity.
+
+## 22. Why JSONL Rotation / Archive / Restore Drill Was Documented
+Adopted:
+- Expanded `docs/OPERATIONS.md` / `OPERATIONS.en.md` with explicit guidance on append-only authority, rebuildable indexes, archive layout (paired timestamped files, gzip, optional manifest), restore steps, a table of what may be deleted, and a periodic restore drill checklist.
+
+Reasoning:
+- Long-running deployments need **operational reproducibility** (what to keep, how to restore), not only runtime correctness.
+- The codebase already implements append-only logs + derived snapshots; **documented lifecycle policy** is what makes that maintainable.
+
+## 23. Why `tests/scenarios/` Composite Fault Tests Exist
+Adopted:
+- `tests/scenarios/test_fault_scenarios.py` focuses on storage/consistency composites:
+  - mid-file JSONL corruption vs tail-only tolerance
+  - index rebuild after deleting index snapshots
+  - stale incident state vs events log (`doctor`/`verify-state` degraded)
+  - ENOSPC-style persistence failure on checkpoint append (patched)
+
+Reasoning:
+- Unit tests protect modules; **scenario tests** protect cross-module contracts under failure composition.
+- Gmail/Discord transient behavior remains in `tests/unit/`; scenarios focus on **frontier + derived state + index** invariants.
+
+## 24. Why `--verify-state` and `--metrics` Were Added
+Adopted:
+- `--verify-state` is an alias of `--doctor` JSON output for cron/automation naming.
+- `--metrics` / `--metrics-plain` / `--metrics-window` expose `build_metrics_report()` (checkpoint age, recent run success/fail ratio, notified totals, incident suppress counts, dedupe entry count, open incident duration).
+- `parse_utc_iso()` supports timestamps in metrics (`Z` suffix, naive normalization).
+
+Reasoning:
+- **Consistency checks** should be runnable on a schedule without implying a human reads `events.jsonl` only after failure.
+- **Thin metrics export** integrates with lightweight external monitors (e.g. host scripts) without requiring a full observability stack.
+- Two names (`--doctor` vs `--verify-state`) reduce friction for operators vs automation.
+
+## 25. Why Publish Docs Were De-personalized for Path Examples
+Adopted:
+- README section clarifying runtime paths resolve from `config.json` directory + `--config`, independent of clone location.
+- Portability examples avoid personal usernames; hybrid quickstart labels `/opt/amazon-notify` as a placeholder; operations examples use `/path/to/config.json`; Docker notes mention registry substitution.
+
+Reasoning:
+- Published repositories should not read as tied to a **specific machine layout** or home directory.
+- **No runtime behavior change**—documentation alignment only.
+
+## 26. Why `docs/` Track the Publish Repository as Source of Truth
+Adopted:
+- Engineering notes, changelog entries, and README/operations docs are authored against the **publish repository**, then copied to the development workspace to keep them identical.
+
+Reasoning:
+- Avoid documentation drift and missed updates when cutting releases.

@@ -10,7 +10,7 @@ English version: [PORTABILITY_PARAMS.en.md](./PORTABILITY_PARAMS.en.md)
 | 区分 | パラメータ | 例 | 設定場所 | 備考 |
 |---|---|---|---|---|
 | ファイルシステム | `BASE_DIR` | `/opt/amazon-notify` | `install-systemd.sh --base-dir` | コード配置ディレクトリ |
-| Linuxユーザー | `SYSTEM_USER` | `ubuntu` / `yuki` | `install-systemd.sh --system-user` | systemd `User=` に反映 |
+| Linuxユーザー | `SYSTEM_USER` | 例: `ubuntu`, `deploy` | `install-systemd.sh --system-user` | systemd `User=` に反映 |
 | 設定ファイル | `CONFIG_PATH` | `/opt/amazon-notify/config.json` | `install-systemd.sh --config-path` | `ExecStart --config` に反映 |
 | runtime directory 基準 | dedupe/index 派生ファイル | `.discord_dedupe_state.json`, `*.index.json` | `CONFIG_PATH` の配置ディレクトリ基準 | `--config` を変えると参照先も変わる |
 | heartbeat | `HEARTBEAT_PATH` | `/opt/amazon-notify/runtime/pubsub-heartbeat.txt` | `install-systemd.sh --heartbeat-path` | pubsub/fallback 両方に反映 |

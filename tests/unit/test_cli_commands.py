@@ -120,6 +120,12 @@ def test_main_validate_config_success(monkeypatch, tmp_path: Path, capsys) -> No
         ["--setup-watch", "--test-discord"],
         ["--health-check", "--test-discord"],
         ["--validate-config", "--rebuild-indexes"],
+        ["--status", "--doctor"],
+        ["--status", "--metrics"],
+        ["--doctor", "--verify-state"],
+        ["--metrics", "--verify-state"],
+        ["--status", "--test-discord"],
+        ["--doctor", "--rebuild-indexes"],
         ["--reauth", "--health-check"],
         ["--streaming-pull", "--rebuild-indexes"],
         ["--reauth", "--test-discord", "--setup-watch"],
@@ -423,6 +429,341 @@ def test_main_rebuild_indexes_outputs_summary(
     assert report["status"] == "ok"
     assert report["checkpoint_index_rebuilt"] is True
     assert report["run_summary_index_rebuilt"] is True
+
+
+def test_main_status_outputs_operator_summary(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps(
+            {
+                "last_message_id": "cp-1",
+                "active_incident_kind": "delivery_failed",
+                "active_incident_message": "failed",
+                "active_incident_at": "2026-04-08 10:00:00",
+                "incident_suppressed_count": 2,
+                "last_run_summary": {
+                    "last_run_status": "error",
+                    "last_failure_kind": "delivery_failed",
+                    "checkpoint_before": "cp-0",
+                    "checkpoint_after": "cp-1",
+                    "auth_status": "READY",
+                    "last_success_at": "2026-04-08 09:00:00",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "run-2",
+                "at": "2026-04-08 10:00:10",
+                "checkpoint": "cp-1",
+                "source": "pipeline_commit",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "schema_version": 1,
+                "event": "incident_suppressed",
+                "run_id": "run-2",
+                "at": "2026-04-08 10:00:11",
+                "kind": "delivery_failed",
+                "suppressed_count": 2,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-1",
+                "started_at": "2026-04-08 08:59:00",
+                "ended_at": "2026-04-08 09:00:00",
+                "checkpoint_before": "cp-0",
+                "checkpoint_after": "cp-0",
+                "processed_count": 1,
+                "matched_count": 1,
+                "notified_count": 1,
+                "non_target_count": 0,
+                "failure_kind": None,
+                "failure_message": None,
+                "failure_message_id": None,
+                "should_retry": False,
+                "should_alert": False,
+                "auth_status": "READY",
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-2",
+                "started_at": "2026-04-08 10:00:00",
+                "ended_at": "2026-04-08 10:00:10",
+                "checkpoint_before": "cp-0",
+                "checkpoint_after": "cp-1",
+                "processed_count": 1,
+                "matched_count": 1,
+                "notified_count": 0,
+                "non_target_count": 0,
+                "failure_kind": "delivery_failed",
+                "failure_message": "failed",
+                "failure_message_id": "mid-1",
+                "should_retry": True,
+                "should_alert": True,
+                "auth_status": "READY",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys, "argv", ["amazon-notify", "--config", str(config_path), "--status"]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "status: ok" in out
+    assert "frontier: cp-1" in out
+    assert "last_success_at: 2026-04-08 09:00:00" in out
+    assert "incident: suppressed(kind=delivery_failed, count=2)" in out
+    assert "last_failure_kind: delivery_failed" in out
+
+
+def test_main_doctor_outputs_degraded_when_frontier_mismatch(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps({"last_message_id": "cp-old"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "run-1",
+                "at": "2026-04-08 10:00:00",
+                "checkpoint": "cp-new",
+                "source": "pipeline_commit",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys, "argv", ["amazon-notify", "--config", str(config_path), "--doctor"]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "degraded"
+    check = next(
+        item for item in report["checks"] if item["name"] == "checkpoint_state_consistent"
+    )
+    assert check["ok"] is False
+
+
+def test_main_verify_state_matches_doctor_json(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps({"last_message_id": "cp-old"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "run-1",
+                "at": "2026-04-08 10:00:00",
+                "checkpoint": "cp-new",
+                "source": "pipeline_commit",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys, "argv", ["amazon-notify", "--config", str(config_path), "--verify-state"]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "degraded"
+
+
+def test_main_metrics_outputs_json(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps({"last_message_id": "cp-1"}),
+        encoding="utf-8",
+    )
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "run-1",
+                "at": "2026-04-08T10:00:00+00:00",
+                "checkpoint": "cp-1",
+                "source": "pipeline_commit",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "runs.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "run_id": "run-1",
+                "started_at": "2026-04-08T09:00:00+00:00",
+                "ended_at": "2026-04-08T09:00:01+00:00",
+                "checkpoint_before": None,
+                "checkpoint_after": "cp-1",
+                "processed_count": 1,
+                "matched_count": 1,
+                "notified_count": 1,
+                "non_target_count": 0,
+                "failure_kind": None,
+                "failure_message": None,
+                "failure_message_id": None,
+                "should_retry": False,
+                "should_alert": False,
+                "auth_status": "READY",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--metrics",
+            "--metrics-window",
+            "10",
+        ],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["schema_version"] == 1
+    assert report["checkpoint"]["frontier_message_id"] == "cp-1"
+    assert report["runs_recent"]["window_runs"] == 1
+    assert report["runs_recent"]["success_count"] == 1
+
+
+def test_main_metrics_plain_output(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "runs.jsonl").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--metrics", "--metrics-plain"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    out = capsys.readouterr().out
+    assert "generated_at:" in out
+    assert "checkpoint_age_seconds:" in out
 
 
 def test_main_health_check_reports_corrupted_runtime_records(

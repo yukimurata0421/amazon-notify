@@ -292,3 +292,65 @@
 ### 理由
 - 設定ミスを原因に通知パイプライン全体が停止するリスクを避けるため。
 - fail-fast より「安全側で継続 + 可視化」を優先するため。
+
+## 22. 長期運用向けに JSONL の rotation / archive / restore drill を文章化した理由
+
+### 採用
+- `docs/OPERATIONS.md` / `OPERATIONS.en.md` に、append-only 正本と `rebuild-indexes` 前提のまま、次を明示する節を追加した。
+  - rotation 方針（正本の途中削除を避ける、index は再生成可）
+  - アーカイブ形式（同一タイムスタンプの events/runs、gzip、任意 manifest）
+  - restore 手順（停止 → 復元 → rebuild → `--doctor` → 起動）
+  - 削除してよいものの表（index は可、正本 truncate は不可 等）
+  - `restore drill`（年に一度でもよい検証手順）
+
+### 理由
+- 「動く」だけでなく、**寿命管理と障害復旧の物語**がドキュメントにないと、長期運用で次に効くのは堅牢性より**運用の再現性**だから。
+- 実装は既に append-only + 派生 state/index であるため、**運用の完成度**は「何を消してよいか」「どう戻すか」が言語化されているかで決まる。
+- 本リポジトリは自動デプロイしない前提のため、手順は README ではなく **運用ガイドに集約**する。
+
+## 23. 複合障害シナリオ用の `tests/scenarios/` を追加した理由
+
+### 採用
+- `tests/scenarios/test_fault_scenarios.py` で、ストレージ・整合性に寄せた複合ケースを検証する。
+  - JSONL **途中行破損**は `CheckpointError`（末尾のみ tail ignore と対比）
+  - index 削除後の **`rebuild_indexes`**
+  - events の `incident_recovered` と state の active incident の **不整合**を `--doctor` 系で検知
+  - `advance_checkpoint` 経路の **ENOSPC**（`_append_jsonl` を patch）
+
+### 理由
+- 単体テストが個別モジュールを守るのに対し、**契約と構造が複合条件でも崩れないことを証明する層**が別に必要だから。
+- Gmail/Discord の細かいトランジェントは既存の `tests/unit/` に寄せ、ここでは **正本・派生物・index の整合**に集中する。
+
+## 24. `--verify-state` と運用メトリクス（`--metrics`）を追加した理由
+
+### 採用
+- `--verify-state`: `--doctor` と同一の整合性 JSON を別名で出力（定期ジョブ・外部監視のスクリプトに名前を合わせやすくする）。
+- `--metrics` / `--metrics-plain` / `--metrics-window`: `amazon_notify.status.build_metrics_report()` 経由で、checkpoint 経過時間、直近 N run の成否・失敗率、通知件数集計、incident suppress イベント数、dedupe エントリ数、open incident の経過時間などを **JSON または簡易テキスト**で出力。
+- `time_utils.parse_utc_iso`: メトリクスとイベントの `at` から経過秒を計算するため（末尾 `Z` 等を許容）。
+
+### 理由
+- **整合性検査**は「壊れたあと読む」だけでなく、**静かに壊れていないか**を定期確認する用途がある（`--doctor` / `--verify-state`）。
+- 大きな監視基盤を前提にしない一方で、**raspi-sentinel 等の薄い exporter** や cron から読める**傾向の面**が欲しい（`--metrics`）。
+- 用語は運用者が選びやすいよう、`--doctor` と `--verify-state` を併存させた。
+
+## 25. 公開リポジトリ向けにドキュメントから「特定マシン依存」に読める表現を減らした理由
+
+### 採用
+- README に「Paths and working directory」相当の節（パスは `config.json` 基準・`--config` で切替、クローン先に依存しない）。
+- `PORTABILITY` の例から個人名に読めるユーザー例を削除し、汎用例に変更。
+- `HYBRID_QUICKSTART` で `/opt/amazon-notify` を **プレースホルダ**であることと `install-systemd.sh --base-dir` を明記。
+- `OPERATIONS` の `--config` 例を `/path/to/config.json` 形式に。
+- `DOCKER` にフォーク時のレジストリ読み替えと「ホスト固定パス不要」の注記。
+
+### 理由
+- 公開リポジトリは **クローン先や開発者のホームディレクトリに紐づかない**ことが期待されるため。
+- 実装はもともと `config.json` 相対解決＋`--config` であるため、**ドキュメント側の例示が誤解を生まないようにする**のが目的（挙動変更ではない）。
+
+## 26. `docs/` と README を公開リポジトリを正として開発環境へ揃える運用
+
+### 採用
+- 運用・設計の説明（本ファイルの追記、CHANGELOG、README、OPERATIONS 等）は **公開リポジトリを正**とし、開発用ワークスペースへは同内容を移植する。
+
+### 理由
+- 公開物と開発用のドキュメントが二重管理すると、**リリース時の取りこぼし**が発生しやすい。
+- 実装の実験は開発ブランチで行い、**ドキュメントの一次ソース**は公開リポジトリに寄せる。

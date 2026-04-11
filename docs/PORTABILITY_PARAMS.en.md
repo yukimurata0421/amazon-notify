@@ -9,7 +9,7 @@ This checklist lists environment-dependent parameters required when moving `amaz
 | Category | Parameter | Example | Where to set | Notes |
 |---|---|---|---|---|
 | Filesystem | `BASE_DIR` | `/opt/amazon-notify` | `install-systemd.sh --base-dir` | code directory |
-| Linux user | `SYSTEM_USER` | `ubuntu` / `yuki` | `install-systemd.sh --system-user` | reflected in systemd `User=` |
+| Linux user | `SYSTEM_USER` | e.g. `ubuntu`, `deploy` | `install-systemd.sh --system-user` | reflected in systemd `User=` |
 | Config path | `CONFIG_PATH` | `/opt/amazon-notify/config.json` | `install-systemd.sh --config-path` | used by `ExecStart --config` |
 | Runtime-dir anchored artifacts | dedupe/index files | `.discord_dedupe_state.json`, `*.index.json` | resolved from config directory | destination changes when `--config` changes |
 | Heartbeat path | `HEARTBEAT_PATH` | `/opt/amazon-notify/runtime/pubsub-heartbeat.txt` | `install-systemd.sh --heartbeat-path` | used by pubsub + fallback |

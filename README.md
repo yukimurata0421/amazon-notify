@@ -65,6 +65,10 @@ Note: the `main` branch may be ahead of the latest GitHub Release.
 - Per-Pub/Sub-message durable workflow tracking.
 - Generic mail forwarding platform.
 
+## Paths and working directory
+
+Runtime paths (`state_file`, `events_file`, `runs_file`, `log_file`, and similar) are **not** tied to where you cloned the repository. They are resolved **relative to the directory that contains `config.json`**, and you can point at any config file with `amazon-notify --config /path/to/config.json`. Use absolute paths in `config.json` when you need to pin a location explicitly.
+
 ## Quick Start
 
 ```bash
@@ -108,6 +112,12 @@ amazon-notify --once --fallback-watchdog
 
 # rebuild index snapshots from current events/runs files
 amazon-notify --rebuild-indexes
+
+# one-shot operator summary (frontier/incident/failure/consistency)
+amazon-notify --status
+
+# detailed integrity diagnostics as JSON
+amazon-notify --doctor
 ```
 
 ## Runtime Artifacts

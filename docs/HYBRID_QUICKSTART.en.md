@@ -11,8 +11,8 @@ Target environment:
 - Gmail API + Pub/Sub in the same GCP project
 
 Assumptions:
-- project root: `/opt/amazon-notify` (replace as needed)
-- `credentials.json` is already placed
+- **Example install directory:** commands below use `/opt/amazon-notify` only as a placeholder. Use any path; `deployment/systemd/install-systemd.sh --base-dir` substitutes it into unit files.
+- `credentials.json` is already placed next to `config.json` (or paths adjusted accordingly)
 
 For a full portability checklist, see [PORTABILITY_PARAMS.en.md](./PORTABILITY_PARAMS.en.md).
 

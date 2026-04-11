@@ -27,8 +27,11 @@
 - 設定検証: `amazon-notify --validate-config`
 - ヘルスチェック(JSON): `amazon-notify --health-check`
   - 全チェック成功時は終了コード `0`、異常を含む場合は `1`
+- 運用サマリ(人間向けテキスト): `amazon-notify --status`
+- 整合性診断(JSON): `amazon-notify --doctor` または `amazon-notify --verify-state`（同一・定期ジョブ向け）
+- 運用メトリクス(JSON / 簡易テキスト): `amazon-notify --metrics` / `--metrics-plain`（`--metrics-window` で直近 run 件数）
 - ログ保存先変更: `amazon-notify --log-file /var/log/amazon-notify/notifier.log`
-- 設定ファイル変更: `amazon-notify --config /opt/amazon-notify/config.json`
+- 設定ファイル変更: `amazon-notify --config /path/to/config.json`（任意のパス可。クローン先に依存しない）
 - モジュール実行: `python -m amazon_notify.cli`
 - `amazon_subject_pattern` が不正な正規表現なら、起動時にエラーを表示して終了します。
 - `state_file`、`events_file`、`runs_file`、`log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
@@ -185,16 +188,60 @@ sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
 
 ## JSONL メンテナンス（長期運用向け）
 
-- index snapshot の再構築:
+### rotation（肥大化への方針）
+
+- **正本**は `events.jsonl` と `runs.jsonl` の **append-only** です。運用中に途中を削除・上書きしないでください（未知境界や監査ログが壊れます）。
+- **ローテーション**が必要なときは「退避アーカイブ → 別ファイルへ切替 → または現ファイルを空にして最初から」ではなく、まず **フルコピーをアーカイブ**し、復元手順を確認してから計画停止下でのみ実施します。
+- **インデックス**（`*.checkpoint.index.json` / `*.summary.index.json`）はいつでも `--rebuild-indexes` で再生成できます。**消してよいのは**これらの index と、`state.json` 内の派生フィールド（ただし `last_message_id` だけを手で消すと次回の再走査範囲が変わるので非推奨）です。
+- **消してはいけないもの**: 進行中の `events.jsonl` / `runs.jsonl` をバックアップなしで truncate すること、および `checkpoint_advanced` の連続性を失う編集。
+
+### archive 形式（推奨）
+
+- ペアで保存: `events-YYYYMMDD-HHMMSS.jsonl` と `runs-YYYYMMDD-HHMMSS.jsonl` を同じタイムスタンプで揃える。
+- 圧縮: `gzip` したものを `archive/` 等に保管（改行 JSON のままなので `zcat` / `gzip -dc` で閲覧可能）。
+- **manifest（任意・推奨）**: 同じ `ts` で `manifest-${ts}.txt` に次を記録すると復元判断が楽です。
+  - `sha256sum` の出力
+  - `events` / `runs` のバイトサイズ
+  - 退避直前の `amazon-notify --doctor` の `status` 行（または JSON をそのまま）
+
+### restore 手順（要約）
+
+1. サービスを停止する。
+2. 退避してある `events.jsonl` / `runs.jsonl` を希望のパスに戻す（または `config.json` の `events_file` / `runs_file` をアーカイブ側に一時的に向ける）。
+3. `state.json` は **events の frontier と整合するスナップショット**が望ましい。不明な場合は `--rebuild-indexes` のあと、初回実行で整合が取れる設計ですが、**手で `last_message_id` をいじると取りこぼしや再通知のリスク**があるため、アーカイブ時点の `state.json` もまとめて保管するのが安全です。
+4. `amazon-notify --config ... --rebuild-indexes`
+5. `amazon-notify --doctor` で `status: ok` を確認
+6. サービスを開始
+
+### どこまで消してよいか（再掲）
+
+| 対象 | 削除してよいか |
+|------|----------------|
+| `events.jsonl.checkpoint.index.json` | はい（`--rebuild-indexes` で再生成） |
+| `runs.jsonl.summary.index.json` | はい（同上） |
+| `state.json` 全体 | 原則避ける（バックアップ必須）。消すと frontier 情報が失われ再走査が発生しうる |
+| `events.jsonl` / `runs.jsonl` | バックアップなしでは不可。長期保管はアーカイブへ |
+| `.discord_dedupe_state.json` | 可能だが、重複通知の窓がリセットされる |
+
+### restore drill（年1回でもよい確認手順）
+
+1. テスト用ディレクトリに **本番からコピーした** `events.jsonl` / `runs.jsonl` / `state.json`（マスク済み可）を置く。
+2. `amazon-notify --config ./config.json --doctor` が `ok` になること。
+3. index をわざと削除し、`--rebuild-indexes` 後も `--doctor` が `ok` になること。
+4. `--metrics` / `--status` が期待どおりの frontier・直近 run 集計を返すこと。
+5. （任意）読み取り専用ファイルシステム上で `--once --dry-run` を試し、書き込み失敗が想定どおり扱われることを確認する。
+
+### index snapshot の再構築
 
 ```bash
 amazon-notify --config ./config.json --rebuild-indexes
 ```
 
-- `events.jsonl` / `runs.jsonl` のアーカイブ手順（例）:
-  - 実行中サービスを停止
-  - 退避コピーを圧縮保存
-  - 必要なら `--rebuild-indexes` で index を再生成
+### アーカイブ手順（例）
+
+- 実行中サービスを停止
+- 退避コピーを圧縮保存
+- 必要なら `--rebuild-indexes` で index を再生成
 
 ```bash
 sudo systemctl stop amazon-notify-pubsub.service amazon-notify-fallback.timer

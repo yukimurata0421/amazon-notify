@@ -65,6 +65,10 @@ English README: [README.md](./README.md)
 - Pub/Sub message 単位の厳密な永続ワークフロー管理。
 - 汎用メール転送プラットフォーム化。
 
+## パスと作業ディレクトリ
+
+`state_file` / `events_file` / `runs_file` / `log_file` などの実行時パスは、**リポジトリのクローン先には依存しません**。`config.json` を置いたディレクトリを基準に相対解決され、`amazon-notify --config /任意のパス/config.json` で設定ファイルの場所を明示できます。固定したい場合は `config.json` 内で絶対パスを指定してください。
+
 ## クイックスタート
 
 ```bash
@@ -108,6 +112,12 @@ amazon-notify --once --fallback-watchdog
 
 # events/runs から index snapshot を再構築
 amazon-notify --rebuild-indexes
+
+# 運用サマリ(frontier/incident/failure/整合性)を1回表示
+amazon-notify --status
+
+# state/events/runs/index の整合性診断(JSON)を1回表示
+amazon-notify --doctor
 ```
 
 ## Runtime Artifacts
