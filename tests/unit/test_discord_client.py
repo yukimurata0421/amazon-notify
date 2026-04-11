@@ -7,7 +7,12 @@ from amazon_notify import discord_client
 
 
 class _DummyResponse:
-    def __init__(self, should_raise: bool = False, status_code: int | None = None, headers: dict | None = None):
+    def __init__(
+        self,
+        should_raise: bool = False,
+        status_code: int | None = None,
+        headers: dict | None = None,
+    ):
         self._should_raise = should_raise
         self.status_code = status_code
         self.headers = headers or {}
@@ -60,7 +65,9 @@ def test_post_webhook_retries_on_rate_limit(monkeypatch) -> None:
     monkeypatch.setattr(discord_client.requests, "post", fake_post)
     monkeypatch.setattr(discord_client.time, "sleep", lambda sec: sleeps.append(sec))
 
-    assert discord_client._post_webhook("https://discord.invalid/webhook", "hello", max_attempts=3)
+    assert discord_client._post_webhook(
+        "https://discord.invalid/webhook", "hello", max_attempts=3
+    )
     assert calls["count"] == 2
     assert sleeps == [1.0]
 
@@ -95,7 +102,9 @@ def test_send_discord_functions_return_false_when_webhook_missing() -> None:
     assert not discord_client.send_discord_test("", "test")
 
 
-def test_send_discord_alert_formats_message(monkeypatch, dedupe_state_path: Path) -> None:
+def test_send_discord_alert_formats_message(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
     payloads: list[str] = []
     monkeypatch.setattr(
         discord_client,
@@ -112,7 +121,9 @@ def test_send_discord_alert_formats_message(monkeypatch, dedupe_state_path: Path
     assert "Gmail監視システム警告" in payloads[0]
 
 
-def test_send_discord_notification_success_and_failure(monkeypatch, dedupe_state_path: Path) -> None:
+def test_send_discord_notification_success_and_failure(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
     now = {"value": 1000.0}
     monkeypatch.setattr(discord_client.time, "time", lambda: now["value"])
 
@@ -127,7 +138,9 @@ def test_send_discord_notification_success_and_failure(monkeypatch, dedupe_state
     )
 
     now["value"] = 1000.0 + discord_client._DEDUPE_WINDOW_SECONDS["notification"] + 1.0
-    monkeypatch.setattr(discord_client, "_post_webhook", lambda *_args, **_kwargs: False)
+    monkeypatch.setattr(
+        discord_client, "_post_webhook", lambda *_args, **_kwargs: False
+    )
     assert not discord_client.send_discord_notification(
         webhook_url="https://discord.invalid/webhook",
         subject="件名",
@@ -138,7 +151,9 @@ def test_send_discord_notification_success_and_failure(monkeypatch, dedupe_state
     )
 
 
-def test_send_discord_alert_suppresses_duplicate_within_window(monkeypatch, dedupe_state_path: Path) -> None:
+def test_send_discord_alert_suppresses_duplicate_within_window(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
     posted: list[str] = []
 
     def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
@@ -163,7 +178,9 @@ def test_send_discord_alert_suppresses_duplicate_within_window(monkeypatch, dedu
     assert len(posted) == 1
 
 
-def test_send_discord_notification_allows_different_message_ids(monkeypatch, dedupe_state_path: Path) -> None:
+def test_send_discord_notification_allows_different_message_ids(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
     posted: list[str] = []
 
     def fake_post(_webhook_url: str, content: str, **_kwargs) -> bool:
@@ -203,7 +220,9 @@ def test_send_discord_notification_allows_different_message_ids(monkeypatch, ded
     assert len(posted) == 2
 
 
-def test_send_discord_alert_suppresses_when_inflight_claim_exists(monkeypatch, dedupe_state_path: Path) -> None:
+def test_send_discord_alert_suppresses_when_inflight_claim_exists(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
     state_path = dedupe_state_path
     dedupe_key = discord_client._build_dedupe_key(
         "alert",
@@ -259,7 +278,9 @@ def test_post_webhook_returns_false_on_non_retryable_status(monkeypatch) -> None
     assert not discord_client._post_webhook("https://discord.invalid/webhook", "hello")
 
 
-def test_send_discord_recovery_and_test_format(monkeypatch, dedupe_state_path: Path) -> None:
+def test_send_discord_recovery_and_test_format(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
     payloads: list[str] = []
     monkeypatch.setattr(
         discord_client,
@@ -281,7 +302,9 @@ def test_send_discord_recovery_and_test_format(monkeypatch, dedupe_state_path: P
     assert payloads[1].startswith("🧪 **Amazon Notify テスト通知**")
 
 
-def test_read_dedupe_entries_handles_corrupted_or_invalid_payload(tmp_path: Path) -> None:
+def test_read_dedupe_entries_handles_corrupted_or_invalid_payload(
+    tmp_path: Path,
+) -> None:
     state_path = tmp_path / "bad.json"
     state_path.write_text("{invalid-json", encoding="utf-8")
     assert discord_client._read_dedupe_entries(state_path) == {}
@@ -297,9 +320,17 @@ def test_read_and_prune_dedupe_entries_variants(tmp_path: Path) -> None:
             {
                 "entries": {
                     "k1": 123,
-                    "k2": {"last_sent_at": "x", "inflight_until": "y", "inflight_owner": ""},
+                    "k2": {
+                        "last_sent_at": "x",
+                        "inflight_until": "y",
+                        "inflight_owner": "",
+                    },
                     "k2b": {"inflight_owner": "dangling-owner"},
-                    "k3": {"last_sent_at": 2_999_900.0, "inflight_until": 150.0, "inflight_owner": "p1"},
+                    "k3": {
+                        "last_sent_at": 2_999_900.0,
+                        "inflight_until": 150.0,
+                        "inflight_owner": "p1",
+                    },
                     "k4": {"inflight_until": 80.0, "inflight_owner": "p2"},
                     "k5": {"last_sent_at": 0.0},
                 }
@@ -321,7 +352,9 @@ def test_read_and_prune_dedupe_entries_variants(tmp_path: Path) -> None:
     assert "k5" not in entries
 
 
-def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Path) -> None:
+def test_reserve_and_finalize_dedupe_claim_edge_paths(
+    monkeypatch, tmp_path: Path
+) -> None:
     original_lock = discord_client._discord_dedupe_lock
     state_file = tmp_path / ".discord_dedupe_state.json"
     assert discord_client._reserve_dedupe_claim(
@@ -338,7 +371,9 @@ def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Pat
         def __exit__(self, _exc_type, _exc, _tb):
             return False
 
-    monkeypatch.setattr(discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock())
+    monkeypatch.setattr(
+        discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock()
+    )
     allowed, state_path, dedupe_key, owner = discord_client._reserve_dedupe_claim(
         notification_kind="alert",
         content="x",
@@ -348,9 +383,13 @@ def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Pat
     assert allowed and state_path is None and dedupe_key is None and owner is None
 
     # finalize no-op paths
-    discord_client._finalize_dedupe_claim(state_path=None, dedupe_key=None, owner=None, sent=True)
+    discord_client._finalize_dedupe_claim(
+        state_path=None, dedupe_key=None, owner=None, sent=True
+    )
     state_file.write_text(
-        json.dumps({"entries": {"key": {"inflight_owner": "other", "inflight_until": 9999.0}}}),
+        json.dumps(
+            {"entries": {"key": {"inflight_owner": "other", "inflight_until": 9999.0}}}
+        ),
         encoding="utf-8",
     )
     monkeypatch.setattr(discord_client, "_discord_dedupe_lock", original_lock)
@@ -360,7 +399,9 @@ def test_reserve_and_finalize_dedupe_claim_edge_paths(monkeypatch, tmp_path: Pat
         owner="mine",
         sent=True,
     )
-    monkeypatch.setattr(discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock())
+    monkeypatch.setattr(
+        discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock()
+    )
     discord_client._finalize_dedupe_claim(
         state_path=state_file,
         dedupe_key="key",

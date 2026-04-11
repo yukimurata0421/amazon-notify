@@ -4,6 +4,29 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Documented long-term JSONL lifecycle in operations guides (JA/EN): rotation policy vs append-only authority, archive layout, restore steps, safe-to-delete table, and periodic restore drill; rationale captured in `docs/engineering-decisions.md` (§22).
+- Added composite fault scenario tests (`tests/scenarios/test_fault_scenarios.py`) for JSONL corruption, index rebuild, stale incident vs event log, and checkpoint persistence failure; rationale in `docs/engineering-decisions.md` (§23).
+- Added `--verify-state` (alias of `--doctor` JSON) for scheduled consistency checks; added `--metrics` / `--metrics-plain` / `--metrics-window` for thin operational export (checkpoint age, recent run stats, dedupe/incident summaries); rationale in `docs/engineering-decisions.md` (§24).
+- Added `time_utils.parse_utc_iso()` for metrics and timestamp parsing.
+- Documented path/layout independence in README and related docs (config-directory-relative paths, `--config`, placeholder install paths); rationale in `docs/engineering-decisions.md` (§25–26).
+- Added tag-based Release workflow (`.github/workflows/release.yml`) that:
+  - requires a successful CI run for the tagged commit
+  - builds distributable artifacts (`dist/amazon-notify.zip`, wheel, sdist)
+  - creates a GitHub Release with body extracted from the matching `CHANGELOG.md` section.
+- Added tag-based GHCR publish workflow (`.github/workflows/ghcr.yml`) that:
+  - requires a successful CI run for the tagged commit
+  - builds and publishes Docker images to `ghcr.io/<owner>/amazon-notify`.
+- Added runtime operator diagnostics commands:
+  - `--status` for a thin one-shot summary (frontier, last success, incident status, last failure, consistency overview)
+  - `--doctor` for detailed JSON diagnostics across `state/events/runs/index` consistency checks.
+
+### Changed
+- Expanded Docker docs (JA/EN) with GHCR usage examples for tagged images.
+- Expanded operations docs (JA/EN) with explicit manual update and rollback procedures, keeping production deploy out of CI/CD scope.
+
+## [0.4.0] - 2026-04-07
+
 Summary:
 - Runtime state handling was reorganized around explicit path injection, incident-state storage separation, and index rebuild tooling.
 - StreamingPull internals were split for maintainability while preserving existing runtime behavior and health/heartbeat outputs.
@@ -12,7 +35,6 @@ Summary:
 
 ### Changed
 - Added a global Discord notification dedupe layer (alert/recovery/test/delivery) with idempotency keys, cross-process lock coordination, and in-flight claim handling to suppress duplicate sends under concurrent runtimes.
-- Set the next intended release cut to `0.4.0` to group runtime-state model upgrades (checkpoint/run-summary indices, guard-path normalization, and incident-memory refactor) into one semantically-visible update.
 - Added lock/state runtime artifact ignores for dedupe coordination files (`.state.json.lock`, `.discord_dedupe_state.json`, `.discord_dedupe_state.lock`).
 - Hardened Discord dedupe-state parsing/pruning to explicitly drop malformed inflight entries (no dangling owner-only entries).
 - Added paginated Gmail listing for polling catch-up and fail-safe behavior when the checkpoint is not found in listing results, so checkpoint advancement never skips unseen frontier messages under backlog pressure.
@@ -28,6 +50,8 @@ Summary:
 - Added `discord_dedupe_state_file` to `RuntimeConfig` and unified dedupe path usage across notification/incident/test flows by explicit injection.
 - Removed implicit dedupe-state path resolution from `discord_client.py` and made dedupe path an explicit argument path for alert/recovery/test/notification send paths.
 - Moved `--test-discord` path handling onto runtime config construction so dedupe state follows the same `--config`-based runtime directory resolution.
+- Extracted `handle_test_discord()` and added top-level action conflict validation in CLI dispatch (`--setup-watch/--rebuild-indexes`, `--setup-watch/--test-discord`, `--health-check/--test-discord`, `--validate-config/--rebuild-indexes`).
+- Unified `state.json` read-modify-write locking across checkpoint snapshots, incident lifecycle state updates, and Gmail transient/token state tracking through a shared `state_update_lock` helper.
 - Split Gmail runtime logic into dedicated modules:
   - `gmail_auth.py` for OAuth/credential/refresh/auth-state transitions
   - `gmail_transient_state.py` for transient/token issue lifecycle state management
@@ -35,12 +59,15 @@ Summary:
 - Clarified runtime artifact semantics in README/docs (source-of-truth vs derived snapshot vs rebuildable cache vs coordination/lock).
 - Added operations triage order documentation for runtime artifacts and `--rebuild-indexes` usage.
 - Added domain-intent comments to StreamingPull event aggregation/duplicate-skip/heartbeat write paths, and aligned hybrid architecture docs with that model.
+- Added `project.urls` package metadata and tightened static checks (Ruff `B/UP/RUF`, mypy warning strictness); introduced `make release-check` and CI `ruff format --check`.
 
 ### Tests
 - Added regression tests for stale-state recovery dedupe and cross-notification dedupe behavior (duplicate suppression, in-flight suppression, and per-message-key delivery behavior).
 - Added coverage-focused Discord dedupe branch tests so CI coverage gate (`--cov-fail-under=90`) remains stable.
 - Added tests for malformed dedupe-state entries and transient-threshold clamp behavior.
 - Added frontier/backlog regression tests for paginated polling catch-up and checkpoint-not-found fail-safe behavior.
+- Added contract tests to verify runtime-anchored Discord dedupe path propagation across `--test-discord`, notifier incident lifecycle, and failover watchdog flows.
+- Added lock-contract tests for `state_update_lock` usage in checkpoint snapshot and incident store updates, plus CLI action-conflict validation tests.
 
 ## [0.3.0] - 2026-04-05
 

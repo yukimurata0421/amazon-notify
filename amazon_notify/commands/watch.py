@@ -38,10 +38,14 @@ def handle_setup_watch(
         paths=paths,
     )
     if service is None:
-        stderr_error(f"Gmail service を初期化できませんでした。auth_status={status.value}")
+        stderr_error(
+            f"Gmail service を初期化できませんでした。auth_status={status.value}"
+        )
         sys.exit(1)
 
-    label_ids = [item.strip() for item in args.watch_label_ids.split(",") if item.strip()]
+    label_ids = [
+        item.strip() for item in args.watch_label_ids.split(",") if item.strip()
+    ]
     try:
         watch_response = start_gmail_watch_with_retry_fn(
             service,

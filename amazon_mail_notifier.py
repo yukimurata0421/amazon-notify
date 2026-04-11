@@ -46,6 +46,7 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 # ユーティリティ
 # =========================
 
+
 def run_oauth_flow() -> Credentials | None:
     """
     ブラウザ/コンソール経由で新規 OAuth トークンを取得し token.json に保存する。
@@ -63,7 +64,9 @@ def run_oauth_flow() -> Credentials | None:
     try:
         creds = flow.run_local_server(port=0)
     except Exception as e:
-        print(f"[WARN] ブラウザフローが起動できませんでした。コンソールフローに切り替えます: {e}")
+        print(
+            f"[WARN] ブラウザフローが起動できませんでした。コンソールフローに切り替えます: {e}"
+        )
         try:
             creds = flow.run_console()
         except Exception as e2:
@@ -112,7 +115,7 @@ def extract_email_address(s: str) -> str:
     例: 'Amazon.co.jp <shipment-tracking@amazon.co.jp>' → 'shipment-tracking@amazon.co.jp'
     """
     decoded = decode_mime_words(s)
-    m = re.search(r'[\w\.-]+@[\w\.-]+', decoded)
+    m = re.search(r"[\w\.-]+@[\w\.-]+", decoded)
     return m.group(0) if m else decoded
 
 
@@ -120,11 +123,12 @@ def extract_email_address(s: str) -> str:
 # Discord 通知 (エラー用)
 # =========================
 
+
 def send_discord_alert(webhook_url: str, message: str):
     """システムエラーや警告をDiscordに通知する"""
     if not webhook_url:
         return
-    
+
     content = f"⚠️ **Gmail監視システム警告**\n{message}"
     try:
         requests.post(webhook_url, json={"content": content}, timeout=10)
@@ -144,7 +148,9 @@ def send_discord_recovery(webhook_url: str, message: str):
         print(f"[ERROR] Discordへの復旧通知送信失敗: {e}")
 
 
-def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
+def mark_transient_network_issue(
+    state: dict, state_file: Path, err: Exception | str
+) -> None:
     """一時的な通信障害を state に記録する"""
     state["transient_network_issue_active"] = True
     state["last_transient_error"] = str(err)
@@ -203,7 +209,9 @@ def is_transient_network_error(exc: Exception) -> bool:
     return False
 
 
-def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2) -> Exception | None:
+def refresh_with_retry(
+    creds: Credentials, retries: int = 3, base_delay: int = 2
+) -> Exception | None:
     """
     トークン更新をリトライ付きで実行する。
     成功時は None、失敗時は最終例外を返す。
@@ -233,8 +241,9 @@ def refresh_with_retry(creds: Credentials, retries: int = 3, base_delay: int = 2
 # Gmail API 関連 (強化版)
 # =========================
 
+
 def get_gmail_service(
-    webhook_url: str = None,
+    webhook_url: str | None = None,
     state: dict | None = None,
     state_file: Path | None = None,
 ):
@@ -314,27 +323,38 @@ def get_gmail_service(
 
 def list_recent_messages(service, query: str, max_results: int):
     """条件に合う最近のメッセージ一覧を取得"""
-    result = service.users().messages().list(
-        userId="me",
-        q=query,
-        maxResults=max_results,
-    ).execute()
+    result = (
+        service.users()
+        .messages()
+        .list(
+            userId="me",
+            q=query,
+            maxResults=max_results,
+        )
+        .execute()
+    )
 
     return result.get("messages", [])
 
 
 def get_message_detail(service, message_id: str) -> dict:
     """messageId から詳細情報を取得"""
-    return service.users().messages().get(
-        userId="me",
-        id=message_id,
-        format="full",
-    ).execute()
+    return (
+        service.users()
+        .messages()
+        .get(
+            userId="me",
+            id=message_id,
+            format="full",
+        )
+        .execute()
+    )
 
 
 # =========================
 # Discord 通知 (メール用)
 # =========================
+
 
 def send_discord_notification(
     webhook_url: str,
@@ -365,6 +385,7 @@ def send_discord_notification(
 # =========================
 # メインロジック
 # =========================
+
 
 def is_amazon_mail(from_header: str, pattern: str) -> bool:
     """差出人ヘッダー判定"""
@@ -399,7 +420,7 @@ def run_once(runtime: dict):
         state=state,
         state_file=state_file,
     )
-    
+
     if service is None:
         print("[WARN] Gmail API の初期化に失敗したため、この周期をスキップします。")
         return
@@ -408,13 +429,14 @@ def run_once(runtime: dict):
     query = "in:inbox"
 
     try:
-        messages = list_recent_messages(
-            service, query=query, max_results=max_messages
-        )
+        messages = list_recent_messages(service, query=query, max_results=max_messages)
     except HttpError as e:
         print(f"[ERROR] Gmail API 呼び出しでエラー: {e}")
         if discord_webhook_url:
-            send_discord_alert(webhook_url=discord_webhook_url, message=f"Gmail API 呼び出しエラー: {e}")
+            send_discord_alert(
+                webhook_url=discord_webhook_url,
+                message=f"Gmail API 呼び出しエラー: {e}",
+            )
         return
     except Exception as e:
         if is_transient_network_error(e):
@@ -428,7 +450,10 @@ def run_once(runtime: dict):
             return
         print(f"[ERROR] Gmail API 呼び出しで予期しないエラー: {e}")
         if discord_webhook_url:
-            send_discord_alert(webhook_url=discord_webhook_url, message=f"Gmail API 予期しないエラー: {e}")
+            send_discord_alert(
+                webhook_url=discord_webhook_url,
+                message=f"Gmail API 予期しないエラー: {e}",
+            )
         return
 
     notify_recovery_if_needed(
@@ -547,7 +572,9 @@ def main():
     if args.once:
         return
 
-    print(f"[INFO] ループ監視モード開始。{poll_interval}秒ごとにチェックします。Ctrl+C で終了。")
+    print(
+        f"[INFO] ループ監視モード開始。{poll_interval}秒ごとにチェックします。Ctrl+C で終了。"
+    )
     while True:
         time.sleep(poll_interval)
         try:

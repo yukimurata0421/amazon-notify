@@ -22,6 +22,9 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 - Dry run: `amazon-notify --once --dry-run`
 - Validate config: `amazon-notify --validate-config`
 - Health check JSON: `amazon-notify --health-check`
+- Operator summary (text): `amazon-notify --status`
+- Consistency audit JSON: `amazon-notify --doctor` or `amazon-notify --verify-state` (alias for scheduled jobs)
+- Operational metrics (JSON / plain text): `amazon-notify --metrics` / `--metrics-plain` (use `--metrics-window` for recent run window size)
 
 ## Runtime Files and Paths
 - Relative paths (`state_file`, `events_file`, `runs_file`, `log_file`) are resolved from the directory containing `config.json`.
@@ -50,6 +53,21 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
   - inspect `.discord_dedupe_state.json` and `.discord_dedupe_state.lock`.
 - Check lock/coordination contention:
   - inspect `.state.json.lock` and `.discord_dedupe_state.lock`.
+
+## v0.4.0 Migration Notes
+- Checkpoint source of truth is `events.jsonl` (`checkpoint_advanced`).
+- `state.json` remains a derived compatibility snapshot.
+- On first startup only, if `events.jsonl` is empty and `state.json.last_message_id` exists, one bootstrap `checkpoint_advanced` event is written.
+- Discord dedupe state is unified under the runtime directory (`.discord_dedupe_state.json`).
+  - When `--config` changes, `--test-discord`, normal notification, alert, and recovery all use the same runtime-anchored dedupe state path.
+- Index snapshots (`events.jsonl.checkpoint.index.json` / `runs.jsonl.summary.index.json`) are rebuildable caches.
+  - If startup/read behavior looks stale or inconsistent, run `amazon-notify --rebuild-indexes`.
+- Polling catch-up scans paginated Gmail listing. If checkpoint is not visible in listing windows, checkpoint is not advanced past unknown frontier (fail-safe).
+- If `transient_alert_min_duration_seconds` is negative, runtime handling clamps it to `0` with a warning instead of aborting.
+- Guard-path unhandled exceptions converge to persisted `source_failed` + `RunResult`, so standard operations checks (`events.jsonl` / `runs.jsonl`) still apply.
+- Rollback notes:
+  - `state.json` keeps being updated, so 0.1-series boundary data is preserved.
+  - 0.2+ audit logs (`events.jsonl` / `runs.jsonl`) are not consumed by 0.1-series binaries.
 
 ## Failure Handling Summary
 - `delivery_failed`: Discord send failed; checkpoint is not advanced.
@@ -93,16 +111,57 @@ sudo journalctl -u amazon-notify-fallback.service -f
 
 ## JSONL Maintenance (Long-Running Deployments)
 
-- Rebuild index snapshots:
+### Rotation policy (growth)
+
+- **Source of truth** is append-only `events.jsonl` and `runs.jsonl`. Do not delete or rewrite the middle of these files while running (it breaks frontier semantics and audit history).
+- When **rotation** is required, always **archive full copies** first and validate restore. Only under a planned maintenance window consider truncating or swapping files.
+- **Index files** (`*.checkpoint.index.json`, `*.summary.index.json`) are safe to delete; run `--rebuild-indexes`. Derived fields inside `state.json` can be rebuilt from JSONL in normal operation, but **do not casually delete `last_message_id`** by hand (it changes how much mail is rescanned).
+- **Never** truncate active `events.jsonl` / `runs.jsonl` without a backup.
+
+### Recommended archive format
+
+- Pair files with the same timestamp: `events-YYYYMMDD-HHMMSS.jsonl` and `runs-YYYYMMDD-HHMMSS.jsonl`.
+- Compress with `gzip`; lines remain JSONL (`zcat` / `gzip -dc` to inspect).
+- Optional **manifest** (`manifest-${ts}.txt`): store `sha256sum` output, byte sizes, and optionally the `status` line from `amazon-notify --doctor` taken at archive time.
+
+### Restore (summary)
+
+1. Stop services.
+2. Restore `events.jsonl` / `runs.jsonl` (or point `events_file` / `runs_file` in `config.json` at the restored paths).
+3. Prefer restoring `state.json` from the same backup window; if unknown, rely on rebuild + next runs, but manual edits to `last_message_id` risk skips or duplicate notifications.
+4. `amazon-notify --config ... --rebuild-indexes`
+5. `amazon-notify --doctor` → expect `status: ok`
+6. Start services
+
+### What may be deleted (recap)
+
+| Artifact | Safe to delete? |
+|----------|-----------------|
+| `events.jsonl.checkpoint.index.json` | Yes (rebuild) |
+| `runs.jsonl.summary.index.json` | Yes (rebuild) |
+| Entire `state.json` | Avoid without backup |
+| Active `events.jsonl` / `runs.jsonl` | No without archive |
+| `.discord_dedupe_state.json` | Yes, but dedupe windows reset |
+
+### Restore drill (e.g. yearly)
+
+1. Copy production `events.jsonl` / `runs.jsonl` / `state.json` (redacted OK) into a test directory.
+2. `amazon-notify --config ./config.json --doctor` → `ok`.
+3. Delete index JSON files, run `--rebuild-indexes`, `--doctor` still `ok`.
+4. `--metrics` / `--status` show expected frontier and recent-run stats.
+5. Optional: run `--once --dry-run` on a read-only mount and confirm failures are handled as expected.
+
+### Rebuild index snapshots
 
 ```bash
 amazon-notify --config ./config.json --rebuild-indexes
 ```
 
-- Archive `events.jsonl` / `runs.jsonl` example:
-  - stop running services
-  - copy and compress archives
-  - rebuild indexes if needed
+### Archive example
+
+- stop running services
+- copy and compress archives
+- rebuild indexes if needed
 
 ```bash
 sudo systemctl stop amazon-notify-pubsub.service amazon-notify-fallback.timer
@@ -119,3 +178,47 @@ sudo systemctl start amazon-notify-pubsub.service amazon-notify-fallback.timer
 - Current implementation is single-host oriented.
 - Linux + `fcntl` is the supported lock environment for Discord dedupe coordination.
 - If you also have external monitoring (node exporter, cloud alerts), use those metrics as primary evidence and cross-check local app logs.
+
+## Release Checklist
+Run this fixed pre-release gate before cutting a release:
+
+```bash
+make release-check
+```
+
+What it executes:
+- `ruff check .`
+- `ruff format --check .`
+- `mypy .`
+- `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
+- `docker build -t amazon-notify:0.4.0 .`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`
+
+## Manual update and rollback (no auto deploy)
+This repository intentionally does not auto-deploy to production hosts. Updates and rollback are manual.
+
+Update:
+1. Checkout the target tag (example: `v0.4.0`).
+2. Reinstall package dependencies (`pip install .`).
+3. Restart services and verify status.
+
+```bash
+git fetch --tags
+git checkout v0.4.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+sudo systemctl status amazon-notify-pubsub.service
+```
+
+Rollback:
+1. Checkout the previous stable tag.
+2. Run `pip install .` again.
+3. Restart services, then verify `events.jsonl`, `runs.jsonl`, and logs.
+
+```bash
+git checkout v0.3.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+```

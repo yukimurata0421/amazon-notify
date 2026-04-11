@@ -32,6 +32,9 @@ jobs:
       - name: Ruff
         run: ruff check amazon_notify tests
 
+      - name: Ruff format check
+        run: ruff format --check .
+
   typecheck:
     runs-on: ubuntu-latest
 

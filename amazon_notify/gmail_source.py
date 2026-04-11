@@ -42,15 +42,21 @@ class GmailMailSource:
     runtime_paths: RuntimePaths
     transient_alert_min_duration_seconds: float
     transient_alert_cooldown_seconds: float
-    get_gmail_service_with_status_fn: Callable[..., tuple[Any | None, AuthStatus]] = get_gmail_service_with_status
-    list_recent_messages_page_fn: Callable[..., tuple[list[dict[str, str]], str | None]] = (
-        list_recent_messages_page
+    get_gmail_service_with_status_fn: Callable[..., tuple[Any | None, AuthStatus]] = (
+        get_gmail_service_with_status
     )
+    list_recent_messages_page_fn: Callable[
+        ..., tuple[list[dict[str, str]], str | None]
+    ] = list_recent_messages_page
     get_message_detail_fn: Callable[[Any, str], dict[str, Any]] = get_message_detail
-    notify_recovery_if_needed_fn: Callable[[str, dict, Path], None] = notify_recovery_if_needed
+    notify_recovery_if_needed_fn: Callable[[str, dict, Path], None] = (
+        notify_recovery_if_needed
+    )
     record_transient_issue_fn: Callable[..., bool] = record_transient_issue
     is_retryable_http_error_fn: Callable[[Exception], bool] = is_retryable_http_error
-    is_transient_network_error_fn: Callable[[Exception], bool] = is_transient_network_error
+    is_transient_network_error_fn: Callable[[Exception], bool] = (
+        is_transient_network_error
+    )
     http_error_type: type[Exception] = HttpError
     auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
 
@@ -60,7 +66,9 @@ class GmailMailSource:
     def notify_recovery_if_needed(self) -> None:
         if self.dry_run:
             return
-        self.notify_recovery_if_needed_fn(self.discord_webhook_url, self.state, self.state_file)
+        self.notify_recovery_if_needed_fn(
+            self.discord_webhook_url, self.state, self.state_file
+        )
 
     def mark_transient_issue(self, err: Exception | str) -> None:
         if self.dry_run:
@@ -89,7 +97,9 @@ class GmailMailSource:
                 return fn()
             except Exception as exc:
                 last_exc = exc
-                should_retry = self.is_transient_network_error_fn(exc) or self.is_retryable_http_error_fn(exc)
+                should_retry = self.is_transient_network_error_fn(
+                    exc
+                ) or self.is_retryable_http_error_fn(exc)
                 if (not should_retry) or attempt == self.gmail_api_max_retries:
                     break
                 delay = next_delay_seconds(
@@ -110,7 +120,9 @@ class GmailMailSource:
         assert last_exc is not None
         raise last_exc
 
-    def iter_new_messages(self, checkpoint: Checkpoint, max_messages: int) -> Iterable[MailEnvelope]:
+    def iter_new_messages(
+        self, checkpoint: Checkpoint, max_messages: int
+    ) -> Iterable[MailEnvelope]:
         # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
         service, status = self.get_gmail_service_with_status_fn(
             webhook_url=None if self.dry_run else self.discord_webhook_url,
@@ -135,9 +147,14 @@ class GmailMailSource:
 
         list_page_size = min(500, max(max_messages, 100))
 
-        def _safe_fetch_page(page_token: str | None) -> tuple[list[dict[str, str]], str | None]:
+        def _safe_fetch_page(
+            page_token: str | None,
+        ) -> tuple[list[dict[str, str]], str | None]:
             try:
-                def _list_page(_page_token: str | None = page_token) -> tuple[list[dict[str, str]], str | None]:
+
+                def _list_page(
+                    _page_token: str | None = page_token,
+                ) -> tuple[list[dict[str, str]], str | None]:
                     return self.list_recent_messages_page_fn(
                         service,
                         query="in:inbox",
@@ -145,11 +162,15 @@ class GmailMailSource:
                         page_token=_page_token,
                     )
 
-                return self._call_gmail_api_with_retry("list_recent_messages", _list_page)
+                return self._call_gmail_api_with_retry(
+                    "list_recent_messages", _list_page
+                )
             except Exception as exc:
                 if isinstance(exc, self.http_error_type):
                     if self.is_retryable_http_error_fn(exc):
-                        raise TransientSourceError(f"Gmail API 一時エラー: {exc}") from exc
+                        raise TransientSourceError(
+                            f"Gmail API 一時エラー: {exc}"
+                        ) from exc
                     raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
                 if self.is_transient_network_error_fn(exc):
                     raise TransientSourceError(str(exc)) from exc

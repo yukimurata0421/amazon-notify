@@ -95,12 +95,13 @@
 
 ### 採用
 - `AuthStatus`（`domain.py`）
-- Gmail 認証処理は `gmail_client.py` で状態を返す
+- Gmail 認証状態遷移は `gmail_auth.py`、互換ファサードは `gmail_client.py`
 
 ### 理由
 - 長い if/except を「遷移結果」に変換して判定を統一できる
 - `health-check` と `runs.jsonl` に auth 状態を載せられる
 - アラート抑制や incident 管理と組み合わせやすい
+- 認証処理本体と API 呼び出し/公開 interface を分離し、変更時の影響範囲を限定できる
 
 ## 7. Incident lifecycle を入れた理由
 
@@ -172,7 +173,7 @@
   - bootstrap / source-of-truth / JSONL 復元が成立する
 
 ### 理由
-- v0.3.0 の価値は機能追加より「仕様固定」
+- v0.4.0 の価値は機能追加より「仕様固定」
 - 実装詳細の変更に強い回帰防止が必要
 
 ## 11. CI と品質ゲート
@@ -242,3 +243,114 @@
 ### 理由
 - lock が静かに劣化すると、重複通知が断続的に発生して原因追跡が難しくなるため。
 - 非対応環境を明示したほうが運用上の誤解を減らせるため。
+
+## 17. Discord dedupe state path を runtime 注入へ統一した理由
+
+### 採用
+- `.discord_dedupe_state.json` の解決を `discord_client.py` 内の暗黙 path 解決から外し、`RuntimeConfig` の `discord_dedupe_state_file` を明示注入する。
+- `--test-discord`、通常通知、alert/recovery の全経路で同じ runtime 基準 path を使う。
+
+### 理由
+- `--config` 切り替え時の runtime artifact 配置規則を統一し、状態参照先の不一致を避けるため。
+- dedupe だけ別系統で path 解決すると、再現しづらい運用不整合が残るため。
+
+## 18. Gmail 実装を auth / transient state / facade に分割した理由
+
+### 採用
+- `gmail_auth.py`: OAuth/credential/refresh/auth-state 遷移
+- `gmail_transient_state.py`: transient/token issue lifecycle と state 更新
+- `gmail_client.py`: 互換ファサードと公開 API の集約
+
+### 理由
+- 認証、障害状態管理、API 呼び出しを分離してレビュー/テスト境界を明確化するため。
+- 既存呼び出し側の import 面を壊さずに内部責務を再編できるため。
+
+## 19. StreamingPull の集約/重複スキップ意図をコードコメントで明示した理由
+
+### 採用
+- `history_id` の latest 集約、duplicate skip、heartbeat atomic write の意図を実装箇所に明示する。
+
+### 理由
+- Pub/Sub を durable workflow queue ではなく trigger 経路として扱う前提を、コード上で読み取れるようにするため。
+- Gmail catch-up 前提の設計意図をコメントとして固定し、将来の誤修正を減らすため。
+
+## 20. Polling catch-up で paginated listing + checkpoint-not-found fail-safe を採用した理由
+
+### 採用
+- Gmail 一覧取得をページング対応し、checkpoint に到達するまで oldest-first で走査する。
+- 一覧上で checkpoint が見つからない場合でも、未知境界を飛び越えて checkpoint を進めない（fail-safe）。
+
+### 理由
+- backlog が大きい状況でも frontier の穴を作らないため。
+- 「一覧 API の窓から落ちた checkpoint」に対して安全側に倒し、未確認領域を既読扱いしないため。
+
+## 21. 一時障害しきい値の負値を warning + clamp で扱う理由
+
+### 採用
+- `transient_alert_min_duration_seconds < 0` は例外停止ではなく warning を出し、`0` にクランプして継続する。
+
+### 理由
+- 設定ミスを原因に通知パイプライン全体が停止するリスクを避けるため。
+- fail-fast より「安全側で継続 + 可視化」を優先するため。
+
+## 22. 長期運用向けに JSONL の rotation / archive / restore drill を文章化した理由
+
+### 採用
+- `docs/OPERATIONS.md` / `OPERATIONS.en.md` に、append-only 正本と `rebuild-indexes` 前提のまま、次を明示する節を追加した。
+  - rotation 方針（正本の途中削除を避ける、index は再生成可）
+  - アーカイブ形式（同一タイムスタンプの events/runs、gzip、任意 manifest）
+  - restore 手順（停止 → 復元 → rebuild → `--doctor` → 起動）
+  - 削除してよいものの表（index は可、正本 truncate は不可 等）
+  - `restore drill`（年に一度でもよい検証手順）
+
+### 理由
+- 「動く」だけでなく、**寿命管理と障害復旧の物語**がドキュメントにないと、長期運用で次に効くのは堅牢性より**運用の再現性**だから。
+- 実装は既に append-only + 派生 state/index であるため、**運用の完成度**は「何を消してよいか」「どう戻すか」が言語化されているかで決まる。
+- 本リポジトリは自動デプロイしない前提のため、手順は README ではなく **運用ガイドに集約**する。
+
+## 23. 複合障害シナリオ用の `tests/scenarios/` を追加した理由
+
+### 採用
+- `tests/scenarios/test_fault_scenarios.py` で、ストレージ・整合性に寄せた複合ケースを検証する。
+  - JSONL **途中行破損**は `CheckpointError`（末尾のみ tail ignore と対比）
+  - index 削除後の **`rebuild_indexes`**
+  - events の `incident_recovered` と state の active incident の **不整合**を `--doctor` 系で検知
+  - `advance_checkpoint` 経路の **ENOSPC**（`_append_jsonl` を patch）
+
+### 理由
+- 単体テストが個別モジュールを守るのに対し、**契約と構造が複合条件でも崩れないことを証明する層**が別に必要だから。
+- Gmail/Discord の細かいトランジェントは既存の `tests/unit/` に寄せ、ここでは **正本・派生物・index の整合**に集中する。
+
+## 24. `--verify-state` と運用メトリクス（`--metrics`）を追加した理由
+
+### 採用
+- `--verify-state`: `--doctor` と同一の整合性 JSON を別名で出力（定期ジョブ・外部監視のスクリプトに名前を合わせやすくする）。
+- `--metrics` / `--metrics-plain` / `--metrics-window`: `amazon_notify.status.build_metrics_report()` 経由で、checkpoint 経過時間、直近 N run の成否・失敗率、通知件数集計、incident suppress イベント数、dedupe エントリ数、open incident の経過時間などを **JSON または簡易テキスト**で出力。
+- `time_utils.parse_utc_iso`: メトリクスとイベントの `at` から経過秒を計算するため（末尾 `Z` 等を許容）。
+
+### 理由
+- **整合性検査**は「壊れたあと読む」だけでなく、**静かに壊れていないか**を定期確認する用途がある（`--doctor` / `--verify-state`）。
+- 大きな監視基盤を前提にしない一方で、**raspi-sentinel 等の薄い exporter** や cron から読める**傾向の面**が欲しい（`--metrics`）。
+- 用語は運用者が選びやすいよう、`--doctor` と `--verify-state` を併存させた。
+
+## 25. 公開リポジトリ向けにドキュメントから「特定マシン依存」に読める表現を減らした理由
+
+### 採用
+- README に「Paths and working directory」相当の節（パスは `config.json` 基準・`--config` で切替、クローン先に依存しない）。
+- `PORTABILITY` の例から個人名に読めるユーザー例を削除し、汎用例に変更。
+- `HYBRID_QUICKSTART` で `/opt/amazon-notify` を **プレースホルダ**であることと `install-systemd.sh --base-dir` を明記。
+- `OPERATIONS` の `--config` 例を `/path/to/config.json` 形式に。
+- `DOCKER` にフォーク時のレジストリ読み替えと「ホスト固定パス不要」の注記。
+
+### 理由
+- 公開リポジトリは **クローン先や開発者のホームディレクトリに紐づかない**ことが期待されるため。
+- 実装はもともと `config.json` 相対解決＋`--config` であるため、**ドキュメント側の例示が誤解を生まないようにする**のが目的（挙動変更ではない）。
+
+## 26. `docs/` と README を公開リポジトリを正として開発環境へ揃える運用
+
+### 採用
+- 運用・設計の説明（本ファイルの追記、CHANGELOG、README、OPERATIONS 等）は **公開リポジトリを正**とし、開発用ワークスペースへは同内容を移植する。
+
+### 理由
+- 公開物と開発用のドキュメントが二重管理すると、**リリース時の取りこぼし**が発生しやすい。
+- 実装の実験は開発ブランチで行い、**ドキュメントの一次ソース**は公開リポジトリに寄せる。

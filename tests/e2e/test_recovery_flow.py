@@ -25,7 +25,9 @@ def _runtime(tmp_path: Path) -> RuntimeConfig:
     )
 
 
-def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: Path) -> None:
+def test_e2e_transient_error_then_recovery_notification(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "baseline"}), encoding="utf-8")
 
@@ -55,7 +57,9 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
             raise next_item
         return next_item, None
 
-    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
+    monkeypatch.setattr(
+        notifier, "list_recent_messages_page", fake_list_recent_messages_page
+    )
 
     alerts: list[str] = []
     recoveries: list[str] = []
@@ -83,7 +87,9 @@ def test_e2e_transient_error_then_recovery_notification(monkeypatch, tmp_path: P
     assert "復旧" in recoveries[0]
 
 
-def test_e2e_transient_alert_threshold_respects_default_window(monkeypatch, tmp_path: Path) -> None:
+def test_e2e_transient_alert_threshold_respects_default_window(
+    monkeypatch, tmp_path: Path
+) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "baseline"}), encoding="utf-8")
     state = {"last_message_id": "baseline"}

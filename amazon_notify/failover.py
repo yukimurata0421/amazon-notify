@@ -75,7 +75,9 @@ def get_systemd_service_state(service_name: str) -> str | None:
     return output or "unknown"
 
 
-def heartbeat_age_seconds(heartbeat_file: Path, now: float | None = None) -> float | None:
+def heartbeat_age_seconds(
+    heartbeat_file: Path, now: float | None = None
+) -> float | None:
     if not heartbeat_file.exists():
         return None
     current_time = time.time() if now is None else now
@@ -90,7 +92,9 @@ def heartbeat_age_seconds(heartbeat_file: Path, now: float | None = None) -> flo
     return max(0.0, age)
 
 
-def worker_heartbeat_age_seconds(heartbeat_file: Path, now: float | None = None) -> float | None:
+def worker_heartbeat_age_seconds(
+    heartbeat_file: Path, now: float | None = None
+) -> float | None:
     if not heartbeat_file.exists():
         return None
     snapshot = load_heartbeat_snapshot(heartbeat_file)

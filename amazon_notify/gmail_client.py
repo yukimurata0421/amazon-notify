@@ -1,7 +1,8 @@
 import socket
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, NoReturn
+from typing import Any, NoReturn
 
 try:
     from requests import exceptions as requests_exceptions
@@ -19,6 +20,7 @@ try:
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
+
     GOOGLE_IMPORT_ERROR: ModuleNotFoundError | None = None
 except ModuleNotFoundError as exc:
     GOOGLE_IMPORT_ERROR = exc
@@ -51,7 +53,7 @@ except ModuleNotFoundError as exc:
         def from_client_secrets_file(*_args, **_kwargs) -> NoReturn:
             _raise_google_import_error()
 
-    def build(*_args, **_kwargs) -> NoReturn:  # type: ignore[no-redef]
+    def build(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
 
     def Request(*_args, **_kwargs) -> NoReturn:  # type: ignore[no-redef]
@@ -59,6 +61,7 @@ except ModuleNotFoundError as exc:
 
     class HttpError(Exception):  # type: ignore[no-redef]
         """Fallback error type when googleapiclient is unavailable."""
+
 
 from . import config as app_config
 from . import gmail_auth, gmail_transient_state
@@ -90,7 +93,9 @@ DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = (
 )
 
 
-def _collect_exception_types(module: Any, names: tuple[str, ...]) -> tuple[type[BaseException], ...]:
+def _collect_exception_types(
+    module: Any, names: tuple[str, ...]
+) -> tuple[type[BaseException], ...]:
     collected: list[type[BaseException]] = []
     for name in names:
         candidate = getattr(module, name, None)
@@ -184,7 +189,7 @@ def run_oauth_flow(paths: RuntimePaths | None = None) -> Credentials | None:
     )
     if creds is None:
         return None
-    return creds  # type: ignore[return-value]
+    return creds
 
 
 def record_transient_issue(
@@ -206,15 +211,19 @@ def record_transient_issue(
         alert_message=alert_message,
         min_alert_duration_seconds=min_alert_duration_seconds,
         alert_cooldown_seconds=alert_cooldown_seconds,
-        send_discord_alert_fn=lambda webhook_url, message: _send_discord_alert_with_dedupe(
-            webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
+        send_discord_alert_fn=lambda webhook_url, message: (
+            _send_discord_alert_with_dedupe(
+                webhook_url,
+                message,
+                dedupe_state_path=dedupe_state_path,
+            )
         ),
     )
 
 
-def mark_transient_network_issue(state: dict, state_file: Path, err: Exception | str) -> None:
+def mark_transient_network_issue(
+    state: dict, state_file: Path, err: Exception | str
+) -> None:
     record_transient_issue(state, state_file, err)
 
 
@@ -224,10 +233,12 @@ def notify_recovery_if_needed(webhook_url: str, state: dict, state_file: Path) -
         webhook_url,
         state,
         state_file,
-        send_discord_recovery_fn=lambda _webhook_url, message: _send_discord_recovery_with_dedupe(
-            _webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
+        send_discord_recovery_fn=lambda _webhook_url, message: (
+            _send_discord_recovery_with_dedupe(
+                _webhook_url,
+                message,
+                dedupe_state_path=dedupe_state_path,
+            )
         ),
     )
 
@@ -236,16 +247,20 @@ def mark_token_issue(state: dict, state_file: Path, reason: str) -> bool:
     return gmail_transient_state.mark_token_issue(state, state_file, reason)
 
 
-def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_file: Path) -> None:
+def notify_token_recovery_if_needed(
+    webhook_url: str | None, state: dict, state_file: Path
+) -> None:
     dedupe_state_path = _dedupe_state_path_for_state_file(state_file)
     gmail_transient_state.notify_token_recovery_if_needed(
         webhook_url,
         state,
         state_file,
-        send_discord_recovery_fn=lambda _webhook_url, message: _send_discord_recovery_with_dedupe(
-            _webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
+        send_discord_recovery_fn=lambda _webhook_url, message: (
+            _send_discord_recovery_with_dedupe(
+                _webhook_url,
+                message,
+                dedupe_state_path=dedupe_state_path,
+            )
         ),
     )
 
@@ -253,7 +268,9 @@ def notify_token_recovery_if_needed(webhook_url: str | None, state: dict, state_
 def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
     if isinstance(exc, (TimeoutError, socket.timeout, socket.gaierror)):
         return True
-    if _LIBRARY_TRANSIENT_EXCEPTION_TYPES and isinstance(exc, _LIBRARY_TRANSIENT_EXCEPTION_TYPES):
+    if _LIBRARY_TRANSIENT_EXCEPTION_TYPES and isinstance(
+        exc, _LIBRARY_TRANSIENT_EXCEPTION_TYPES
+    ):
         return True
 
     transient_keywords = (
@@ -333,10 +350,12 @@ def _record_token_issue_and_maybe_alert(
         state_file,
         reason,
         alert_message,
-        send_discord_alert_fn=lambda _webhook_url, message: _send_discord_alert_with_dedupe(
-            _webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
+        send_discord_alert_fn=lambda _webhook_url, message: (
+            _send_discord_alert_with_dedupe(
+                _webhook_url,
+                message,
+                dedupe_state_path=dedupe_state_path,
+            )
         ),
     )
 
@@ -363,10 +382,12 @@ def _record_transient_issue(
         alert_message,
         min_alert_duration_seconds,
         alert_cooldown_seconds,
-        send_discord_alert_fn=lambda _webhook_url, message: _send_discord_alert_with_dedupe(
-            _webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
+        send_discord_alert_fn=lambda _webhook_url, message: (
+            _send_discord_alert_with_dedupe(
+                _webhook_url,
+                message,
+                dedupe_state_path=dedupe_state_path,
+            )
         ),
     )
 
@@ -416,10 +437,13 @@ def _ensure_usable_credentials(
         run_oauth_flow_fn=run_oauth_flow,
         record_transient_issue_fn=_record_transient_issue,
         record_token_issue_and_maybe_alert_fn=_record_token_issue_and_maybe_alert,
-        send_discord_alert_fn=lambda _webhook_url, message: _send_discord_alert_with_dedupe(
-            _webhook_url,
-            message,
-            dedupe_state_path=runtime_paths.runtime_dir / _DISCORD_DEDUPE_STATE_FILENAME,
+        send_discord_alert_fn=lambda _webhook_url, message: (
+            _send_discord_alert_with_dedupe(
+                _webhook_url,
+                message,
+                dedupe_state_path=runtime_paths.runtime_dir
+                / _DISCORD_DEDUPE_STATE_FILENAME,
+            )
         ),
     )
     return usable_creds, status
@@ -500,7 +524,9 @@ def start_gmail_watch_with_retry(
             )
         except Exception as exc:
             last_exc = exc
-            should_retry = is_transient_network_error(exc) or is_retryable_http_error(exc)
+            should_retry = is_transient_network_error(exc) or is_retryable_http_error(
+                exc
+            )
             if (not should_retry) or attempt == retries:
                 break
             delay = next_delay_seconds(
@@ -592,7 +618,9 @@ def get_gmail_service(
     return service
 
 
-def list_recent_messages(service: Any, query: str, max_results: int) -> list[dict[str, str]]:
+def list_recent_messages(
+    service: Any, query: str, max_results: int
+) -> list[dict[str, str]]:
     return list_recent_messages_impl(
         service,
         query=query,

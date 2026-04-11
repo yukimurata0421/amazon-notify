@@ -11,8 +11,8 @@ Target environment:
 - Gmail API + Pub/Sub in the same GCP project
 
 Assumptions:
-- project root: `/opt/amazon-notify` (replace as needed)
-- `credentials.json` is already placed
+- **Example install directory:** commands below use `/opt/amazon-notify` only as a placeholder. Use any path; `deployment/systemd/install-systemd.sh --base-dir` substitutes it into unit files.
+- `credentials.json` is already placed next to `config.json` (or paths adjusted accordingly)
 
 For a full portability checklist, see [PORTABILITY_PARAMS.en.md](./PORTABILITY_PARAMS.en.md).
 
@@ -170,3 +170,7 @@ sudo journalctl -u amazon-notify-pubsub.service -f
 sudo journalctl -u amazon-notify-fallback.service -f
 amazon-notify --config ./config.json --health-check
 ```
+
+- If `dedupe_lock_supported` is `false`, Discord dedupe lock is unavailable on this platform (Linux + `fcntl` expected).
+- When `--config` changes, dedupe-state resolution (`.discord_dedupe_state.json`) also changes accordingly, including `--test-discord`.
+- If `events.jsonl` / `runs.jsonl` reads look stale or inconsistent, rebuild indexes with `amazon-notify --config ./config.json --rebuild-indexes`.

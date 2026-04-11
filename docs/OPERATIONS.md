@@ -27,8 +27,11 @@
 - 設定検証: `amazon-notify --validate-config`
 - ヘルスチェック(JSON): `amazon-notify --health-check`
   - 全チェック成功時は終了コード `0`、異常を含む場合は `1`
+- 運用サマリ(人間向けテキスト): `amazon-notify --status`
+- 整合性診断(JSON): `amazon-notify --doctor` または `amazon-notify --verify-state`（同一・定期ジョブ向け）
+- 運用メトリクス(JSON / 簡易テキスト): `amazon-notify --metrics` / `--metrics-plain`（`--metrics-window` で直近 run 件数）
 - ログ保存先変更: `amazon-notify --log-file /var/log/amazon-notify/notifier.log`
-- 設定ファイル変更: `amazon-notify --config /opt/amazon-notify/config.json`
+- 設定ファイル変更: `amazon-notify --config /path/to/config.json`（任意のパス可。クローン先に依存しない）
 - モジュール実行: `python -m amazon_notify.cli`
 - `amazon_subject_pattern` が不正な正規表現なら、起動時にエラーを表示して終了します。
 - `state_file`、`events_file`、`runs_file`、`log_file` の相対パスは `config.json` のあるディレクトリ基準で解決されます。
@@ -60,10 +63,17 @@
 - lock 競合の確認:
   - `.state.json.lock` と `.discord_dedupe_state.lock` の残存状態を確認します。
 
-## v0.3.0 移行仕様
+## v0.4.0 移行仕様
 - checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
 - `state.json` は互換スナップショット（派生物）として更新されます。
 - 初回起動時に `events.jsonl` が空で `state.json.last_message_id` がある場合のみ、bootstrap 用 `checkpoint_advanced` を 1 回記録します。
+- Discord dedupe state は runtime directory 配下（`.discord_dedupe_state.json`）に統一されます。
+  - `--config` を切り替えた場合、`--test-discord` / 通常通知 / alert / recovery で同じ runtime 基準の dedupe state を参照します。
+- index snapshot（`events.jsonl.checkpoint.index.json` / `runs.jsonl.summary.index.json`）は再生成可能 cache です。
+  - 読み取り不整合や起動時遅延が疑われる場合は `amazon-notify --rebuild-indexes` を実行します。
+- Polling catch-up は Gmail 一覧をページング走査します。checkpoint が一覧窓で見つからない場合、未知境界を飛び越えて checkpoint を進めません（fail-safe）。
+- `transient_alert_min_duration_seconds` に負値が入った場合は、停止ではなく warning を出して `0` として扱います。
+- guard 経路の未処理例外は `source_failed` + `RunResult` に収束し、通常の障害確認導線（`events.jsonl` / `runs.jsonl`）で追跡できます。
 - rollback 観点:
   - `state.json` は継続更新されるため、0.1 系の境界情報は保持されます。
   - ただし 0.2 系の監査情報（events/runs）は 0.1 系では参照されません。
@@ -83,7 +93,7 @@
 - Discord 通知に失敗した場合は `state.json` を進めません。
 - そのため、通知に失敗したメールは次周期で再試行されます。
 
-## 障害時の見方（v0.3.0）
+## 障害時の見方（v0.4.0）
 - 優先確認先:
   - `events.jsonl`: 失敗種別と checkpoint 進行
   - `runs.jsonl`: 実行単位の要約（before/after, counts, failure_kind）
@@ -132,18 +142,106 @@ sudo systemctl restart amazon-notify-pubsub.service
 - ローテーション: 2MB x 5 世代
 - 標準出力にも同じログを出します。
 
+## リリース前チェック
+リリース直前は次を固定で実行します。
+
+```bash
+make release-check
+```
+
+実行内容:
+- `ruff check .`
+- `ruff format --check .`
+- `mypy .`
+- `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
+- `docker build -t amazon-notify:0.4.0 .`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`
+
+## 手動更新とロールバック（自動 deploy はしない）
+このリポジトリでは本番 host への自動デプロイは行いません。更新と切り戻しは手動で行います。
+
+更新:
+1. 新しいタグを checkout する（例: `v0.4.0`）。
+2. 依存を更新する（`pip install .`）。
+3. サービスを再起動して状態を確認する。
+
+```bash
+git fetch --tags
+git checkout v0.4.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+sudo systemctl status amazon-notify-pubsub.service
+```
+
+ロールバック:
+1. 直前の安定タグへ戻す。
+2. 同様に `pip install .` を実行する。
+3. サービス再起動後、`events.jsonl` / `runs.jsonl` / ログを確認する。
+
+```bash
+git checkout v0.3.0
+source .venv/bin/activate
+pip install .
+sudo systemctl restart amazon-notify-pubsub.service amazon-notify-fallback.timer
+```
+
 ## JSONL メンテナンス（長期運用向け）
 
-- index snapshot の再構築:
+### rotation（肥大化への方針）
+
+- **正本**は `events.jsonl` と `runs.jsonl` の **append-only** です。運用中に途中を削除・上書きしないでください（未知境界や監査ログが壊れます）。
+- **ローテーション**が必要なときは「退避アーカイブ → 別ファイルへ切替 → または現ファイルを空にして最初から」ではなく、まず **フルコピーをアーカイブ**し、復元手順を確認してから計画停止下でのみ実施します。
+- **インデックス**（`*.checkpoint.index.json` / `*.summary.index.json`）はいつでも `--rebuild-indexes` で再生成できます。**消してよいのは**これらの index と、`state.json` 内の派生フィールド（ただし `last_message_id` だけを手で消すと次回の再走査範囲が変わるので非推奨）です。
+- **消してはいけないもの**: 進行中の `events.jsonl` / `runs.jsonl` をバックアップなしで truncate すること、および `checkpoint_advanced` の連続性を失う編集。
+
+### archive 形式（推奨）
+
+- ペアで保存: `events-YYYYMMDD-HHMMSS.jsonl` と `runs-YYYYMMDD-HHMMSS.jsonl` を同じタイムスタンプで揃える。
+- 圧縮: `gzip` したものを `archive/` 等に保管（改行 JSON のままなので `zcat` / `gzip -dc` で閲覧可能）。
+- **manifest（任意・推奨）**: 同じ `ts` で `manifest-${ts}.txt` に次を記録すると復元判断が楽です。
+  - `sha256sum` の出力
+  - `events` / `runs` のバイトサイズ
+  - 退避直前の `amazon-notify --doctor` の `status` 行（または JSON をそのまま）
+
+### restore 手順（要約）
+
+1. サービスを停止する。
+2. 退避してある `events.jsonl` / `runs.jsonl` を希望のパスに戻す（または `config.json` の `events_file` / `runs_file` をアーカイブ側に一時的に向ける）。
+3. `state.json` は **events の frontier と整合するスナップショット**が望ましい。不明な場合は `--rebuild-indexes` のあと、初回実行で整合が取れる設計ですが、**手で `last_message_id` をいじると取りこぼしや再通知のリスク**があるため、アーカイブ時点の `state.json` もまとめて保管するのが安全です。
+4. `amazon-notify --config ... --rebuild-indexes`
+5. `amazon-notify --doctor` で `status: ok` を確認
+6. サービスを開始
+
+### どこまで消してよいか（再掲）
+
+| 対象 | 削除してよいか |
+|------|----------------|
+| `events.jsonl.checkpoint.index.json` | はい（`--rebuild-indexes` で再生成） |
+| `runs.jsonl.summary.index.json` | はい（同上） |
+| `state.json` 全体 | 原則避ける（バックアップ必須）。消すと frontier 情報が失われ再走査が発生しうる |
+| `events.jsonl` / `runs.jsonl` | バックアップなしでは不可。長期保管はアーカイブへ |
+| `.discord_dedupe_state.json` | 可能だが、重複通知の窓がリセットされる |
+
+### restore drill（年1回でもよい確認手順）
+
+1. テスト用ディレクトリに **本番からコピーした** `events.jsonl` / `runs.jsonl` / `state.json`（マスク済み可）を置く。
+2. `amazon-notify --config ./config.json --doctor` が `ok` になること。
+3. index をわざと削除し、`--rebuild-indexes` 後も `--doctor` が `ok` になること。
+4. `--metrics` / `--status` が期待どおりの frontier・直近 run 集計を返すこと。
+5. （任意）読み取り専用ファイルシステム上で `--once --dry-run` を試し、書き込み失敗が想定どおり扱われることを確認する。
+
+### index snapshot の再構築
 
 ```bash
 amazon-notify --config ./config.json --rebuild-indexes
 ```
 
-- `events.jsonl` / `runs.jsonl` のアーカイブ手順（例）:
-  - 実行中サービスを停止
-  - 退避コピーを圧縮保存
-  - 必要なら `--rebuild-indexes` で index を再生成
+### アーカイブ手順（例）
+
+- 実行中サービスを停止
+- 退避コピーを圧縮保存
+- 必要なら `--rebuild-indexes` で index を再生成
 
 ```bash
 sudo systemctl stop amazon-notify-pubsub.service amazon-notify-fallback.timer

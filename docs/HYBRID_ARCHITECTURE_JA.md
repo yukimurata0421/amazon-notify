@@ -60,6 +60,7 @@ English version: [HYBRID_ARCHITECTURE.en.md](./HYBRID_ARCHITECTURE.en.md)
 - `runs.jsonl` / `events.jsonl` に失敗種別を記録
 - StreamingPull 断線時はプロセス内で再接続バックオフし、systemd 再起動は最終手段にする
 - trigger 連続失敗はしきい値で打ち切り、健全性を明示的に fail へ遷移する
+- Polling catch-up は Gmail 一覧をページング走査し、checkpoint が見つからない場合は fail-safe で checkpoint を進めない
 
 ## 4. サイレント障害対策（heartbeat）
 

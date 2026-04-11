@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -7,7 +8,9 @@ from amazon_notify import cli, config, gmail_client
 
 
 class DummyCreds:
-    def __init__(self, valid: bool = True, expired: bool = False, refresh_token: str | None = "r"):
+    def __init__(
+        self, valid: bool = True, expired: bool = False, refresh_token: str | None = "r"
+    ):
         self.valid = valid
         self.expired = expired
         self.refresh_token = refresh_token
@@ -21,12 +24,16 @@ def _read_json(path: Path) -> dict:
 
 
 def test_ensure_google_dependencies_gives_install_hint(monkeypatch) -> None:
-    monkeypatch.setattr(gmail_client, "GOOGLE_IMPORT_ERROR", ModuleNotFoundError("missing google libs"))
+    monkeypatch.setattr(
+        gmail_client, "GOOGLE_IMPORT_ERROR", ModuleNotFoundError("missing google libs")
+    )
     with pytest.raises(ModuleNotFoundError, match="pip install \\."):
         gmail_client.ensure_google_dependencies()
 
 
-def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_missing_token_alerts_once(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = config.get_runtime_paths(tmp_path / "config.json")
     missing_token_path = paths.token
     state_file = tmp_path / "state.json"
@@ -36,7 +43,11 @@ def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path
         missing_token_path.unlink()
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message))
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda webhook_url, message: alerts.append(message),
+    )
 
     first = gmail_client.get_gmail_service(
         webhook_url="https://discord.invalid/webhook",
@@ -64,19 +75,25 @@ def test_get_gmail_service_missing_token_alerts_once(monkeypatch, tmp_path: Path
     assert "token.json" in saved["token_issue_reason"]
 
 
-def test_get_gmail_service_allow_oauth_interactive_uses_run_oauth_flow(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_allow_oauth_interactive_uses_run_oauth_flow(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = config.get_runtime_paths(tmp_path / "config.json")
     if paths.token.exists():
         paths.token.unlink()
 
-    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: DummyCreds(valid=True))
+    monkeypatch.setattr(
+        gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: DummyCreds(valid=True)
+    )
     monkeypatch.setattr(gmail_client, "build", lambda *args, **kwargs: object())
 
     service = gmail_client.get_gmail_service(allow_oauth_interactive=True, paths=paths)
     assert service is not None
 
 
-def test_get_gmail_service_token_recovery_notifies_once(monkeypatch, tmp_path: Path) -> None:
+def test_get_gmail_service_token_recovery_notifies_once(
+    monkeypatch, tmp_path: Path
+) -> None:
     paths = config.get_runtime_paths(tmp_path / "config.json")
     paths.token.write_text("{}", encoding="utf-8")
 
@@ -89,11 +106,19 @@ def test_get_gmail_service_token_recovery_notifies_once(monkeypatch, tmp_path: P
     }
     state_file.write_text(json.dumps(state), encoding="utf-8")
 
-    monkeypatch.setattr(gmail_client.Credentials, "from_authorized_user_file", lambda *args, **kwargs: DummyCreds(valid=True))
+    monkeypatch.setattr(
+        gmail_client.Credentials,
+        "from_authorized_user_file",
+        lambda *args, **kwargs: DummyCreds(valid=True),
+    )
     monkeypatch.setattr(gmail_client, "build", lambda *args, **kwargs: object())
 
     recoveries: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_recovery", lambda webhook_url, message: recoveries.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_recovery",
+        lambda webhook_url, message: recoveries.append(message) or True,
+    )
 
     service = gmail_client.get_gmail_service(
         webhook_url="https://discord.invalid/webhook",
@@ -124,7 +149,9 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
     monkeypatch.setattr(
         gmail_client.Credentials,
         "from_authorized_user_file",
-        lambda *args, **kwargs: DummyCreds(valid=False, expired=True, refresh_token="r"),
+        lambda *args, **kwargs: DummyCreds(
+            valid=False, expired=True, refresh_token="r"
+        ),
     )
     monkeypatch.setattr(
         gmail_client,
@@ -133,10 +160,18 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
     )
 
     oauth_calls: list[str] = []
-    monkeypatch.setattr(gmail_client, "run_oauth_flow", lambda *_args, **_kwargs: oauth_calls.append("called"))
+    monkeypatch.setattr(
+        gmail_client,
+        "run_oauth_flow",
+        lambda *_args, **_kwargs: oauth_calls.append("called"),
+    )
 
     alerts: list[str] = []
-    monkeypatch.setattr(gmail_client, "send_discord_alert", lambda webhook_url, message: alerts.append(message) or True)
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_alert",
+        lambda webhook_url, message: alerts.append(message) or True,
+    )
 
     service = gmail_client.get_gmail_service(
         webhook_url="https://discord.invalid/webhook",
@@ -175,3 +210,75 @@ def test_configure_runtime_paths_updates_default_locations(tmp_path: Path) -> No
     assert config.resolve_runtime_path("state.json", base_dir=paths.runtime_dir) == (
         config_path.parent.resolve() / "state.json"
     )
+
+
+def test_mark_token_issue_updates_state_under_lock(monkeypatch, tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")
+    state = config.load_state(state_file)
+
+    lock_calls: list[Path] = []
+
+    @contextmanager
+    def fake_state_update_lock(target: Path):
+        lock_calls.append(target)
+        yield
+
+    monkeypatch.setattr(
+        "amazon_notify.gmail_transient_state.state_update_lock",
+        fake_state_update_lock,
+    )
+
+    changed = gmail_client.mark_token_issue(state, state_file, "token missing")
+
+    assert changed is True
+    assert lock_calls == [state_file]
+    saved = _read_json(state_file)
+    assert saved["token_issue_active"] is True
+    assert saved["token_issue_reason"] == "token missing"
+
+
+def test_notify_token_recovery_updates_state_under_lock(
+    monkeypatch, tmp_path: Path
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(
+        json.dumps(
+            {
+                "last_message_id": "x",
+                "token_issue_active": True,
+                "token_issue_reason": "refresh failed",
+                "token_issue_at": "2026-04-07T00:00:00Z",
+            }
+        ),
+        encoding="utf-8",
+    )
+    state = config.load_state(state_file)
+
+    lock_calls: list[Path] = []
+    recoveries: list[str] = []
+
+    @contextmanager
+    def fake_state_update_lock(target: Path):
+        lock_calls.append(target)
+        yield
+
+    monkeypatch.setattr(
+        "amazon_notify.gmail_transient_state.state_update_lock",
+        fake_state_update_lock,
+    )
+    monkeypatch.setattr(
+        gmail_client,
+        "send_discord_recovery",
+        lambda _webhook_url, message: recoveries.append(message) or True,
+    )
+
+    gmail_client.notify_token_recovery_if_needed(
+        "https://discord.invalid/webhook", state, state_file
+    )
+
+    assert len(recoveries) == 1
+    assert lock_calls == [state_file]
+    saved = _read_json(state_file)
+    assert saved["token_issue_active"] is False
+    assert "token_issue_reason" not in saved

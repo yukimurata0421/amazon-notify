@@ -1,4 +1,5 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
+[![Tag](https://img.shields.io/badge/tag-0.4.0-blue)](https://github.com/yukimurata0421/amazon-notify/blob/main/CHANGELOG.md#040---2026-04-07)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yukimurata0421/amazon-notify/main/.github/badges/coverage.json)](https://github.com/yukimurata0421/amazon-notify/blob/main/.github/badges/coverage.json)
 [![Lint](https://img.shields.io/badge/lint-ruff-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
@@ -23,7 +24,7 @@ English README: [README.md](./README.md)
 |---|---|
 | `main` ブランチ | 最新実装（リリースタグより先行する場合あり） |
 | Latest release | GitHub 上の最新タグ付きリリース |
-| Next intended release | `0.4.0`（`CHANGELOG.md` の Unreleased を参照） |
+| Next intended release | `0.4.1`（`CHANGELOG.md` の Unreleased を参照） |
 
 ## 動作例
 
@@ -63,6 +64,10 @@ English README: [README.md](./README.md)
 - 複数インスタンスでの分散処理。
 - Pub/Sub message 単位の厳密な永続ワークフロー管理。
 - 汎用メール転送プラットフォーム化。
+
+## パスと作業ディレクトリ
+
+`state_file` / `events_file` / `runs_file` / `log_file` などの実行時パスは、**リポジトリのクローン先には依存しません**。`config.json` を置いたディレクトリを基準に相対解決され、`amazon-notify --config /任意のパス/config.json` で設定ファイルの場所を明示できます。固定したい場合は `config.json` 内で絶対パスを指定してください。
 
 ## クイックスタート
 
@@ -107,6 +112,12 @@ amazon-notify --once --fallback-watchdog
 
 # events/runs から index snapshot を再構築
 amazon-notify --rebuild-indexes
+
+# 運用サマリ(frontier/incident/failure/整合性)を1回表示
+amazon-notify --status
+
+# state/events/runs/index の整合性診断(JSON)を1回表示
+amazon-notify --doctor
 ```
 
 ## Runtime Artifacts

@@ -108,7 +108,12 @@ def _handle_incident_lifecycle(
     active_kind = active_incident["kind"] if active_incident else None
     failure_kind = result.failure_kind.value if result.failure_kind else None
 
-    if result.failure_kind is not None and result.should_alert and not dry_run and discord_webhook_url:
+    if (
+        result.failure_kind is not None
+        and result.should_alert
+        and not dry_run
+        and discord_webhook_url
+    ):
         assert failure_kind is not None
         now_epoch = time.time()
         suppressed_until = incident_memory_suppressed_until.get(failure_kind)
@@ -169,7 +174,12 @@ def _handle_incident_lifecycle(
         return
 
     # 正常化したら close 通知して incident を解消する。
-    if result.failure_kind is None and active_kind and not dry_run and discord_webhook_url:
+    if (
+        result.failure_kind is None
+        and active_kind
+        and not dry_run
+        and discord_webhook_url
+    ):
         assert active_incident is not None
         recovery_msg = (
             "障害状態から復旧しました。\n"
@@ -267,7 +277,11 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
     incident_memory_suppressed_until = _incident_memory_map(runtime)
 
     state = load_state(runtime.state_file)
-    LOGGER.info("RUN_ONCE_START: last_message_id=%s dry_run=%s", state.get("last_message_id"), dry_run)
+    LOGGER.info(
+        "RUN_ONCE_START: last_message_id=%s dry_run=%s",
+        state.get("last_message_id"),
+        dry_run,
+    )
 
     pipeline, checkpoint_store = _build_pipeline(
         runtime=runtime,

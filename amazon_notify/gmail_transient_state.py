@@ -1,20 +1,20 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable
 
 from .config import LOGGER, load_state, save_state
 from .time_utils import utc_now_iso
+
+DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 600.0
+DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 1800.0
 
 try:
     import fcntl
 except ModuleNotFoundError:
     fcntl = None  # type: ignore[assignment]
-
-DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = 600.0
-DEFAULT_TRANSIENT_ALERT_COOLDOWN_SECONDS = 1800.0
 
 
 @contextmanager
@@ -100,23 +100,31 @@ def record_transient_issue(
         first_seen = persisted_state.get("transient_network_issue_first_seen_at_epoch")
         if not isinstance(first_seen, (int, float)):
             first_seen = now_epoch
-        persisted_state["transient_network_issue_first_seen_at_epoch"] = float(first_seen)
+        persisted_state["transient_network_issue_first_seen_at_epoch"] = float(
+            first_seen
+        )
         persisted_state["transient_network_issue_last_seen_at_epoch"] = float(now_epoch)
-        persisted_state["transient_network_issue_occurrences"] = int(
-            persisted_state.get("transient_network_issue_occurrences", 0)
-        ) + 1
+        persisted_state["transient_network_issue_occurrences"] = (
+            int(persisted_state.get("transient_network_issue_occurrences", 0)) + 1
+        )
 
         sent_alert = False
-        if webhook_url and alert_message and should_send_transient_alert(
-            persisted_state,
-            now_epoch=now_epoch,
-            min_alert_duration_seconds=min_alert_duration_seconds,
-            alert_cooldown_seconds=alert_cooldown_seconds,
+        if (
+            webhook_url
+            and alert_message
+            and should_send_transient_alert(
+                persisted_state,
+                now_epoch=now_epoch,
+                min_alert_duration_seconds=min_alert_duration_seconds,
+                alert_cooldown_seconds=alert_cooldown_seconds,
+            )
         ):
             sent_alert = send_discord_alert_fn(webhook_url, alert_message)
             if sent_alert:
                 persisted_state["transient_network_issue_notified"] = True
-                persisted_state["transient_network_issue_last_alert_at_epoch"] = float(now_epoch)
+                persisted_state["transient_network_issue_last_alert_at_epoch"] = float(
+                    now_epoch
+                )
 
         save_state(state_file, persisted_state)
         sync_state_from_source(state, persisted_state)
@@ -157,15 +165,18 @@ def notify_recovery_if_needed(
 
 
 def mark_token_issue(state: dict, state_file: Path, reason: str) -> bool:
-    previous_active = bool(state.get("token_issue_active"))
-    previous_reason = state.get("token_issue_reason")
+    with state_update_lock(state_file):
+        persisted_state = load_state(state_file)
+        previous_active = bool(persisted_state.get("token_issue_active"))
+        previous_reason = persisted_state.get("token_issue_reason")
 
-    state["token_issue_active"] = True
-    state["token_issue_reason"] = reason
-    state["token_issue_at"] = utc_now_iso()
-    save_state(state_file, state)
+        persisted_state["token_issue_active"] = True
+        persisted_state["token_issue_reason"] = reason
+        persisted_state["token_issue_at"] = utc_now_iso()
+        save_state(state_file, persisted_state)
+        sync_state_from_source(state, persisted_state)
 
-    return (not previous_active) or (previous_reason != reason)
+        return (not previous_active) or (previous_reason != reason)
 
 
 def notify_token_recovery_if_needed(
@@ -175,27 +186,32 @@ def notify_token_recovery_if_needed(
     *,
     send_discord_recovery_fn: Callable[[str, str], bool],
 ) -> None:
-    if not state.get("token_issue_active"):
-        return
+    with state_update_lock(state_file):
+        persisted_state = load_state(state_file)
+        sync_state_from_source(state, persisted_state)
 
-    if not webhook_url:
-        LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED: missing_webhook")
-        return
+        if not persisted_state.get("token_issue_active"):
+            return
 
-    message = (
-        "token 問題から復旧しました。監視を再開しています。\n"
-        f"前回障害時刻: {state.get('token_issue_at', '(unknown)')}\n"
-        f"前回理由: {state.get('token_issue_reason', '(unknown)')}"
-    )
-    if not send_discord_recovery_fn(webhook_url, message):
-        LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED")
-        return
+        if not webhook_url:
+            LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED: missing_webhook")
+            return
 
-    LOGGER.info("TOKEN_RECOVERED: %s", message.replace("\n", " | "))
-    state["token_issue_active"] = False
-    state.pop("token_issue_reason", None)
-    state.pop("token_issue_at", None)
-    save_state(state_file, state)
+        message = (
+            "token 問題から復旧しました。監視を再開しています。\n"
+            f"前回障害時刻: {persisted_state.get('token_issue_at', '(unknown)')}\n"
+            f"前回理由: {persisted_state.get('token_issue_reason', '(unknown)')}"
+        )
+        if not send_discord_recovery_fn(webhook_url, message):
+            LOGGER.warning("TOKEN_RECOVERY_NOTIFICATION_SKIPPED")
+            return
+
+        LOGGER.info("TOKEN_RECOVERED: %s", message.replace("\n", " | "))
+        persisted_state["token_issue_active"] = False
+        persisted_state.pop("token_issue_reason", None)
+        persisted_state.pop("token_issue_at", None)
+        save_state(state_file, persisted_state)
+        sync_state_from_source(state, persisted_state)
 
 
 def record_token_issue_and_maybe_alert(
@@ -239,4 +255,3 @@ def record_transient_issue_or_alert(
         alert_cooldown_seconds=alert_cooldown_seconds,
         send_discord_alert_fn=send_discord_alert_fn,
     )
-

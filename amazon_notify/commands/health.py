@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 from ..config import RuntimePaths
 from ..health import load_config_for_health_check as load_config_for_health_check_impl

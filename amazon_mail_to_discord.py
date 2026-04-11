@@ -37,6 +37,7 @@ processed_uids: set[str] = set()
 
 # ======== ユーティリティ関数 ========
 
+
 def decode_mime_words(value: str) -> str:
     """MIMEエンコードされた文字列をデコードする"""
     if not value:
@@ -60,7 +61,9 @@ def get_text_body(msg: email.message.Message) -> str:
             if content_type == "text/plain" and "attachment" not in content_disposition:
                 try:
                     charset = part.get_content_charset() or "utf-8"
-                    return part.get_payload(decode=True).decode(charset, errors="ignore")
+                    return part.get_payload(decode=True).decode(
+                        charset, errors="ignore"
+                    )
                 except Exception:
                     continue
     else:
@@ -111,6 +114,7 @@ def send_to_discord(subject: str, from_addr: str, date: str, body: str):
 
 
 # ======== Gmail チェック本体 ========
+
 
 def check_gmail_once():
     """未読の Amazon メールを探し、Discord に通知する"""
@@ -181,7 +185,7 @@ def check_gmail_once():
             from_decoded = decode_mime_words(from_raw)
 
             # 正規表現でメールアドレスだけ抜き出す
-            match = re.search(r'[\w\.-]+@[\w\.-]+', from_decoded)
+            match = re.search(r"[\w\.-]+@[\w\.-]+", from_decoded)
             from_email = match.group(0).lower() if match else ""
 
             # Amazon 以外はスキップ
@@ -200,7 +204,9 @@ def check_gmail_once():
             if len(body_snippet) > 200:
                 body_snippet = body_snippet[:200] + "..."
 
-            print(f"★ Amazon メール検出: UID={uid_str} | 件名={subject} | From={from_email}")
+            print(
+                f"★ Amazon メール検出: UID={uid_str} | 件名={subject} | From={from_email}"
+            )
 
             # Discord に通知
             send_to_discord(subject, from_email, msg.get("Date", ""), body_snippet)
@@ -217,6 +223,7 @@ def check_gmail_once():
 
 
 # ======== メインループ ========
+
 
 def main():
     print("Amazon.co.jp 配達メール監視を開始（1分ごとにチェック）")

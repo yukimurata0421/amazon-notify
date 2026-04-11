@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
-from enum import Enum
-from typing import Any, Iterable, Protocol
+from enum import StrEnum
+from typing import Any, Protocol
 
 
-class FailureKind(str, Enum):
+class FailureKind(StrEnum):
     SOURCE_FAILED = "source_failed"
     AUTH_FAILED = "auth_failed"
     MESSAGE_DETAIL_FAILED = "message_detail_failed"
@@ -14,7 +15,7 @@ class FailureKind(str, Enum):
     CONFIG_FAILED = "config_failed"
 
 
-class AuthStatus(str, Enum):
+class AuthStatus(StrEnum):
     TOKEN_MISSING = "TOKEN_MISSING"
     TOKEN_CORRUPTED = "TOKEN_CORRUPTED"
     TOKEN_VALID = "TOKEN_VALID"
@@ -78,7 +79,9 @@ class MailSource(Protocol):
 
     def mark_transient_issue(self, err: Exception | str) -> None: ...
 
-    def iter_new_messages(self, checkpoint: Checkpoint, max_messages: int) -> Iterable[MailEnvelope]: ...
+    def iter_new_messages(
+        self, checkpoint: Checkpoint, max_messages: int
+    ) -> Iterable[MailEnvelope]: ...
 
 
 class Notifier(Protocol):
@@ -94,6 +97,8 @@ class CheckpointStore(Protocol):
 
     def advance_checkpoint(self, checkpoint: Checkpoint, run_id: str) -> None: ...
 
-    def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None: ...
+    def append_event(
+        self, event_type: str, run_id: str, payload: dict[str, Any]
+    ) -> None: ...
 
     def append_run_result(self, result: RunResult) -> None: ...

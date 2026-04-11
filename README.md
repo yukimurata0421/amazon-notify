@@ -1,5 +1,5 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/yukimurata0421/amazon-notify?sort=semver)](https://github.com/yukimurata0421/amazon-notify/releases/latest)
+[![Tag](https://img.shields.io/badge/tag-0.4.0-blue)](https://github.com/yukimurata0421/amazon-notify/blob/main/CHANGELOG.md#040---2026-04-07)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yukimurata0421/amazon-notify/main/.github/badges/coverage.json)](https://github.com/yukimurata0421/amazon-notify/blob/main/.github/badges/coverage.json)
 [![Lint](https://img.shields.io/badge/lint-ruff-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
@@ -24,7 +24,7 @@ Japanese README: [README.ja.md](./README.ja.md)
 |---|---|
 | `main` branch | Latest implementation (may be ahead of a release tag) |
 | Latest release | Last tagged release on GitHub |
-| Next intended release | `0.4.0` (see `CHANGELOG.md` Unreleased) |
+| Next intended release | `0.4.1` (see `CHANGELOG.md` Unreleased) |
 
 ## Behavior Example
 
@@ -64,6 +64,10 @@ Note: the `main` branch may be ahead of the latest GitHub Release.
 - Multi-instance distributed processing.
 - Per-Pub/Sub-message durable workflow tracking.
 - Generic mail forwarding platform.
+
+## Paths and working directory
+
+Runtime paths (`state_file`, `events_file`, `runs_file`, `log_file`, and similar) are **not** tied to where you cloned the repository. They are resolved **relative to the directory that contains `config.json`**, and you can point at any config file with `amazon-notify --config /path/to/config.json`. Use absolute paths in `config.json` when you need to pin a location explicitly.
 
 ## Quick Start
 
@@ -108,6 +112,12 @@ amazon-notify --once --fallback-watchdog
 
 # rebuild index snapshots from current events/runs files
 amazon-notify --rebuild-indexes
+
+# one-shot operator summary (frontier/incident/failure/consistency)
+amazon-notify --status
+
+# detailed integrity diagnostics as JSON
+amazon-notify --doctor
 ```
 
 ## Runtime Artifacts

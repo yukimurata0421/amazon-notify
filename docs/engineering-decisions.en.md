@@ -64,10 +64,12 @@ Reasoning:
 ## 6. Why Auth Is Modeled as `AuthStatus`
 Adopted:
 - Explicit auth state enum and transitions.
+- Auth-state transition logic lives in `gmail_auth.py`; `gmail_client.py` remains a compatibility facade.
 
 Reasoning:
 - Consistent behavior across CLI, run summaries, and health checks.
 - Enables clean integration with incident suppression and recovery notifications.
+- Keeps auth internals decoupled from API wrappers/public entrypoints so change scope stays smaller.
 
 ## 7. Why Incident Lifecycle Exists
 Adopted events:
@@ -163,3 +165,94 @@ Adopted:
 Reasoning:
 - Silent lock degradation can create hard-to-debug duplicate notification behavior.
 - Explicit incompatibility signaling is safer for operations than best-effort locking on unsupported platforms.
+
+## 17. Why Discord Dedupe State Path Was Unified by Runtime Injection
+Adopted:
+- Removed implicit dedupe-state path resolution from `discord_client.py`.
+- Added `discord_dedupe_state_file` to `RuntimeConfig` and pass it explicitly to test/notification/alert/recovery flows.
+
+Reasoning:
+- Keep runtime artifact path resolution consistent with `--config`-anchored runtime directory behavior.
+- Avoid split path-resolution rules that produce hard-to-reproduce state mismatches.
+
+## 18. Why Gmail Runtime Logic Was Split into Auth / Transient-State / Facade
+Adopted:
+- `gmail_auth.py`: OAuth/credential/refresh/auth-state transitions.
+- `gmail_transient_state.py`: transient/token issue lifecycle state updates.
+- `gmail_client.py`: compatibility facade + public API aggregation.
+
+Reasoning:
+- Improve readability and test boundaries by separating policy/state concerns from API call wiring.
+- Preserve caller-facing imports while reducing internal responsibility density.
+
+## 19. Why StreamingPull Domain Intent Was Made Explicit in Code Comments
+Adopted:
+- Added intent comments for history-id latest aggregation, duplicate skip, and heartbeat atomic write behavior.
+
+Reasoning:
+- Keep the trigger-path model explicit: Pub/Sub is a trigger path, while Gmail state remains catch-up authority.
+- Reduce future regressions caused by misunderstanding why local queue collapse is valid in this model.
+
+## 20. Why Polling Catch-up Uses Paginated Listing + Checkpoint-Not-Found Fail-safe
+Adopted:
+- Polling catch-up iterates Gmail listing pages oldest-first until the checkpoint boundary is reached.
+- If checkpoint is not found in current listing windows, checkpoint is not advanced past unknown frontier.
+
+Reasoning:
+- Avoid checkpoint holes under backlog pressure.
+- Prefer safe-side behavior when listing windows do not contain the expected checkpoint boundary.
+
+## 21. Why Negative Transient Threshold Is Warning + Clamp
+Adopted:
+- `transient_alert_min_duration_seconds < 0` no longer aborts runtime; it logs a warning and clamps to `0`.
+
+Reasoning:
+- Avoid full pipeline stop due to configuration mistakes.
+- Keep alert behavior explicit while preserving service continuity.
+
+## 22. Why JSONL Rotation / Archive / Restore Drill Was Documented
+Adopted:
+- Expanded `docs/OPERATIONS.md` / `OPERATIONS.en.md` with explicit guidance on append-only authority, rebuildable indexes, archive layout (paired timestamped files, gzip, optional manifest), restore steps, a table of what may be deleted, and a periodic restore drill checklist.
+
+Reasoning:
+- Long-running deployments need **operational reproducibility** (what to keep, how to restore), not only runtime correctness.
+- The codebase already implements append-only logs + derived snapshots; **documented lifecycle policy** is what makes that maintainable.
+
+## 23. Why `tests/scenarios/` Composite Fault Tests Exist
+Adopted:
+- `tests/scenarios/test_fault_scenarios.py` focuses on storage/consistency composites:
+  - mid-file JSONL corruption vs tail-only tolerance
+  - index rebuild after deleting index snapshots
+  - stale incident state vs events log (`doctor`/`verify-state` degraded)
+  - ENOSPC-style persistence failure on checkpoint append (patched)
+
+Reasoning:
+- Unit tests protect modules; **scenario tests** protect cross-module contracts under failure composition.
+- Gmail/Discord transient behavior remains in `tests/unit/`; scenarios focus on **frontier + derived state + index** invariants.
+
+## 24. Why `--verify-state` and `--metrics` Were Added
+Adopted:
+- `--verify-state` is an alias of `--doctor` JSON output for cron/automation naming.
+- `--metrics` / `--metrics-plain` / `--metrics-window` expose `build_metrics_report()` (checkpoint age, recent run success/fail ratio, notified totals, incident suppress counts, dedupe entry count, open incident duration).
+- `parse_utc_iso()` supports timestamps in metrics (`Z` suffix, naive normalization).
+
+Reasoning:
+- **Consistency checks** should be runnable on a schedule without implying a human reads `events.jsonl` only after failure.
+- **Thin metrics export** integrates with lightweight external monitors (e.g. host scripts) without requiring a full observability stack.
+- Two names (`--doctor` vs `--verify-state`) reduce friction for operators vs automation.
+
+## 25. Why Publish Docs Were De-personalized for Path Examples
+Adopted:
+- README section clarifying runtime paths resolve from `config.json` directory + `--config`, independent of clone location.
+- Portability examples avoid personal usernames; hybrid quickstart labels `/opt/amazon-notify` as a placeholder; operations examples use `/path/to/config.json`; Docker notes mention registry substitution.
+
+Reasoning:
+- Published repositories should not read as tied to a **specific machine layout** or home directory.
+- **No runtime behavior change**—documentation alignment only.
+
+## 26. Why `docs/` Track the Publish Repository as Source of Truth
+Adopted:
+- Engineering notes, changelog entries, and README/operations docs are authored against the **publish repository**, then copied to the development workspace to keep them identical.
+
+Reasoning:
+- Avoid documentation drift and missed updates when cutting releases.

@@ -30,6 +30,14 @@ This container target is intentionally small and limited.
 docker build -t amazon-notify:slim .
 ```
 
+## Use GHCR image
+On tagged releases, the same Dockerfile is published to GHCR. If you fork or build locally, substitute your registry namespace and tag; no fixed host filesystem path is required.
+
+```bash
+docker pull ghcr.io/yukimurata0421/amazon-notify:v0.4.0
+docker run --rm ghcr.io/yukimurata0421/amazon-notify:v0.4.0 --help
+```
+
 ## Try Commands
 ### 1) Help
 ```bash
@@ -59,4 +67,6 @@ docker run --rm \
 ## Host Responsibilities
 - Provide and manage `config.json`, `credentials.json`, and `token.json` on the host.
 - Manage logs/runtime artifacts lifecycle on the host.
+  - Example artifacts: `events.jsonl.checkpoint.index.json`, `runs.jsonl.summary.index.json`, `.discord_dedupe_state.json`.
 - Own production operations (`systemd`, watchdog policy, monitoring, restart strategy) outside this thin container scope.
+- When `--config` is changed, dedupe-state resolution also follows that runtime directory (including `--test-discord`).

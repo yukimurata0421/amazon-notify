@@ -11,8 +11,8 @@ English version: [HYBRID_QUICKSTART.en.md](./HYBRID_QUICKSTART.en.md)
 - Gmail API + Pub/Sub を同一 GCP プロジェクトで利用
 
 前提:
-- プロジェクトルート: `/opt/amazon-notify` （必要に応じて置換）
-- `credentials.json` は配置済み
+- **インストール先の例:** 以降のコマンドでは `/opt/amazon-notify` と書きますが、**任意のディレクトリで構いません**。`deployment/systemd/install-systemd.sh --base-dir` が unit 内のパスを置換します。
+- `credentials.json` は `config.json` と揃えて配置済み（またはパスを読み替え）
 
 環境依存パラメータの完全一覧は `docs/PORTABILITY_PARAMS_JA.md` を参照してください。
 
@@ -226,3 +226,7 @@ sudo journalctl -u amazon-notify-fallback.service -f
 ```bash
 amazon-notify --config ./config.json --health-check
 ```
+
+- `dedupe_lock_supported` が `false` の場合、現在環境では Discord dedupe lock が使えません（Linux + `fcntl` 前提）。
+- `--config` を切り替えると dedupe state の参照先（`.discord_dedupe_state.json`）も切り替わります（`--test-discord` 含む）。
+- `events.jsonl` / `runs.jsonl` の読み取りが不整合に見える場合は `amazon-notify --config ./config.json --rebuild-indexes` で index を再生成します。

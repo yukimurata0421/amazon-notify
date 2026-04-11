@@ -3,16 +3,18 @@ from __future__ import annotations
 import json
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, NoReturn
+from typing import Any, NoReturn
 
 from .backoff import next_delay_seconds
 from .config import LOGGER, save_state
 
 try:
     from google.cloud import pubsub_v1
+
     PUBSUB_IMPORT_ERROR: ImportError | None = None
 except ImportError as exc:
     PUBSUB_IMPORT_ERROR = exc
@@ -251,7 +253,11 @@ class _StreamingPullRunner:
                 snapshot = self.heartbeat_state
             write_heartbeat_snapshot(self.heartbeat_file, snapshot)
         except OSError as exc:
-            LOGGER.warning("PUBSUB_HEARTBEAT_UPDATE_FAILED: file=%s error=%s", self.heartbeat_file, exc)
+            LOGGER.warning(
+                "PUBSUB_HEARTBEAT_UPDATE_FAILED: file=%s error=%s",
+                self.heartbeat_file,
+                exc,
+            )
 
     def _queue_event(self, event: PubSubEvent) -> tuple[int, int | None]:
         with self.pending_lock:
@@ -266,7 +272,10 @@ class _StreamingPullRunner:
                 # collapse local backlog to the latest history_id trigger.
                 self.pending_event = event
 
-            if self.pending_count >= self.pending_warn_threshold and not self.backlog_warned:
+            if (
+                self.pending_count >= self.pending_warn_threshold
+                and not self.backlog_warned
+            ):
                 LOGGER.warning(
                     "PUBSUB_PENDING_BACKLOG_HIGH: pending=%s threshold=%s",
                     self.pending_count,
@@ -275,7 +284,11 @@ class _StreamingPullRunner:
                 self.backlog_warned = True
 
             collapsed = self.pending_count
-            selected_history = self.pending_event.history_id if self.pending_event is not None else None
+            selected_history = (
+                self.pending_event.history_id
+                if self.pending_event is not None
+                else None
+            )
         self.trigger_event.set()
         return collapsed, selected_history
 
@@ -352,7 +365,11 @@ class _StreamingPullRunner:
                         LOGGER.info("PUBSUB_TRIGGER_DONE: ok=True")
                     else:
                         consecutive_failures += 1
-                        reason = str(trigger_exc) if trigger_exc is not None else "on_trigger returned False"
+                        reason = (
+                            str(trigger_exc)
+                            if trigger_exc is not None
+                            else "on_trigger returned False"
+                        )
                         self._update_heartbeat(
                             trigger_completed_at=done_at,
                             last_trigger_ok=False,
@@ -403,7 +420,9 @@ class _StreamingPullRunner:
             event = parse_pubsub_event(message)
         except Exception as exc:
             LOGGER.error("PUBSUB_MESSAGE_PARSE_FAILED: %s", exc)
-            self._update_heartbeat(callback_last_seen_at=time.time(), last_error=str(exc))
+            self._update_heartbeat(
+                callback_last_seen_at=time.time(), last_error=str(exc)
+            )
             message.ack()
             return
 
@@ -422,7 +441,9 @@ class _StreamingPullRunner:
             message.ack()
 
     def run(self) -> None:
-        worker = threading.Thread(target=self._worker_loop, name="pubsub-trigger-worker", daemon=True)
+        worker = threading.Thread(
+            target=self._worker_loop, name="pubsub-trigger-worker", daemon=True
+        )
         worker.start()
 
         heartbeat_worker: threading.Thread | None = None
@@ -436,18 +457,24 @@ class _StreamingPullRunner:
             heartbeat_worker.start()
 
         subscriber = pubsub_v1.SubscriberClient()
-        flow_control = pubsub_v1.types.FlowControl(max_messages=self.flow_control_max_messages)
+        flow_control = pubsub_v1.types.FlowControl(
+            max_messages=self.flow_control_max_messages
+        )
         stream_future = subscriber.subscribe(
             self.subscription_path,
             callback=self._callback,
             flow_control=flow_control,
         )
-        LOGGER.info("PUBSUB_STREAMING_PULL_START: subscription=%s", self.subscription_path)
+        LOGGER.info(
+            "PUBSUB_STREAMING_PULL_START: subscription=%s", self.subscription_path
+        )
 
         try:
             while not self.stop_event.is_set():
                 if self.worker_failed.is_set():
-                    raise RuntimeError("Pub/Sub trigger worker failed.") from self.worker_failure
+                    raise RuntimeError(
+                        "Pub/Sub trigger worker failed."
+                    ) from self.worker_failure
                 try:
                     stream_future.result(timeout=1.0)
                     break
