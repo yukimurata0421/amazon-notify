@@ -17,13 +17,19 @@ def build_metrics_report(runtime: RuntimeConfig, *, window: int = 20) -> dict[st
     state_payload = _read_json_object(runtime.state_file)
 
     recent_runs = runs[-window_size:] if runs else []
-    failure_count = sum(1 for row in recent_runs if row.get("failure_kind") not in (None, ""))
+    failure_count = sum(
+        1 for row in recent_runs if row.get("failure_kind") not in (None, "")
+    )
     success_count = len(recent_runs) - failure_count
     failure_ratio = (failure_count / len(recent_runs)) if recent_runs else 0.0
 
     notified_count = sum(_as_int(row.get("notified_count")) for row in recent_runs)
-    suppressed_count = sum(1 for row in events if row.get("event") == "incident_suppressed")
-    dedupe_hit_count = sum(1 for row in events if row.get("event") == "incident_suppressed")
+    suppressed_count = sum(
+        1 for row in events if row.get("event") == "incident_suppressed"
+    )
+    dedupe_hit_count = sum(
+        1 for row in events if row.get("event") == "incident_suppressed"
+    )
 
     checkpoint_age_seconds = _checkpoint_age_seconds(events)
     open_incident_duration_seconds = _open_incident_duration_seconds(state_payload)
@@ -152,7 +158,9 @@ def _checkpoint_age_seconds(events: list[dict[str, Any]]) -> float | None:
     return max(age, 0.0)
 
 
-def _open_incident_duration_seconds(state_payload: dict[str, Any] | None) -> float | None:
+def _open_incident_duration_seconds(
+    state_payload: dict[str, Any] | None,
+) -> float | None:
     if not isinstance(state_payload, dict):
         return None
     kind = state_payload.get("active_incident_kind")

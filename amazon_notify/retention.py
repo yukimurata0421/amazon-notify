@@ -35,7 +35,9 @@ class DrillOptions:
     archive_dir: Path | None = None
 
 
-def archive_runtime(runtime: RuntimeConfig, *, options: ArchiveOptions) -> dict[str, Any]:
+def archive_runtime(
+    runtime: RuntimeConfig, *, options: ArchiveOptions
+) -> dict[str, Any]:
     label = options.label or _default_label()
     archive_dir = (
         options.archive_dir
@@ -63,7 +65,9 @@ def archive_runtime(runtime: RuntimeConfig, *, options: ArchiveOptions) -> dict[
         "archive_dir": str(archive_dir),
         "files": copied,
     }
-    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     return {
         "status": "ok",
@@ -74,7 +78,9 @@ def archive_runtime(runtime: RuntimeConfig, *, options: ArchiveOptions) -> dict[
     }
 
 
-def restore_runtime(runtime: RuntimeConfig, *, options: RestoreOptions) -> tuple[int, dict[str, Any]]:
+def restore_runtime(
+    runtime: RuntimeConfig, *, options: RestoreOptions
+) -> tuple[int, dict[str, Any]]:
     archive_dir = (
         options.archive_dir
         if options.archive_dir is not None
@@ -111,7 +117,9 @@ def restore_runtime(runtime: RuntimeConfig, *, options: RestoreOptions) -> tuple
     }
 
 
-def run_restore_drill(runtime: RuntimeConfig, *, options: DrillOptions) -> tuple[int, dict[str, Any]]:
+def run_restore_drill(
+    runtime: RuntimeConfig, *, options: DrillOptions
+) -> tuple[int, dict[str, Any]]:
     with TemporaryDirectory(prefix="amazon-notify-drill-") as temp_dir_str:
         temp_dir = Path(temp_dir_str)
         drill_dir = temp_dir / "runtime"
@@ -142,13 +150,19 @@ def run_restore_drill(runtime: RuntimeConfig, *, options: DrillOptions) -> tuple
 
         archive_report = archive_runtime(
             simulated,
-            options=ArchiveOptions(label="drill", archive_dir=archive_dir, gzip_enabled=True),
+            options=ArchiveOptions(
+                label="drill", archive_dir=archive_dir, gzip_enabled=True
+            ),
         )
 
         # index を意図的に削除して rebuild/restore 耐性を確認
         for idx_file in (
-            simulated.events_file.with_name(f"{simulated.events_file.name}.checkpoint.index.json"),
-            simulated.runs_file.with_name(f"{simulated.runs_file.name}.summary.index.json"),
+            simulated.events_file.with_name(
+                f"{simulated.events_file.name}.checkpoint.index.json"
+            ),
+            simulated.runs_file.with_name(
+                f"{simulated.runs_file.name}.summary.index.json"
+            ),
         ):
             idx_file.unlink(missing_ok=True)
 
@@ -178,7 +192,9 @@ def _runtime_targets(runtime: RuntimeConfig) -> list[tuple[Path, str]]:
         (runtime.runs_file, "runs.jsonl"),
         (runtime.state_file, "state.json"),
         (
-            runtime.events_file.with_name(f"{runtime.events_file.name}.checkpoint.index.json"),
+            runtime.events_file.with_name(
+                f"{runtime.events_file.name}.checkpoint.index.json"
+            ),
             "events.jsonl.checkpoint.index.json",
         ),
         (

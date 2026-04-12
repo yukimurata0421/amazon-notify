@@ -49,4 +49,6 @@ def run_restore_drill(
     *,
     archive_dir: Path | None,
 ) -> tuple[int, dict]:
-    return run_restore_drill_impl(runtime, options=DrillOptions(archive_dir=archive_dir))
+    return run_restore_drill_impl(
+        runtime, options=DrillOptions(archive_dir=archive_dir)
+    )

@@ -30,7 +30,9 @@ def run_verify_state(runtime: RuntimeConfig) -> tuple[int, dict[str, Any]]:
 def _build_extra_checks(runtime: RuntimeConfig) -> list[dict[str, str | bool]]:
     checks: list[dict[str, str | bool]] = []
 
-    frontier_ok, frontier_detail = _check_checkpoint_timestamp_monotonic(runtime.events_file)
+    frontier_ok, frontier_detail = _check_checkpoint_timestamp_monotonic(
+        runtime.events_file
+    )
     checks.append(
         {
             "name": "checkpoint_event_timestamp_monotonic",
@@ -39,7 +41,9 @@ def _build_extra_checks(runtime: RuntimeConfig) -> list[dict[str, str | bool]]:
         }
     )
 
-    lifecycle_ok, lifecycle_detail = _check_incident_event_lifecycle(runtime.events_file)
+    lifecycle_ok, lifecycle_detail = _check_incident_event_lifecycle(
+        runtime.events_file
+    )
     checks.append(
         {
             "name": "incident_event_lifecycle_valid",
@@ -66,7 +70,10 @@ def _check_checkpoint_timestamp_monotonic(events_file: Path) -> tuple[bool, str]
             return False, f"checkpoint_advanced#{idx} の at が不正"
         parsed = _parse_ts(at_value)
         if parsed is None:
-            return False, f"checkpoint_advanced#{idx} の at を解析できません: {at_value}"
+            return (
+                False,
+                f"checkpoint_advanced#{idx} の at を解析できません: {at_value}",
+            )
         if previous_at is not None and parsed < previous_at:
             return False, "checkpoint_advanced の at が逆行しています"
         previous_at = parsed

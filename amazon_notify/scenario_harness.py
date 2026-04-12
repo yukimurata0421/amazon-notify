@@ -29,7 +29,9 @@ class ScenarioResult:
     detail: str
 
 
-def run_scenario_harness(runtime: RuntimeConfig, scenario_names: list[str] | None = None) -> tuple[int, dict[str, Any]]:
+def run_scenario_harness(
+    runtime: RuntimeConfig, scenario_names: list[str] | None = None
+) -> tuple[int, dict[str, Any]]:
     available: dict[str, Callable[[], ScenarioResult]] = {
         "gmail_transient_failure": _scenario_gmail_transient_failure,
         "discord_429_retry": _scenario_discord_429_retry,
@@ -51,7 +53,9 @@ def run_scenario_harness(runtime: RuntimeConfig, scenario_names: list[str] | Non
         try:
             results.append(available[name]())
         except Exception as exc:  # pragma: no cover - harness hardening
-            results.append(ScenarioResult(name=name, ok=False, detail=f"unhandled: {exc}"))
+            results.append(
+                ScenarioResult(name=name, ok=False, detail=f"unhandled: {exc}")
+            )
 
     ok = not unknown and all(item.ok for item in results)
     report = {
@@ -110,9 +114,13 @@ class _DummyCheckpointStore:
         return Checkpoint(message_id="cp-0")
 
     def advance_checkpoint(self, checkpoint: Checkpoint, run_id: str) -> None:
-        self.events.append(("checkpoint_advanced", run_id, {"checkpoint": checkpoint.message_id}))
+        self.events.append(
+            ("checkpoint_advanced", run_id, {"checkpoint": checkpoint.message_id})
+        )
 
-    def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None:
+    def append_event(
+        self, event_type: str, run_id: str, payload: dict[str, Any]
+    ) -> None:
         self.events.append((event_type, run_id, payload))
 
     def append_run_result(self, _result) -> None:
@@ -137,7 +145,11 @@ def _scenario_gmail_transient_failure() -> ScenarioResult:
         and result.should_alert is False
         and source.transient_marked is True
     )
-    detail = "transient source failure is persisted and marked" if ok else "unexpected pipeline behavior"
+    detail = (
+        "transient source failure is persisted and marked"
+        if ok
+        else "unexpected pipeline behavior"
+    )
     return ScenarioResult(name="gmail_transient_failure", ok=ok, detail=detail)
 
 
@@ -152,7 +164,9 @@ def _patch_attr(obj: object, attr: str, replacement: object):
 
 
 class _Resp:
-    def __init__(self, status_code: int, text: str = "", headers: dict[str, str] | None = None):
+    def __init__(
+        self, status_code: int, text: str = "", headers: dict[str, str] | None = None
+    ):
         self.status_code = status_code
         self.text = text
         self.headers = headers or {}
@@ -167,7 +181,10 @@ def _scenario_discord_429_retry() -> ScenarioResult:
         calls["count"] += 1
         return responses[min(idx, len(responses) - 1)]
 
-    with _patch_attr(requests, "post", fake_post), _patch_attr(time, "sleep", lambda _sec: None):
+    with (
+        _patch_attr(requests, "post", fake_post),
+        _patch_attr(time, "sleep", lambda _sec: None),
+    ):
         ok = _post_webhook("https://discord.invalid/webhook", "hello", max_attempts=3)
 
     success = ok and calls["count"] >= 2
@@ -184,7 +201,10 @@ def _scenario_discord_timeout_retry() -> ScenarioResult:
             raise requests.exceptions.Timeout("timeout")
         return _Resp(204, "ok")
 
-    with _patch_attr(requests, "post", fake_post), _patch_attr(time, "sleep", lambda _sec: None):
+    with (
+        _patch_attr(requests, "post", fake_post),
+        _patch_attr(time, "sleep", lambda _sec: None),
+    ):
         ok = _post_webhook("https://discord.invalid/webhook", "hello", max_attempts=3)
 
     success = ok and calls["count"] >= 2
@@ -209,7 +229,9 @@ def _scenario_checkpoint_interrupt_window() -> ScenarioResult:
             + "\n",
             encoding="utf-8",
         )
-        (root / "state.json").write_text(json.dumps({"last_message_id": "cp-old"}), encoding="utf-8")
+        (root / "state.json").write_text(
+            json.dumps({"last_message_id": "cp-old"}), encoding="utf-8"
+        )
         runtime = RuntimeConfig.from_mapping(
             {
                 "discord_webhook_url": "https://discord.invalid/webhook",
@@ -228,7 +250,9 @@ def _scenario_checkpoint_interrupt_window() -> ScenarioResult:
     return ScenarioResult(
         name="checkpoint_interrupt_window",
         ok=ok,
-        detail="checkpoint/state divergence detected" if ok else "divergence not detected",
+        detail="checkpoint/state divergence detected"
+        if ok
+        else "divergence not detected",
     )
 
 
@@ -246,10 +270,12 @@ def _scenario_truncated_jsonl() -> ScenarioResult:
                     "source": "pipeline_commit",
                 }
             )
-            + "\n{\"broken\":",
+            + '\n{"broken":',
             encoding="utf-8",
         )
-        (root / "state.json").write_text(json.dumps({"last_message_id": "cp-1"}), encoding="utf-8")
+        (root / "state.json").write_text(
+            json.dumps({"last_message_id": "cp-1"}), encoding="utf-8"
+        )
         runtime = RuntimeConfig.from_mapping(
             {
                 "discord_webhook_url": "https://discord.invalid/webhook",
@@ -262,7 +288,13 @@ def _scenario_truncated_jsonl() -> ScenarioResult:
         code, report = build_doctor_report(runtime)
 
     # tail corruption is ignored by design
-    ok = code == 0 and report.get("runtime_status", {}).get("tail_corruption_ignored", {}).get("events_jsonl") is True
+    ok = (
+        code == 0
+        and report.get("runtime_status", {})
+        .get("tail_corruption_ignored", {})
+        .get("events_jsonl")
+        is True
+    )
     return ScenarioResult(
         name="truncated_jsonl",
         ok=ok,
@@ -306,7 +338,9 @@ def _scenario_read_only_state() -> ScenarioResult:
         events = root / "events.jsonl"
         state = root / "state.json"
         state.write_text(json.dumps({"last_message_id": "cp-0"}), encoding="utf-8")
-        store = JsonlCheckpointStore(state_file=state, events_file=events, runs_file=root / "runs.jsonl")
+        store = JsonlCheckpointStore(
+            state_file=state, events_file=events, runs_file=root / "runs.jsonl"
+        )
 
         root.chmod(0o500)
         try:
@@ -321,7 +355,9 @@ def _scenario_read_only_state() -> ScenarioResult:
     return ScenarioResult(
         name="read_only_state",
         ok=ok,
-        detail="read-only write failure surfaced" if ok else "read-only failure not surfaced",
+        detail="read-only write failure surfaced"
+        if ok
+        else "read-only failure not surfaced",
     )
 
 
@@ -395,12 +431,15 @@ def _scenario_stale_incident_recovery() -> ScenarioResult:
         code, report = run_verify_state(runtime)
 
     stale = any(
-        check.get("name") == "incident_lifecycle_consistent" and not bool(check.get("ok"))
+        check.get("name") == "incident_lifecycle_consistent"
+        and not bool(check.get("ok"))
         for check in report.get("checks", [])
     )
     ok = code == 1 and stale
     return ScenarioResult(
         name="stale_incident_recovery",
         ok=ok,
-        detail="stale incident state detected" if ok else "stale incident state not detected",
+        detail="stale incident state detected"
+        if ok
+        else "stale incident state not detected",
     )

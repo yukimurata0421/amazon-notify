@@ -816,7 +816,9 @@ def test_main_archive_runtime_outputs_manifest(
     assert (tmp_path / "archive" / "manifest-case-a.json").exists()
 
 
-def test_main_restore_runtime_requires_restore_label(monkeypatch, tmp_path: Path) -> None:
+def test_main_restore_runtime_requires_restore_label(
+    monkeypatch, tmp_path: Path
+) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"discord_webhook_url": "https://discord.invalid/webhook"}),
@@ -940,7 +942,9 @@ def test_main_restore_drill_runs(monkeypatch, tmp_path: Path, capsys) -> None:
     assert report["status"] == "ok"
 
 
-def test_main_scenario_harness_runs_selected(monkeypatch, tmp_path: Path, capsys) -> None:
+def test_main_scenario_harness_runs_selected(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(
         json.dumps({"discord_webhook_url": "https://discord.invalid/webhook"}),
