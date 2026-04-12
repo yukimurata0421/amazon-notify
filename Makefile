@@ -6,6 +6,7 @@ PIP = $(VENV_BIN)/pip
 CLI = $(VENV_BIN)/amazon-notify
 RUFF = $(VENV_BIN)/ruff
 MYPY = $(VENV_BIN)/mypy
+VERSION = $(shell sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
 
 setup:
 	python3 -m venv .venv
@@ -42,8 +43,8 @@ release-check:
 	$(RUFF) format --check amazon_notify tests
 	$(MYPY) amazon_notify
 	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
-	docker build -t amazon-notify:0.4.0 .
-	docker run --rm -v "$(CURDIR):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config
+	docker build -t amazon-notify:$(VERSION) .
+	docker run --rm -v "$(CURDIR):/work" amazon-notify:$(VERSION) --config /work/config.example.json --validate-config
 
 run-once:
 	$(CLI) --once

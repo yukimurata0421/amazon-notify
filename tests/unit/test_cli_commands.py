@@ -124,6 +124,9 @@ def test_main_validate_config_success(monkeypatch, tmp_path: Path, capsys) -> No
         ["--status", "--metrics"],
         ["--doctor", "--verify-state"],
         ["--metrics", "--verify-state"],
+        ["--archive-runtime", "--restore-runtime"],
+        ["--archive-runtime", "--restore-drill"],
+        ["--scenario-harness", "--metrics"],
         ["--status", "--test-discord"],
         ["--doctor", "--rebuild-indexes"],
         ["--reauth", "--health-check"],
@@ -652,6 +655,9 @@ def test_main_verify_state_matches_doctor_json(
     assert exc_info.value.code == 1
     report = json.loads(capsys.readouterr().out)
     assert report["status"] == "degraded"
+    check_names = [item["name"] for item in report["checks"]]
+    assert "checkpoint_event_timestamp_monotonic" in check_names
+    assert "incident_event_lifecycle_valid" in check_names
 
 
 def test_main_metrics_outputs_json(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -766,6 +772,201 @@ def test_main_metrics_plain_output(monkeypatch, tmp_path: Path, capsys) -> None:
     out = capsys.readouterr().out
     assert "generated_at:" in out
     assert "checkpoint_age_seconds:" in out
+
+
+def test_main_archive_runtime_outputs_manifest(
+    monkeypatch, tmp_path: Path, capsys
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps({"last_message_id": "cp-1"}), encoding="utf-8"
+    )
+    (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "runs.jsonl").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--archive-runtime",
+            "--archive-label",
+            "case-a",
+        ],
+    )
+    cli.main()
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "ok"
+    assert report["label"] == "case-a"
+    assert (tmp_path / "archive" / "manifest-case-a.json").exists()
+
+
+def test_main_restore_runtime_requires_restore_label(monkeypatch, tmp_path: Path) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"discord_webhook_url": "https://discord.invalid/webhook"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--restore-runtime"],
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+    assert exc_info.value.code == 1
+
+
+def test_main_restore_runtime_roundtrip(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text(
+        json.dumps({"last_message_id": "cp-1"}), encoding="utf-8"
+    )
+    (tmp_path / "events.jsonl").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "event": "checkpoint_advanced",
+                "run_id": "run-1",
+                "at": "2026-04-08T10:00:00+00:00",
+                "checkpoint": "cp-1",
+                "source": "pipeline_commit",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "runs.jsonl").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--archive-runtime",
+            "--archive-label",
+            "case-b",
+        ],
+    )
+    cli.main()
+    _ = capsys.readouterr().out
+
+    (tmp_path / "state.json").write_text(
+        json.dumps({"last_message_id": "cp-broken"}), encoding="utf-8"
+    )
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--restore-runtime",
+            "--restore-label",
+            "case-b",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "ok"
+    restored_state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert restored_state["last_message_id"] == "cp-1"
+
+
+def test_main_restore_drill_runs(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "state_file": "state.json",
+                "events_file": "events.jsonl",
+                "runs_file": "runs.jsonl",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "state.json").write_text("{}", encoding="utf-8")
+    (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
+    (tmp_path / "runs.jsonl").write_text("", encoding="utf-8")
+
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["amazon-notify", "--config", str(config_path), "--restore-drill"],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "ok"
+
+
+def test_main_scenario_harness_runs_selected(monkeypatch, tmp_path: Path, capsys) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps({"discord_webhook_url": "https://discord.invalid/webhook"}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "amazon-notify",
+            "--config",
+            str(config_path),
+            "--scenario-harness",
+            "--scenario-names",
+            "gmail_transient_failure",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 0
+    report = json.loads(capsys.readouterr().out)
+    assert report["status"] == "ok"
+    assert report["results"][0]["name"] == "gmail_transient_failure"
+    assert report["results"][0]["ok"] is True
 
 
 def test_main_health_check_reports_corrupted_runtime_records(

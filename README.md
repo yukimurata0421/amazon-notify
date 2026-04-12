@@ -24,7 +24,7 @@ Japanese README: [README.ja.md](./README.ja.md)
 |---|---|
 | `main` branch | Latest implementation (may be ahead of a release tag) |
 | Latest release | Last tagged release on GitHub |
-| Next intended release | `0.4.1` (see `CHANGELOG.md` Unreleased) |
+| Next intended release | `0.5.0` (see `CHANGELOG.md` Unreleased) |
 
 ## Behavior Example
 
@@ -118,6 +118,22 @@ amazon-notify --status
 
 # detailed integrity diagnostics as JSON
 amazon-notify --doctor
+
+# audit append-only/state/index consistency (JSON)
+amazon-notify --verify-state
+
+# minimal operational metrics
+amazon-notify --metrics
+amazon-notify --metrics-plain --metrics-window 50
+
+# archive / restore / restore drill
+amazon-notify --archive-runtime --archive-label 20260412-000000
+amazon-notify --restore-runtime --restore-label 20260412-000000
+amazon-notify --restore-drill
+
+# fault-injection scenario harness
+amazon-notify --scenario-harness
+amazon-notify --scenario-harness --scenario-names gmail_transient_failure,discord_429_retry
 ```
 
 ## Runtime Artifacts

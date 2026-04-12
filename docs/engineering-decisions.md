@@ -308,49 +308,68 @@
 - 実装は既に append-only + 派生 state/index であるため、**運用の完成度**は「何を消してよいか」「どう戻すか」が言語化されているかで決まる。
 - 本リポジトリは自動デプロイしない前提のため、手順は README ではなく **運用ガイドに集約**する。
 
-## 23. 複合障害シナリオ用の `tests/scenarios/` を追加した理由
+## 23. fault-injection の scenario harness を CLI で持つ理由
 
 ### 採用
-- `tests/scenarios/test_fault_scenarios.py` で、ストレージ・整合性に寄せた複合ケースを検証する。
-  - JSONL **途中行破損**は `CheckpointError`（末尾のみ tail ignore と対比）
-  - index 削除後の **`rebuild_indexes`**
-  - events の `incident_recovered` と state の active incident の **不整合**を `--doctor` 系で検知
-  - `advance_checkpoint` 経路の **ENOSPC**（`_append_jsonl` を patch）
+- `--scenario-harness` / `--scenario-names`
+- 実装: `amazon_notify/scenario_harness.py`
+- 検証シナリオ:
+  - Gmail transient failure
+  - Discord 429 / timeout retry
+  - checkpoint 更新前後での state/event 不整合窓
+  - truncated / corrupted JSONL
+  - read-only / ENOSPC 近辺
+  - stale incident state
 
 ### 理由
-- 単体テストが個別モジュールを守るのに対し、**契約と構造が複合条件でも崩れないことを証明する層**が別に必要だから。
-- Gmail/Discord の細かいトランジェントは既存の `tests/unit/` に寄せ、ここでは **正本・派生物・index の整合**に集中する。
+- 単体テストは関数契約を守れるが、運用では複合条件で壊れる。  
+  そのため「設計思想が複合障害でも崩れないこと」を、1コマンドで定期確認できる面を持つ。
+- CI に閉じた検証だけでなく、運用者が現場で再実行できる診断導線として価値がある。
 
-## 24. `--verify-state` と運用メトリクス（`--metrics`）を追加した理由
+## 24. `--verify-state` を `--doctor` と分けた理由
 
 ### 採用
-- `--verify-state`: `--doctor` と同一の整合性 JSON を別名で出力（定期ジョブ・外部監視のスクリプトに名前を合わせやすくする）。
-- `--metrics` / `--metrics-plain` / `--metrics-window`: `amazon_notify.status.build_metrics_report()` 経由で、checkpoint 経過時間、直近 N run の成否・失敗率、通知件数集計、incident suppress イベント数、dedupe エントリ数、open incident の経過時間などを **JSON または簡易テキスト**で出力。
-- `time_utils.parse_utc_iso`: メトリクスとイベントの `at` から経過秒を計算するため（末尾 `Z` 等を許容）。
+- `--doctor`: runtime 状態の広い診断（人間向け詳細 JSON）
+- `--verify-state`: append-only 正本と派生物の追加監査（定期実行向け JSON）
+  - checkpoint event timestamp monotonicity
+  - incident event lifecycle validity
 
 ### 理由
-- **整合性検査**は「壊れたあと読む」だけでなく、**静かに壊れていないか**を定期確認する用途がある（`--doctor` / `--verify-state`）。
-- 大きな監視基盤を前提にしない一方で、**raspi-sentinel 等の薄い exporter** や cron から読める**傾向の面**が欲しい（`--metrics`）。
-- 用語は運用者が選びやすいよう、`--doctor` と `--verify-state` を併存させた。
+- `doctor` は「今の状態説明」、`verify-state` は「静かな破損を検査」の役割で分離したほうが運用設計が明確になる。
+- 同じ JSON でも用途が異なるため、cron / external monitor で意図が伝わるコマンド名を持たせた。
 
-## 25. 公開リポジトリ向けにドキュメントから「特定マシン依存」に読める表現を減らした理由
+## 25. 最小運用メトリクスを外部へ出す理由
 
 ### 採用
-- README に「Paths and working directory」相当の節（パスは `config.json` 基準・`--config` で切替、クローン先に依存しない）。
-- `PORTABILITY` の例から個人名に読めるユーザー例を削除し、汎用例に変更。
-- `HYBRID_QUICKSTART` で `/opt/amazon-notify` を **プレースホルダ**であることと `install-systemd.sh --base-dir` を明記。
-- `OPERATIONS` の `--config` 例を `/path/to/config.json` 形式に。
-- `DOCKER` にフォーク時のレジストリ読み替えと「ホスト固定パス不要」の注記。
+- `--metrics`（JSON）
+- `--metrics-plain`（簡易テキスト）
+- `--metrics-window`（直近 run 集計窓）
+- 実装: `amazon_notify/status.py` の `build_metrics_report()`
 
 ### 理由
-- 公開リポジトリは **クローン先や開発者のホームディレクトリに紐づかない**ことが期待されるため。
-- 実装はもともと `config.json` 相対解決＋`--config` であるため、**ドキュメント側の例示が誤解を生まないようにする**のが目的（挙動変更ではない）。
+- 本プロジェクトは大規模監視基盤を前提にしないため、薄い exporter 面を先に用意する方が費用対効果が高い。
+- 「状態説明（status/doctor）」と「傾向把握（metrics）」を分けることで、運用者が障害兆候を早期に掴みやすくなる。
 
-## 26. `docs/` と README を公開リポジトリを正として開発環境へ揃える運用
+## 26. retention / archive / restore drill をコマンド化した理由
 
 ### 採用
-- 運用・設計の説明（本ファイルの追記、CHANGELOG、README、OPERATIONS 等）は **公開リポジトリを正**とし、開発用ワークスペースへは同内容を移植する。
+- `--archive-runtime` / `--archive-label` / `--archive-dir` / `--archive-no-gzip`
+- `--restore-runtime` / `--restore-label`
+- `--restore-drill`
+- 実装: `amazon_notify/retention.py`
+  - snapshot archive + manifest
+  - restore 後に index rebuild + verify
+  - 一時ディレクトリでの非破壊 drill
 
 ### 理由
-- 公開物と開発用のドキュメントが二重管理すると、**リリース時の取りこぼし**が発生しやすい。
-- 実装の実験は開発ブランチで行い、**ドキュメントの一次ソース**は公開リポジトリに寄せる。
+- append-only 設計は「壊れにくさ」には強いが、長期運用では「寿命管理」と「復元手順の再現性」が支配的になる。
+- ドキュメント手順だけでは drift するため、実際にコマンドとして保持し、定期的に drill 可能にした。
+
+## 27. 開発環境適用を明示する理由
+
+### 採用
+- 機能追加時は `.venv` へ再インストールして CLI エントリポイント差分を反映する（`pip install -e .`）。
+- 反映確認は `python -m amazon_notify.cli --help` と test suite で行う。
+
+### 理由
+- `amazon-notify` は CLI ツールなので、コード変更だけでなく「開発環境で実際に呼べる状態」までを完了条件に含めるべきだから。

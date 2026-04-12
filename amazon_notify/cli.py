@@ -12,8 +12,11 @@ from .checkpoint_store import JsonlCheckpointStore
 from .commands import health as health_command
 from .commands import polling as polling_command
 from .commands import reauth as reauth_command
+from .commands import retention as retention_command
+from .commands import scenario as scenario_command
 from .commands import status as status_command
 from .commands import streaming as streaming_command
+from .commands import verify as verify_command
 from .commands import watch as watch_command
 from .config import RuntimePaths
 from .discord_client import send_discord_test
@@ -167,6 +170,10 @@ def validate_action_conflicts(args: argparse.Namespace) -> None:
         ("--doctor", args.doctor),
         ("--verify-state", args.verify_state),
         ("--metrics", args.metrics),
+        ("--archive-runtime", args.archive_runtime),
+        ("--restore-runtime", args.restore_runtime),
+        ("--restore-drill", args.restore_drill),
+        ("--scenario-harness", args.scenario_harness),
         ("--streaming-pull", args.streaming_pull),
     )
     selected_actions = [name for name, enabled in action_flags if enabled]
@@ -311,13 +318,13 @@ def handle_verify_state_report(
 ) -> bool:
     if not args.verify_state:
         return False
-    exit_code, report = status_command.build_doctor_report(runtime)
+    exit_code, report = verify_command.run_verify_state(runtime)
     sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     sys.exit(exit_code)
 
 
 def handle_metrics_report(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
-    if not args.metrics:
+    if not args.metrics and not args.metrics_plain:
         return False
     report = status_command.build_metrics_report(
         runtime, recent_run_window=args.metrics_window
@@ -327,6 +334,79 @@ def handle_metrics_report(args: argparse.Namespace, runtime: RuntimeConfig) -> b
     else:
         sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     sys.exit(0)
+
+
+def handle_archive_runtime(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.archive_runtime:
+        return False
+    archive_dir = (
+        app_config.resolve_runtime_path(
+            args.archive_dir, base_dir=runtime.runtime_paths.runtime_dir
+        )
+        if args.archive_dir
+        else None
+    )
+    report = retention_command.archive_runtime(
+        runtime,
+        label=args.archive_label,
+        archive_dir=archive_dir,
+        gzip_enabled=not args.archive_no_gzip,
+    )
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    return True
+
+
+def handle_restore_runtime(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.restore_runtime:
+        return False
+    if not args.restore_label:
+        _stderr_error("--restore-runtime には --restore-label の指定が必要です。")
+        sys.exit(1)
+    archive_dir = (
+        app_config.resolve_runtime_path(
+            args.archive_dir, base_dir=runtime.runtime_paths.runtime_dir
+        )
+        if args.archive_dir
+        else None
+    )
+    exit_code, report = retention_command.restore_runtime(
+        runtime,
+        label=args.restore_label,
+        archive_dir=archive_dir,
+    )
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    sys.exit(exit_code)
+
+
+def handle_restore_drill(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.restore_drill:
+        return False
+    archive_dir = (
+        app_config.resolve_runtime_path(
+            args.archive_dir, base_dir=runtime.runtime_paths.runtime_dir
+        )
+        if args.archive_dir
+        else None
+    )
+    exit_code, report = retention_command.run_restore_drill(
+        runtime, archive_dir=archive_dir
+    )
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    sys.exit(exit_code)
+
+
+def handle_scenario_harness(args: argparse.Namespace, runtime: RuntimeConfig) -> bool:
+    if not args.scenario_harness:
+        return False
+    scenario_names = None
+    if args.scenario_names:
+        scenario_names = [name.strip() for name in args.scenario_names.split(",")]
+        scenario_names = [name for name in scenario_names if name]
+    exit_code, report = scenario_command.run_scenario_harness(
+        runtime, scenario_names=scenario_names
+    )
+    sys.stdout.write(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
+    sys.exit(exit_code)
 
 
 def main() -> None:
@@ -387,7 +467,7 @@ def main() -> None:
     parser.add_argument(
         "--verify-state",
         action="store_true",
-        help="--doctor と同じ整合性検査(JSON)。定期バッチ向けの別名。",
+        help="append-only正本/派生state/index の追加監査(JSON)を実行する。",
     )
     parser.add_argument(
         "--metrics",
@@ -404,6 +484,51 @@ def main() -> None:
         type=int,
         default=50,
         help="--metrics の直近 run 集計に使う最大件数。",
+    )
+    parser.add_argument(
+        "--archive-runtime",
+        action="store_true",
+        help="events/runs/state/index を archive へ退避する。",
+    )
+    parser.add_argument(
+        "--archive-label",
+        type=str,
+        help="archive 識別子。未指定時は UTC timestamp。",
+    )
+    parser.add_argument(
+        "--archive-dir",
+        type=str,
+        help="archive 保存先。相対パスは runtime 基準。",
+    )
+    parser.add_argument(
+        "--archive-no-gzip",
+        action="store_true",
+        help="archive 時に gzip 圧縮しない。",
+    )
+    parser.add_argument(
+        "--restore-runtime",
+        action="store_true",
+        help="archive から events/runs/state/index を復元する。",
+    )
+    parser.add_argument(
+        "--restore-label",
+        type=str,
+        help="restore 対象 archive 識別子。",
+    )
+    parser.add_argument(
+        "--restore-drill",
+        action="store_true",
+        help="一時ディレクトリで archive/restore drill を実行する。",
+    )
+    parser.add_argument(
+        "--scenario-harness",
+        action="store_true",
+        help="fault-injection シナリオを実行して設計耐性を検証する。",
+    )
+    parser.add_argument(
+        "--scenario-names",
+        type=str,
+        help="scenario-harness の対象名をカンマ区切りで指定する。",
     )
     parser.add_argument(
         "--health-check",
@@ -565,6 +690,14 @@ def main() -> None:
     if handle_verify_state_report(args, runtime):
         return
     if handle_metrics_report(args, runtime):
+        return
+    if handle_archive_runtime(args, runtime):
+        return
+    if handle_restore_runtime(args, runtime):
+        return
+    if handle_restore_drill(args, runtime):
+        return
+    if handle_scenario_harness(args, runtime):
         return
     (
         heartbeat_file,

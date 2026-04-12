@@ -249,10 +249,3 @@ Adopted:
 Reasoning:
 - Published repositories should not read as tied to a **specific machine layout** or home directory.
 - **No runtime behavior change**—documentation alignment only.
-
-## 26. Why `docs/` Track the Publish Repository as Source of Truth
-Adopted:
-- Engineering notes, changelog entries, and README/operations docs are authored against the **publish repository**, then copied to the development workspace to keep them identical.
-
-Reasoning:
-- Avoid documentation drift and missed updates when cutting releases.

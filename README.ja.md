@@ -24,7 +24,7 @@ English README: [README.md](./README.md)
 |---|---|
 | `main` ブランチ | 最新実装（リリースタグより先行する場合あり） |
 | Latest release | GitHub 上の最新タグ付きリリース |
-| Next intended release | `0.4.1`（`CHANGELOG.md` の Unreleased を参照） |
+| Next intended release | `0.5.0`（`CHANGELOG.md` の Unreleased を参照） |
 
 ## 動作例
 
@@ -118,6 +118,22 @@ amazon-notify --status
 
 # state/events/runs/index の整合性診断(JSON)を1回表示
 amazon-notify --doctor
+
+# append-only正本/派生state/index の監査(JSON)
+amazon-notify --verify-state
+
+# 最小運用メトリクス
+amazon-notify --metrics
+amazon-notify --metrics-plain --metrics-window 50
+
+# archive / restore / restore drill
+amazon-notify --archive-runtime --archive-label 20260412-000000
+amazon-notify --restore-runtime --restore-label 20260412-000000
+amazon-notify --restore-drill
+
+# fault-injection シナリオ検証
+amazon-notify --scenario-harness
+amazon-notify --scenario-harness --scenario-names gmail_transient_failure,discord_429_retry
 ```
 
 ## Runtime Artifacts
