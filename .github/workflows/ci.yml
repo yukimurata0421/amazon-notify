@@ -86,6 +86,54 @@ jobs:
       - name: CLI help
         run: amazon-notify --help
 
+      - name: CLI operational smoke
+        run: |
+          TMP_RUNTIME="$(mktemp -d)"
+          cat > "${TMP_RUNTIME}/config.json" <<'JSON'
+          {
+            "discord_webhook_url": "https://discord.invalid/webhook",
+            "state_file": "state.json",
+            "events_file": "events.jsonl",
+            "runs_file": "runs.jsonl"
+          }
+          JSON
+
+          cat > "${TMP_RUNTIME}/state.json" <<'JSON'
+          {"last_message_id":"cp-1"}
+          JSON
+          cat > "${TMP_RUNTIME}/events.jsonl" <<'JSON'
+          {"schema_version":1,"event":"checkpoint_advanced","run_id":"r1","at":"2026-04-10T00:00:00+00:00","checkpoint":"cp-1","source":"pipeline_commit"}
+          JSON
+          : > "${TMP_RUNTIME}/runs.jsonl"
+
+          amazon-notify --config "${TMP_RUNTIME}/config.json" --metrics --metrics-window 5 > "${TMP_RUNTIME}/metrics.json"
+          python - <<'PY' "${TMP_RUNTIME}/metrics.json"
+          import json
+          import sys
+
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          payload = json.loads(raw[raw.find("{"):])
+          assert "checkpoint" in payload
+          assert "runs_recent" in payload
+          PY
+
+          amazon-notify --config "${TMP_RUNTIME}/config.json" --verify-state > "${TMP_RUNTIME}/verify.json"
+          python - <<'PY' "${TMP_RUNTIME}/verify.json"
+          import json
+          import sys
+
+          raw = open(sys.argv[1], encoding="utf-8").read()
+          payload = json.loads(raw[raw.find("{"):])
+          assert payload["status"] in {"ok", "degraded"}
+          assert "checks" in payload
+          PY
+
+          amazon-notify --config "${TMP_RUNTIME}/config.json" --archive-runtime --archive-label ci-smoke > "${TMP_RUNTIME}/archive.json"
+          amazon-notify --config "${TMP_RUNTIME}/config.json" --restore-runtime --restore-label ci-smoke > "${TMP_RUNTIME}/restore.json"
+          amazon-notify --config "${TMP_RUNTIME}/config.json" --scenario-harness --scenario-names \
+            truncated_jsonl,corrupted_jsonl_middle,enospc_checkpoint,checkpoint_interrupt_window,stale_incident_recovery \
+            > "${TMP_RUNTIME}/scenario.json"
+
       - name: Run tests with coverage
         run: pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
 
