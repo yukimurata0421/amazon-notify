@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-12
+
 ### Added
 - Documented long-term JSONL lifecycle in operations guides (JA/EN): rotation policy vs append-only authority, archive layout, restore steps, safe-to-delete table, and periodic restore drill; rationale captured in `docs/engineering-decisions.md` (§22).
 - Added composite fault scenario tests (`tests/scenarios/test_fault_scenarios.py`) for JSONL corruption, index rebuild, stale incident vs event log, and checkpoint persistence failure; rationale in `docs/engineering-decisions.md` (§23).
