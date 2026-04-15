@@ -107,10 +107,12 @@ gcloud pubsub subscriptions list --format='value(name)' | grep '/subscriptions/a
 ```json
 {
   "pubsub_subscription": "projects/PROJECT_ID/subscriptions/amazon-notify-sub",
+  "pubsub_topic": "projects/PROJECT_ID/topics/amazon-notify-topic",
   "pubsub_main_service_name": "amazon-notify-pubsub.service",
   "pubsub_heartbeat_file": "runtime/pubsub-heartbeat.txt",
   "pubsub_heartbeat_interval_seconds": 30,
   "pubsub_heartbeat_max_age_seconds": 300,
+  "pubsub_idle_trigger_interval_seconds": 300,
   "pubsub_trigger_failure_max_consecutive": 5,
   "pubsub_trigger_failure_base_delay_seconds": 1.0,
   "pubsub_trigger_failure_max_delay_seconds": 60.0,
@@ -172,6 +174,8 @@ sudo bash deployment/systemd/install-systemd.sh \
 ```bash
 sudo systemctl status amazon-notify-pubsub.service --no-pager -l
 sudo systemctl status amazon-notify-fallback.timer --no-pager -l
+sudo systemctl status amazon-notify-main-watchdog.timer --no-pager -l
+sudo systemctl status amazon-notify-watch-renew.timer --no-pager -l
 ```
 
 ---
@@ -213,7 +217,7 @@ sudo systemctl start amazon-notify-pubsub.service
 
 ## 11. 運用メモ
 
-- watch は期限付きです。期限前に `--setup-watch` を再実行してください。
+- watch は期限付きです（通常約7日）。`amazon-notify-watch-renew.timer` が日次再登録するため、`pubsub_topic` を設定して運用してください。
 - 監視ログ:
 
 ```bash

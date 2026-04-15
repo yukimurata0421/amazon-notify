@@ -442,9 +442,98 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("state disk full")),
     )
     monkeypatch.setattr(notifier.time, "time", lambda: 1_000.0)
-    runtime.incident_memory_suppressed_until.clear()
+    notifier._INCIDENT_MEMORY_MAP.clear()
 
     notifier.run_once(runtime)
     notifier.run_once(runtime)
 
     assert len(alerts) == 1
+
+
+def test_checkpoint_boundary_on_second_page_processes_first_page_messages(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = build_runtime(tmp_path, max_messages=10)
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
+
+    pages = {
+        None: ([{"id": "m3"}, {"id": "m2"}], "p2"),
+        "p2": ([{"id": "m1"}, {"id": "old-id"}], None),
+    }
+
+    def fake_list_recent_messages_page(
+        _service, *, query: str, max_results: int, page_token: str | None = None
+    ):
+        assert query == "in:inbox"
+        _ = max_results
+        return pages[page_token]
+
+    monkeypatch.setattr(
+        notifier, "list_recent_messages_page", fake_list_recent_messages_page
+    )
+    monkeypatch.setattr(
+        notifier,
+        "get_message_detail",
+        lambda *_args, **_kwargs: {
+            "payload": {
+                "headers": [
+                    {"name": "Subject", "value": "配達済み: テスト注文"},
+                    {
+                        "name": "From",
+                        "value": "Amazon.co.jp <order-update@amazon.co.jp>",
+                    },
+                ]
+            },
+            "snippet": "ok",
+        },
+    )
+
+    sent_ids: list[str] = []
+    monkeypatch.setattr(
+        notifier,
+        "send_discord_notification",
+        lambda **kwargs: sent_ids.append(kwargs["url"].split("/")[-1]) or True,
+    )
+
+    result = notifier.run_once(runtime)
+
+    assert result.failure_kind is None
+    assert sent_ids == ["m1", "m2", "m3"]
+    assert _read_json(runtime.state_file)["last_message_id"] == "m3"
+
+
+def test_checkpoint_not_found_across_multiple_pages_raises_source_failed(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    runtime = build_runtime(tmp_path, max_messages=10)
+    runtime.state_file.write_text(
+        json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (object(), AuthStatus.READY),
+    )
+    monkeypatch.setattr(
+        notifier,
+        "list_recent_messages_page",
+        lambda _s, *, query, max_results, page_token=None: (
+            ([{"id": "m2"}, {"id": "m1"}], None) if page_token is None else ([], None)
+        ),
+    )
+    monkeypatch.setattr(notifier, "send_discord_alert", lambda *_args, **_kwargs: True)
+
+    result = notifier.run_once(runtime)
+
+    assert result.failure_kind == FailureKind.SOURCE_FAILED
+    assert "checkpoint_not_found_in_listing" in (result.failure_message or "")
+    assert _read_json(runtime.state_file)["last_message_id"] == "old-id"

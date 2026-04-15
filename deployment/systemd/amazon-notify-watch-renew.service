@@ -1,0 +1,11 @@
+[Unit]
+Description=Amazon Notify Gmail watch renew (oneshot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=YOUR_USER
+WorkingDirectory=/opt/amazon-notify
+Environment=CONFIG_PATH=/opt/amazon-notify/config.json
+EnvironmentFile=-/opt/amazon-notify/deployment/systemd/amazon-notify-watch-renew.env
+ExecStart=/opt/amazon-notify/.venv/bin/python /opt/amazon-notify/deployment/systemd/renew_watch.py

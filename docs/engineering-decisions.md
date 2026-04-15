@@ -229,11 +229,12 @@
 ## 15. incident のメモリ抑制を module global から外した理由
 
 ### 採用
-- 抑制マップを mutable module global ではなく runtime スコープ（`RuntimeConfig`）で保持する。
+- 抑制マップを `RuntimeConfig` の mutable フィールドから切り離し、`notifier` 内のプロセスキャッシュ（`state_file` 単位）で管理する。
 
 ### 理由
+- 設定オブジェクトに mutable state を混在させず、設定責務と実行時メモリ責務を分離するため。
+- `state_file` ごとの分離を保ちながら、同一 runtime 内では抑制状態を継続利用できるようにするため。
 - テスト分離性を高め、fixture 依存の隠れた副作用を減らすため。
-- 将来の複数 runtime / 並行実行時の状態競合リスクを下げるため。
 
 ## 16. Discord dedupe lock を fail-fast にした理由
 
@@ -354,3 +355,22 @@
 ### 理由
 - 公開物と開発用のドキュメントが二重管理すると、**リリース時の取りこぼし**が発生しやすい。
 - 実装の実験は開発ブランチで行い、**ドキュメントの一次ソース**は公開リポジトリに寄せる。
+
+## 27. Gmail source 依存注入を Protocol + Adapter に整理した理由
+
+### 採用
+- `GmailMailSource` の多数関数注入を `GmailClient` Protocol に集約し、既定実装として `GmailClientAdapter` を導入した。
+- notifier 側は adapter 1 つを注入し、Gmail 境界（service 構築・list/detail・retryable 判定・transient 通知）をまとめて渡す。
+
+### 理由
+- コンストラクタの責務を減らし、テスト時の差し替え単位を明確化するため。
+- 依存境界を型で明示し、将来的な Gmail 実装差し替え時に影響範囲を限定するため。
+
+## 28. StreamingPull trigger 実行経路を共通化した理由
+
+### 採用
+- idle trigger と message trigger に重複していた成功/失敗/heartbeat/backoff 更新を `_run_trigger_once` に集約した。
+
+### 理由
+- 同種ロジックの分岐重複を減らし、運用時の failure semantics のズレを防ぐため。
+- heartbeat と連続失敗カウントの扱いを 1 箇所に固定し、回帰時の検証コストを下げるため。

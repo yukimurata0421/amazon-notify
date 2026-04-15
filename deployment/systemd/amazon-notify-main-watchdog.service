@@ -1,0 +1,11 @@
+[Unit]
+Description=Amazon Notify main health watchdog and restart
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=CONFIG_PATH=/opt/amazon-notify/config.json
+Environment=MAIN_SERVICE_NAME=amazon-notify-pubsub.service
+Environment=HEARTBEAT_FILE=/opt/amazon-notify/runtime/pubsub-heartbeat.txt
+Environment=HEARTBEAT_MAX_AGE_SECONDS=300
+ExecStart=/opt/amazon-notify/.venv/bin/python /opt/amazon-notify/deployment/systemd/watchdog_restart_main.py

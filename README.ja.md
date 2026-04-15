@@ -48,6 +48,7 @@ English README: [README.md](./README.md)
 - StreamingPull の自己復旧（systemd 依存を最小化）:
   - trigger 失敗時の指数バックオフ + 連続失敗しきい値
   - ストリーム切断時のプロセス内再接続バックオフ
+  - 機械可読 status JSON (`service_status_file`) の出力（atomic write）
 - ハイブリッド高可用性構成:
   - メイン系: StreamingPull 常駐
   - サブ系: timer 起動ポーリング（watchdog 判定）
@@ -58,6 +59,17 @@ English README: [README.md](./README.md)
 - 通知成功後にのみ処理済みとして扱います。
 - Ordered Frontier（oldest-first、途中失敗時停止）を維持します。
 - Pub/Sub は trigger として使い、取りこぼし回収は Gmail 側状態で行います。
+
+## 責務境界（Plan B）
+
+- `amazon-notify` はアプリ意味論の自己修復だけを担当します。
+  - Pub/Sub heartbeat/stream stall 検知
+  - stream reconnect、subscriber/client の再生成
+  - bounded backoff + circuit breaker
+  - semantic status JSON（`service_status_file`）の出力
+- `amazon-notify` は service restart / host reboot を実行しません。
+- 回復不能時は status JSON に `internal_state=failed` を書いたうえで non-zero exit（fail-fast）します。
+- プロセス再起動は `systemd`（または `raspi-sentinel` などの外部監視）に委譲します。
 
 ## 非目標
 
@@ -110,6 +122,9 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 # fallback watchdog つき単発
 amazon-notify --once --fallback-watchdog
 
+# Gmail watch を手動再登録
+amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
+
 # events/runs から index snapshot を再構築
 amazon-notify --rebuild-indexes
 
@@ -141,6 +156,55 @@ coordination / lock:
 
 ログ:
 - `logs/`: 実行ログ（既定: `logs/amazon_mail_notifier.log`）。
+
+ハイブリッド運用の信頼性パラメータ（config）:
+- `pubsub_idle_trigger_interval_seconds`: Pub/Sub callback が止まっている間の定期 catch-up 実行間隔。
+- `pubsub_topic`: 日次 watch 再登録 timer が使用する topic パス。
+- `service_status_file`: 機械可読 status JSON の出力先（既定: `runtime/amazon-notify-status.json`）。
+
+汎用監視で依存してよい status JSON の top-level フィールド:
+- `updated_at`
+- `internal_state`
+- `last_success_ts`
+- `last_progress_ts`
+
+意味の切り分け:
+- `last_success_ts`: 業務成功境界（例: trigger/run 成功）。
+- `last_progress_ts`: 制御面の前進境界。Pub/Sub heartbeat snapshot が実際に前進し、かつ fresh なときだけ更新します（単純なタイマー tick だけでは更新しません）。
+
+例:
+
+```json
+{
+  "schema_version": 1,
+  "service": "amazon-notify",
+  "updated_at": "2026-04-15T12:00:00+00:00",
+  "internal_state": "degraded",
+  "reason": "pubsub_stream_session_failed",
+  "last_success_ts": "2026-04-15T11:59:12+00:00",
+  "last_progress_ts": "2026-04-15T11:59:12+00:00",
+  "recovery": {
+    "consecutive_failures": 1,
+    "last_recovery_action": "stream_recycle",
+    "last_recovery_ts": "2026-04-15T12:00:00+00:00"
+  },
+  "components": {
+    "pubsub": {
+      "status": "stalled",
+      "last_heartbeat_ts": "2026-04-15T11:59:50+00:00"
+    },
+    "gmail": {
+      "last_success_ts": "2026-04-15T11:59:12+00:00"
+    },
+    "discord": {
+      "last_success_ts": "2026-04-15T11:59:12+00:00"
+    },
+    "checkpoint": {
+      "last_advanced_ts": "2026-04-15T11:59:12+00:00"
+    }
+  }
+}
+```
 
 ## 軽量 Docker で試す
 

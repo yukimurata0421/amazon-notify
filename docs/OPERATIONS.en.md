@@ -26,6 +26,12 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 - Consistency audit JSON: `amazon-notify --doctor` or `amazon-notify --verify-state` (alias for scheduled jobs)
 - Operational metrics (JSON / plain text): `amazon-notify --metrics` / `--metrics-plain` (use `--metrics-window` for recent run window size)
 
+## Responsibility Boundary (Plan B)
+- `amazon-notify` does app-level self-heal only: Pub/Sub stall detection, reconnect, subscriber/client recreation, bounded backoff, circuit-breaker, and semantic `service_status_file` JSON output.
+- `amazon-notify` does not run `systemctl restart` or host reboot.
+- On unrecoverable stream failures, `amazon-notify` writes `internal_state=failed` and exits non-zero (fail-fast).
+- Process restart/reboot policy is owned by `systemd` and external monitors (for example `raspi-sentinel`).
+
 ## Runtime Files and Paths
 - Relative paths (`state_file`, `events_file`, `runs_file`, `log_file`) are resolved from the directory containing `config.json`.
 - Use `--config /path/to/config.json` when operating from another working directory.
@@ -35,6 +41,8 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
   - `.state.json.lock`
   - `.discord_dedupe_state.json`
   - `.discord_dedupe_state.lock`
+- `service_status_file` (default: `runtime/amazon-notify-status.json`) is atomically updated machine-readable status.
+  - Generic monitors should primarily use top-level fields: `updated_at`, `internal_state`, `last_success_ts`, `last_progress_ts`.
 
 ## Health Check Signals
 - `amazon-notify --health-check` includes `dedupe_lock_supported`.
@@ -100,13 +108,27 @@ Recommended units:
 - `amazon-notify-pubsub.service`
 - `amazon-notify-fallback.service`
 - `amazon-notify-fallback.timer`
+- `amazon-notify-main-watchdog.service`
+- `amazon-notify-main-watchdog.timer`
+- `amazon-notify-watch-renew.service`
+- `amazon-notify-watch-renew.timer`
+
+Recommended config keys:
+- `pubsub_idle_trigger_interval_seconds` (default `300`): run periodic catch-up when Pub/Sub callback is idle.
+- `pubsub_topic`: used by watch-renew timer (`--setup-watch` automation).
+- `service_status_file`: status JSON path monitored by external supervisors.
+- Main service behavior: recover in-process when possible, then fail-fast (`internal_state=failed`, non-zero exit) so `systemd` handles process restart.
 
 Check status:
 ```bash
 sudo systemctl status amazon-notify-pubsub.service
 sudo systemctl status amazon-notify-fallback.timer
+sudo systemctl status amazon-notify-main-watchdog.timer
+sudo systemctl status amazon-notify-watch-renew.timer
 sudo journalctl -u amazon-notify-pubsub.service -f
 sudo journalctl -u amazon-notify-fallback.service -f
+sudo journalctl -u amazon-notify-main-watchdog.service -f
+sudo journalctl -u amazon-notify-watch-renew.service -f
 ```
 
 ## JSONL Maintenance (Long-Running Deployments)

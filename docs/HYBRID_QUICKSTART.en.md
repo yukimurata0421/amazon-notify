@@ -77,10 +77,12 @@ gcloud pubsub topics add-iam-policy-binding amazon-notify-topic \
 ```json
 {
   "pubsub_subscription": "projects/PROJECT_ID/subscriptions/amazon-notify-sub",
+  "pubsub_topic": "projects/PROJECT_ID/topics/amazon-notify-topic",
   "pubsub_main_service_name": "amazon-notify-pubsub.service",
   "pubsub_heartbeat_file": "runtime/pubsub-heartbeat.txt",
   "pubsub_heartbeat_interval_seconds": 30,
   "pubsub_heartbeat_max_age_seconds": 300,
+  "pubsub_idle_trigger_interval_seconds": 300,
   "pubsub_trigger_failure_max_consecutive": 5,
   "pubsub_trigger_failure_base_delay_seconds": 1.0,
   "pubsub_trigger_failure_max_delay_seconds": 60.0,
@@ -130,6 +132,8 @@ Check status:
 ```bash
 sudo systemctl status amazon-notify-pubsub.service --no-pager -l
 sudo systemctl status amazon-notify-fallback.timer --no-pager -l
+sudo systemctl status amazon-notify-main-watchdog.timer --no-pager -l
+sudo systemctl status amazon-notify-watch-renew.timer --no-pager -l
 ```
 
 ## 9. Acceptance check
@@ -162,7 +166,7 @@ sudo systemctl start amazon-notify-pubsub.service
 
 ## 11. Operations note
 
-- Gmail watch expires (typically ~7 days). Re-run `--setup-watch` before expiry.
+- Gmail watch expires (typically ~7 days). `amazon-notify-watch-renew.timer` re-registers it daily. Keep `pubsub_topic` configured.
 - Useful logs:
 
 ```bash

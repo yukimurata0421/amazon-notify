@@ -1130,6 +1130,100 @@ def test_main_streaming_pull_reconnects_in_process_before_giving_up(
     assert calls["count"] == 2
 
 
+def test_main_streaming_pull_uses_stream_recycle_then_client_recreate(
+    monkeypatch, tmp_path: Path
+) -> None:
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "pubsub_subscription": "projects/p/subscriptions/s",
+                "pubsub_stream_reconnect_max_attempts": 5,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "run_once_with_guard", lambda _runtime: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _sec: None)
+
+    calls = {"count": 0}
+
+    def fake_run_streaming_pull(**_kwargs):
+        calls["count"] += 1
+        if calls["count"] <= 2:
+            raise RuntimeError("transient stream failure")
+        return None
+
+    recovery_actions: list[str] = []
+
+    class _FakeTracker:
+        def __init__(self, **_kwargs):
+            return None
+
+        def mark_trigger_result(self, _ok: bool, *, reason: str) -> None:
+            _ = reason
+
+        def mark_reconnect_attempt(self, *, action: str, reason: str) -> None:
+            _ = reason
+            recovery_actions.append(action)
+
+        def mark_failed(self, *, reason: str) -> None:
+            _ = reason
+
+    monkeypatch.setattr(cli, "run_streaming_pull", fake_run_streaming_pull)
+    monkeypatch.setattr(cli.streaming_command, "ServiceStatusTracker", _FakeTracker)
+    monkeypatch.setattr(
+        sys, "argv", ["amazon-notify", "--config", str(config_path), "--streaming-pull"]
+    )
+
+    cli.main()
+    assert recovery_actions == ["stream_recycle", "client_recreate"]
+
+
+def test_main_streaming_pull_fail_fast_writes_failed_status_and_exits_non_zero(
+    monkeypatch, tmp_path: Path
+) -> None:
+    status_file = tmp_path / "runtime" / "service-status.json"
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "discord_webhook_url": "https://discord.invalid/webhook",
+                "max_messages": 10,
+                "poll_interval_seconds": 60,
+                "pubsub_subscription": "projects/p/subscriptions/s",
+                "pubsub_stream_reconnect_max_attempts": 2,
+                "service_status_file": str(status_file),
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(config, "setup_logging", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(cli, "run_once_with_guard", lambda _runtime: True)
+    monkeypatch.setattr(cli.time, "sleep", lambda _sec: None)
+    monkeypatch.setattr(
+        cli,
+        "run_streaming_pull",
+        lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("stream down")),
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["amazon-notify", "--config", str(config_path), "--streaming-pull"]
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 1
+    payload = json.loads(status_file.read_text(encoding="utf-8"))
+    assert payload["internal_state"] == "failed"
+    assert payload["reason"] == "pubsub_circuit_breaker_open"
+    assert payload["recovery"]["last_recovery_action"] == "fail_fast"
+
+
 def test_main_setup_watch_registers_topic(monkeypatch, tmp_path: Path, capsys) -> None:
     config_path = tmp_path / "config.json"
     config_path.write_text(

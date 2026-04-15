@@ -7,4 +7,4 @@ Type=oneshot
 User=YOUR_USER
 WorkingDirectory=/opt/amazon-notify
 EnvironmentFile=-/opt/amazon-notify/deployment/systemd/amazon-notify-alert.env
-ExecStart=/opt/amazon-notify/deployment/systemd/notify-on-failure.sh %i
+ExecStart=/opt/amazon-notify/.venv/bin/python /opt/amazon-notify/deployment/systemd/notify_on_failure.py %i

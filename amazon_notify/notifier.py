@@ -30,7 +30,7 @@ from .gmail_client import (
     notify_recovery_if_needed,
     record_transient_issue,
 )
-from .gmail_source import GmailMailSource
+from .gmail_source import GmailClientAdapter, GmailMailSource
 from .pipeline import NotificationPipeline
 from .runtime import RuntimeConfig
 from .text import (
@@ -41,8 +41,8 @@ from .text import (
 from .time_utils import utc_now_iso
 
 _INCIDENT_MEMORY_SUPPRESSION_SECONDS = 1800.0
-# Backward-compatible symbol export for existing tests/integrations.
-_AUTH_STATUS_SYMBOL = AuthStatus
+_INCIDENT_MEMORY_MAP: dict[Path, dict[str, float]] = {}
+__all__ = ["AuthStatus", "report_unhandled_exception", "run_once"]
 
 
 @dataclass
@@ -114,7 +114,8 @@ def _handle_incident_lifecycle(
         and not dry_run
         and discord_webhook_url
     ):
-        assert failure_kind is not None
+        if failure_kind is None:
+            return
         now_epoch = time.time()
         suppressed_until = incident_memory_suppressed_until.get(failure_kind)
         if suppressed_until is not None and now_epoch < suppressed_until:
@@ -180,7 +181,8 @@ def _handle_incident_lifecycle(
         and not dry_run
         and discord_webhook_url
     ):
-        assert active_incident is not None
+        if active_incident is None:
+            return
         recovery_msg = (
             "障害状態から復旧しました。\n"
             f"kind: {active_kind}\n"
@@ -204,10 +206,13 @@ def _handle_incident_lifecycle(
 
 
 def _incident_memory_map(runtime: RuntimeConfig) -> dict[str, float]:
-    candidate = getattr(runtime, "incident_memory_suppressed_until", None)
-    if isinstance(candidate, dict):
-        return candidate
-    return {}
+    state_path = runtime.state_file.resolve()
+    cached = _INCIDENT_MEMORY_MAP.get(state_path)
+    if cached is not None:
+        return cached
+    map_for_runtime: dict[str, float] = {}
+    _INCIDENT_MEMORY_MAP[state_path] = map_for_runtime
+    return map_for_runtime
 
 
 def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
@@ -217,23 +222,56 @@ def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
     return get_runtime_paths()
 
 
+_PIPELINE_CACHE: dict[
+    Path,
+    tuple[
+        RuntimeConfig, NotificationPipeline, JsonlCheckpointStore, GmailClientAdapter
+    ],
+] = {}
+
+
 def _build_pipeline(
     *,
     runtime: RuntimeConfig,
     state: dict,
     runtime_paths: RuntimePaths,
 ) -> tuple[NotificationPipeline, JsonlCheckpointStore]:
-    source = GmailMailSource(
-        discord_webhook_url=runtime.discord_webhook_url,
-        state=state,
-        state_file=runtime.state_file,
-        dry_run=runtime.dry_run,
-        gmail_api_max_retries=runtime.gmail_api_max_retries,
-        gmail_api_base_delay_seconds=runtime.gmail_api_base_delay_seconds,
-        gmail_api_max_delay_seconds=runtime.gmail_api_max_delay_seconds,
-        runtime_paths=runtime_paths,
-        transient_alert_min_duration_seconds=runtime.transient_alert_min_duration_seconds,
-        transient_alert_cooldown_seconds=runtime.transient_alert_cooldown_seconds,
+    """Build (or reuse cached) pipeline components.
+
+    Stateless components (classifier, notifier, checkpoint_store, gmail_client
+    adapter) are cached per ``state_file``.  The ``GmailMailSource`` is
+    recreated each call because it carries mutable per-run state.
+    """
+    cache_key = runtime.state_file.resolve()
+    cached = _PIPELINE_CACHE.get(cache_key)
+
+    if cached is not None and cached[0] is runtime:
+        _, prev_pipeline, checkpoint_store, gmail_client = cached
+        source = GmailMailSource(
+            discord_webhook_url=runtime.discord_webhook_url,
+            state=state,
+            state_file=runtime.state_file,
+            dry_run=runtime.dry_run,
+            gmail_api_max_retries=runtime.gmail_api.max_retries,
+            gmail_api_base_delay_seconds=runtime.gmail_api.base_delay_seconds,
+            gmail_api_max_delay_seconds=runtime.gmail_api.max_delay_seconds,
+            runtime_paths=runtime_paths,
+            transient_alert_min_duration_seconds=runtime.transient_alert.min_duration_seconds,
+            transient_alert_cooldown_seconds=runtime.transient_alert.cooldown_seconds,
+            gmail_client=gmail_client,
+        )
+        pipeline = NotificationPipeline(
+            source=source,
+            classifier=prev_pipeline.classifier,
+            notifier=prev_pipeline.notifier,
+            checkpoint_store=checkpoint_store,
+            max_messages=runtime.max_messages,
+            dry_run=runtime.dry_run,
+        )
+        _PIPELINE_CACHE[cache_key] = (runtime, pipeline, checkpoint_store, gmail_client)
+        return pipeline, checkpoint_store
+
+    gmail_client = GmailClientAdapter(
         get_gmail_service_with_status_fn=get_gmail_service_with_status,
         list_recent_messages_page_fn=list_recent_messages_page,
         get_message_detail_fn=get_message_detail,
@@ -243,17 +281,30 @@ def _build_pipeline(
         is_transient_network_error_fn=is_transient_network_error,
         http_error_type=HttpError,
     )
+    source = GmailMailSource(
+        discord_webhook_url=runtime.discord_webhook_url,
+        state=state,
+        state_file=runtime.state_file,
+        dry_run=runtime.dry_run,
+        gmail_api_max_retries=runtime.gmail_api.max_retries,
+        gmail_api_base_delay_seconds=runtime.gmail_api.base_delay_seconds,
+        gmail_api_max_delay_seconds=runtime.gmail_api.max_delay_seconds,
+        runtime_paths=runtime_paths,
+        transient_alert_min_duration_seconds=runtime.transient_alert.min_duration_seconds,
+        transient_alert_cooldown_seconds=runtime.transient_alert.cooldown_seconds,
+        gmail_client=gmail_client,
+    )
     classifier = RegexClassifier(
         amazon_pattern=runtime.amazon_pattern,
         subject_pattern=runtime.subject_pattern,
     )
-    notifier = DiscordNotifier(
+    notifier_impl = DiscordNotifier(
         webhook_url=runtime.discord_webhook_url,
         dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=runtime.dry_run,
-        max_attempts=runtime.discord_max_retries,
-        base_delay_seconds=runtime.discord_base_delay_seconds,
-        max_delay_seconds=runtime.discord_max_delay_seconds,
+        max_attempts=runtime.discord_retry.max_retries,
+        base_delay_seconds=runtime.discord_retry.base_delay_seconds,
+        max_delay_seconds=runtime.discord_retry.max_delay_seconds,
     )
     checkpoint_store = JsonlCheckpointStore(
         state_file=runtime.state_file,
@@ -263,11 +314,12 @@ def _build_pipeline(
     pipeline = NotificationPipeline(
         source=source,
         classifier=classifier,
-        notifier=notifier,
+        notifier=notifier_impl,
         checkpoint_store=checkpoint_store,
         max_messages=runtime.max_messages,
         dry_run=runtime.dry_run,
     )
+    _PIPELINE_CACHE[cache_key] = (runtime, pipeline, checkpoint_store, gmail_client)
     return pipeline, checkpoint_store
 
 

@@ -27,6 +27,7 @@ def test_build_runtime_defaults_and_mapping_api(tmp_path: Path) -> None:
     assert built.events_file == tmp_path / "events.jsonl"
     assert built.runs_file == tmp_path / "runs.jsonl"
     assert built.discord_dedupe_state_file == tmp_path / ".discord_dedupe_state.json"
+    assert built.service_status_file == tmp_path / "runtime/amazon-notify-status.json"
     assert built.runtime_paths.runtime_dir == tmp_path
     assert built.subject_pattern is None
 

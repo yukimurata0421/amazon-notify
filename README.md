@@ -48,6 +48,7 @@ Note: the `main` branch may be ahead of the latest GitHub Release.
 - In-process StreamingPull self-healing:
   - trigger failure backoff/circuit-breaker
   - stream session reconnect backoff (before systemd restart)
+  - emits machine-readable service status (`service_status_file`, atomic JSON write)
 - Hybrid HA mode:
   - Main: StreamingPull service
   - Fallback: timer-based polling with watchdog (`systemd` + heartbeat)
@@ -58,6 +59,17 @@ Note: the `main` branch may be ahead of the latest GitHub Release.
 - A message is treated as processed only after the notification path succeeds.
 - Ordered frontier consistency is preserved (oldest-first, stop on midstream failure).
 - Pub/Sub is treated as a trigger path; Gmail inbox state remains the catch-up source.
+
+## Responsibility Boundary (Plan B)
+
+- `amazon-notify` handles only app-semantic self-healing:
+  - Pub/Sub heartbeat/stream stall detection
+  - stream reconnect, subscriber/client recreation
+  - bounded backoff + circuit breaker
+  - semantic status JSON output (`service_status_file`)
+- `amazon-notify` does not execute service restart or host reboot.
+- If unrecoverable, `amazon-notify` writes `internal_state=failed` to status JSON and exits non-zero (fail-fast).
+- Process restart is delegated to `systemd` (or external supervisors such as `raspi-sentinel`).
 
 ## Non-goals
 
@@ -110,6 +122,9 @@ amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
 # fallback watchdog single run
 amazon-notify --once --fallback-watchdog
 
+# force renew Gmail watch
+amazon-notify --setup-watch --pubsub-topic projects/PROJECT/topics/TOPIC
+
 # rebuild index snapshots from current events/runs files
 amazon-notify --rebuild-indexes
 
@@ -141,6 +156,55 @@ Coordination / lock:
 
 Logs:
 - `logs/`: runtime logs (default file: `logs/amazon_mail_notifier.log`).
+
+Hybrid reliability knobs (config):
+- `pubsub_idle_trigger_interval_seconds`: periodic catch-up run when Pub/Sub callbacks are idle.
+- `pubsub_topic`: topic path used by automated daily watch renew.
+- `service_status_file`: machine-readable service status JSON path (default: `runtime/amazon-notify-status.json`).
+
+Service status JSON (`service_status_file`) top-level fields intended for generic monitoring:
+- `updated_at`
+- `internal_state`
+- `last_success_ts`
+- `last_progress_ts`
+
+Semantics:
+- `last_success_ts`: business success boundary (for example trigger/run success).
+- `last_progress_ts`: control-plane progress boundary; updated only when Pub/Sub heartbeat snapshot actually advances and remains fresh (not by timer tick alone).
+
+Example:
+
+```json
+{
+  "schema_version": 1,
+  "service": "amazon-notify",
+  "updated_at": "2026-04-15T12:00:00+00:00",
+  "internal_state": "degraded",
+  "reason": "pubsub_stream_session_failed",
+  "last_success_ts": "2026-04-15T11:59:12+00:00",
+  "last_progress_ts": "2026-04-15T11:59:12+00:00",
+  "recovery": {
+    "consecutive_failures": 1,
+    "last_recovery_action": "stream_recycle",
+    "last_recovery_ts": "2026-04-15T12:00:00+00:00"
+  },
+  "components": {
+    "pubsub": {
+      "status": "stalled",
+      "last_heartbeat_ts": "2026-04-15T11:59:50+00:00"
+    },
+    "gmail": {
+      "last_success_ts": "2026-04-15T11:59:12+00:00"
+    },
+    "discord": {
+      "last_success_ts": "2026-04-15T11:59:12+00:00"
+    },
+    "checkpoint": {
+      "last_advanced_ts": "2026-04-15T11:59:12+00:00"
+    }
+  }
+}
+```
 
 ## Try With Minimal Docker
 

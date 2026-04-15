@@ -123,6 +123,7 @@ def _validate_streaming_pull_args(
     trigger_failure_max_consecutive: int,
     trigger_failure_base_delay_seconds: float,
     trigger_failure_max_delay_seconds: float,
+    idle_trigger_interval_seconds: float,
 ) -> int:
     # queue_size は過去名。pending backlog 警告しきい値の互換 alias としてのみ残す。
     if queue_size is not None:
@@ -142,6 +143,8 @@ def _validate_streaming_pull_args(
         raise ValueError("trigger_failure_base_delay_seconds must be > 0")
     if trigger_failure_max_delay_seconds <= 0:
         raise ValueError("trigger_failure_max_delay_seconds must be > 0")
+    if idle_trigger_interval_seconds <= 0:
+        raise ValueError("idle_trigger_interval_seconds must be > 0")
     return pending_warn_threshold
 
 
@@ -158,6 +161,7 @@ class _StreamingPullRunner:
         trigger_failure_max_consecutive: int,
         trigger_failure_base_delay_seconds: float,
         trigger_failure_max_delay_seconds: float,
+        idle_trigger_interval_seconds: float,
     ) -> None:
         self.subscription_path = subscription_path
         self.on_trigger = on_trigger
@@ -168,6 +172,7 @@ class _StreamingPullRunner:
         self.trigger_failure_max_consecutive = trigger_failure_max_consecutive
         self.trigger_failure_base_delay_seconds = trigger_failure_base_delay_seconds
         self.trigger_failure_max_delay_seconds = trigger_failure_max_delay_seconds
+        self.idle_trigger_interval_seconds = idle_trigger_interval_seconds
 
         self.stop_event = threading.Event()
         self.trigger_event = threading.Event()
@@ -302,15 +307,100 @@ class _StreamingPullRunner:
             self.trigger_event.clear()
         return latest, collapsed
 
+    def _trigger_failure_delay(self, consecutive_failures: int) -> float:
+        return next_delay_seconds(
+            consecutive_failures,
+            base_delay=self.trigger_failure_base_delay_seconds,
+            max_delay=self.trigger_failure_max_delay_seconds,
+            jitter_ratio=0.1,
+        )
+
+    def _run_trigger_once(
+        self,
+        *,
+        start_log_event: str,
+        done_log_event: str,
+        start_log_args: tuple[Any, ...],
+        consecutive_failures: int,
+    ) -> tuple[int, bool]:
+        started_at = time.time()
+        self._update_heartbeat(trigger_started_at=started_at)
+        LOGGER.info(start_log_event, *start_log_args)
+
+        ok = False
+        trigger_exc: Exception | None = None
+        try:
+            ok = self.on_trigger()
+        except Exception as exc:
+            trigger_exc = exc
+            LOGGER.exception("%s_EXCEPTION: %s", done_log_event, exc)
+
+        done_at = time.time()
+        if ok:
+            self._update_heartbeat(
+                trigger_completed_at=done_at,
+                last_trigger_ok=True,
+                consecutive_trigger_failures=0,
+                reset_last_error=True,
+            )
+            LOGGER.info("%s: ok=True", done_log_event)
+            self._mark_heartbeat()
+            return 0, True
+
+        next_failures = consecutive_failures + 1
+        reason = (
+            str(trigger_exc) if trigger_exc is not None else "on_trigger returned False"
+        )
+        self._update_heartbeat(
+            trigger_completed_at=done_at,
+            last_trigger_ok=False,
+            consecutive_trigger_failures=next_failures,
+            last_error=reason,
+        )
+        LOGGER.warning(
+            "%s: ok=False consecutive_failures=%s reason=%s",
+            done_log_event,
+            next_failures,
+            reason,
+        )
+        if next_failures >= self.trigger_failure_max_consecutive:
+            raise RuntimeError(
+                "Pub/Sub trigger failed too many times consecutively "
+                f"({next_failures}/{self.trigger_failure_max_consecutive})."
+            )
+
+        delay = self._trigger_failure_delay(next_failures)
+        self._mark_heartbeat()
+        if self.stop_event.wait(delay):
+            return next_failures, False
+        return next_failures, True
+
     def _worker_loop(self) -> None:
         last_history_id: int | None = None
         consecutive_failures = 0
+        last_trigger_activity_at = time.time()
 
         try:
             while not self.stop_event.is_set():
                 self._update_heartbeat(worker_last_seen_at=time.time())
                 self._mark_heartbeat()
                 if not self.trigger_event.wait(timeout=0.5):
+                    now = time.time()
+                    if (
+                        now - last_trigger_activity_at
+                        < self.idle_trigger_interval_seconds
+                    ):
+                        continue
+
+                    consecutive_failures, should_continue = self._run_trigger_once(
+                        start_log_event="PUBSUB_IDLE_TRIGGER_START: idle_for=%.1fs",
+                        done_log_event="PUBSUB_IDLE_TRIGGER_DONE",
+                        start_log_args=(now - last_trigger_activity_at,),
+                        consecutive_failures=consecutive_failures,
+                    )
+                    last_trigger_activity_at = time.time()
+                    if not should_continue:
+                        break
                     continue
 
                 while not self.stop_event.is_set():
@@ -336,67 +426,21 @@ class _StreamingPullRunner:
                     if latest.history_id is not None:
                         last_history_id = latest.history_id
 
-                    started_at = time.time()
-                    self._update_heartbeat(trigger_started_at=started_at)
-                    LOGGER.info(
-                        "PUBSUB_TRIGGER_START: collapsed=%s history_id=%s email=%s",
-                        collapsed,
-                        latest.history_id,
-                        latest.email_address,
+                    consecutive_failures, should_continue = self._run_trigger_once(
+                        start_log_event=(
+                            "PUBSUB_TRIGGER_START: collapsed=%s history_id=%s email=%s"
+                        ),
+                        done_log_event="PUBSUB_TRIGGER_DONE",
+                        start_log_args=(
+                            collapsed,
+                            latest.history_id,
+                            latest.email_address,
+                        ),
+                        consecutive_failures=consecutive_failures,
                     )
-
-                    ok = False
-                    trigger_exc: Exception | None = None
-                    try:
-                        ok = self.on_trigger()
-                    except Exception as exc:
-                        trigger_exc = exc
-                        LOGGER.exception("PUBSUB_TRIGGER_EXCEPTION: %s", exc)
-
-                    done_at = time.time()
-                    if ok:
-                        consecutive_failures = 0
-                        self._update_heartbeat(
-                            trigger_completed_at=done_at,
-                            last_trigger_ok=True,
-                            consecutive_trigger_failures=0,
-                            reset_last_error=True,
-                        )
-                        LOGGER.info("PUBSUB_TRIGGER_DONE: ok=True")
-                    else:
-                        consecutive_failures += 1
-                        reason = (
-                            str(trigger_exc)
-                            if trigger_exc is not None
-                            else "on_trigger returned False"
-                        )
-                        self._update_heartbeat(
-                            trigger_completed_at=done_at,
-                            last_trigger_ok=False,
-                            consecutive_trigger_failures=consecutive_failures,
-                            last_error=reason,
-                        )
-                        LOGGER.warning(
-                            "PUBSUB_TRIGGER_DONE: ok=False consecutive_failures=%s reason=%s",
-                            consecutive_failures,
-                            reason,
-                        )
-                        if consecutive_failures >= self.trigger_failure_max_consecutive:
-                            raise RuntimeError(
-                                "Pub/Sub trigger failed too many times consecutively "
-                                f"({consecutive_failures}/{self.trigger_failure_max_consecutive})."
-                            )
-
-                        delay = next_delay_seconds(
-                            consecutive_failures,
-                            base_delay=self.trigger_failure_base_delay_seconds,
-                            max_delay=self.trigger_failure_max_delay_seconds,
-                            jitter_ratio=0.1,
-                        )
-                        if self.stop_event.wait(delay):
-                            break
-
-                    self._mark_heartbeat()
+                    last_trigger_activity_at = time.time()
+                    if not should_continue:
+                        break
         except Exception as exc:
             self.worker_failure = exc
             self.worker_failed.set()
@@ -505,6 +549,7 @@ def run_streaming_pull(
     trigger_failure_max_consecutive: int = 5,
     trigger_failure_base_delay_seconds: float = 1.0,
     trigger_failure_max_delay_seconds: float = 60.0,
+    idle_trigger_interval_seconds: float = 300.0,
 ) -> None:
     normalized_pending_warn_threshold = _validate_streaming_pull_args(
         pending_warn_threshold=pending_warn_threshold,
@@ -514,6 +559,7 @@ def run_streaming_pull(
         trigger_failure_max_consecutive=trigger_failure_max_consecutive,
         trigger_failure_base_delay_seconds=trigger_failure_base_delay_seconds,
         trigger_failure_max_delay_seconds=trigger_failure_max_delay_seconds,
+        idle_trigger_interval_seconds=idle_trigger_interval_seconds,
     )
     ensure_pubsub_dependencies()
     runner = _StreamingPullRunner(
@@ -526,5 +572,6 @@ def run_streaming_pull(
         trigger_failure_max_consecutive=trigger_failure_max_consecutive,
         trigger_failure_base_delay_seconds=trigger_failure_base_delay_seconds,
         trigger_failure_max_delay_seconds=trigger_failure_max_delay_seconds,
+        idle_trigger_interval_seconds=idle_trigger_interval_seconds,
     )
     runner.run()

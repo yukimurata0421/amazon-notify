@@ -57,14 +57,34 @@ def _ensure_dedupe_lock_supported() -> None:
     )
 
 
+_LOCK_TIMEOUT_SECONDS = 10.0
+_LOCK_POLL_INTERVAL_SECONDS = 0.05
+
+
+def _flock_with_timeout(
+    fd: int, timeout_seconds: float = _LOCK_TIMEOUT_SECONDS
+) -> None:
+    """Acquire an exclusive file lock with a bounded timeout."""
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                raise TimeoutError(
+                    f"file lock acquisition timed out after {timeout_seconds}s"
+                ) from None
+            time.sleep(_LOCK_POLL_INTERVAL_SECONDS)
+
+
 @contextmanager
 def _discord_dedupe_lock(state_path: Path):
     _ensure_dedupe_lock_supported()
     lock_path = state_path.parent / _DEDUPE_LOCK_FILENAME
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a+", encoding="utf-8") as lock_handle:
-        assert fcntl is not None
-        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+        _flock_with_timeout(lock_handle.fileno())
         try:
             yield
         finally:
@@ -302,7 +322,7 @@ def _post_webhook(
     for attempt in range(1, max_attempts + 1):
         try:
             response = requests.post(webhook_url, json={"content": content}, timeout=10)
-        except Exception as exc:
+        except requests.exceptions.RequestException as exc:
             if _should_retry_request_exception(exc) and attempt < max_attempts:
                 delay = next_delay_seconds(
                     attempt,

@@ -41,9 +41,17 @@
   - `.state.json.lock`
   - `.discord_dedupe_state.json`
   - `.discord_dedupe_state.lock`
+- `service_status_file`（既定: `runtime/amazon-notify-status.json`）は atomic 更新される機械可読 status JSON です。
+  - 汎用監視は top-level の `updated_at` / `internal_state` / `last_success_ts` / `last_progress_ts` を優先して参照します。
 - Pub/Sub を使う場合は追加で `pip install .[pubsub]` を実行します。
 - `transient_alert_min_duration_seconds` と `transient_alert_cooldown_seconds` で一時障害アラート境界を調整できます。
 - `structured_logging=true` にすると JSON 形式でログを出力します。
+
+## 責務境界（Plan B）
+- `amazon-notify` はアプリ内自己修復のみを担当します（Pub/Sub stall 検知、reconnect、subscriber/client 再生成、bounded backoff、circuit breaker、`service_status_file` 出力）。
+- `amazon-notify` は `systemctl restart` や host reboot を実行しません。
+- 回復不能時は `internal_state=failed` を status JSON に書き、non-zero exit（fail-fast）します。
+- restart/reboot の実行責務は `systemd` と外部監視（例: `raspi-sentinel`）が持ちます。
 
 ## ヘルスチェック補足
 - `amazon-notify --health-check` は `dedupe_lock_supported` を返します。
@@ -263,12 +271,12 @@ sudo systemctl start amazon-notify-pubsub.service amazon-notify-fallback.timer
 3. 事前に対象ディレクトリで `pip install .` を実行し、`.venv/bin/amazon-notify` が存在する状態にします。
 4. 連続クラッシュ時に Discord 通知したい場合は、以下も配置します。
    - `deployment/systemd/amazon-notify-alert@.service` -> `/etc/systemd/system/amazon-notify-alert@.service`
-   - `deployment/systemd/notify-on-failure.sh` -> `/opt/amazon-notify/deployment/systemd/notify-on-failure.sh`
+   - `deployment/systemd/notify_on_failure.py` -> `/opt/amazon-notify/deployment/systemd/notify_on_failure.py`
    - `deployment/systemd/amazon-notify-alert.env.example` をコピーして `/opt/amazon-notify/deployment/systemd/amazon-notify-alert.env` を作成し、`DISCORD_ALERT_WEBHOOK_URL` を設定
-5. `notify-on-failure.sh` に実行権限を付与します。
+5. `notify_on_failure.py` に実行権限を付与します（install-systemd 利用時は自動）。
 
 ```bash
-sudo chmod +x /opt/amazon-notify/deployment/systemd/notify-on-failure.sh
+sudo chmod +x /opt/amazon-notify/deployment/systemd/notify_on_failure.py
 ```
 
 6. 反映します。
@@ -310,8 +318,10 @@ sudo bash deployment/systemd/install-systemd.sh \
 1. メイン系:
    - `deployment/systemd/amazon-notify-pubsub.service` を `/etc/systemd/system/` に配置
    - `config.json` の `pubsub_subscription` を設定
-   - メイン系はアプリ内で自己復旧を優先し、必要時のみ systemd 再起動にフォールバックします
+   - `config.json` の `pubsub_idle_trigger_interval_seconds` で、Pub/Sub callback が止まっている場合の定期 catch-up 実行間隔を設定（既定 300 秒）
+   - メイン系はアプリ内で自己復旧を優先し、回復不能時は fail-fast で異常終了し systemd 再起動に委譲します
    - heartbeat (`runtime/pubsub-heartbeat.txt`) は `updated_at` と `worker_last_seen_at` を保持し、サイレント停止を検知します
+   - status (`runtime/amazon-notify-status.json` 既定) は `internal_state` / `last_success_ts` / `last_progress_ts` を出力し、外部監視が意味論非依存で監視できます
 2. サブ系:
    - `deployment/systemd/amazon-notify-fallback.service` と `deployment/systemd/amazon-notify-fallback.timer` を `/etc/systemd/system/` に配置
    - fallback service は `--fallback-watchdog` でメイン系を判定します
@@ -320,7 +330,14 @@ sudo bash deployment/systemd/install-systemd.sh \
       - heartbeat が欠損/古い -> フェールオーバー実行
       - worker heartbeat が古い -> フェールオーバー実行
       - 両方正常 -> サブ系は `[SKIP]` で終了
-3. 初回に Gmail watch を登録します。
+3. 監視系:
+   - `deployment/systemd/amazon-notify-main-watchdog.service` と `deployment/systemd/amazon-notify-main-watchdog.timer` を `/etc/systemd/system/` に配置
+   - heartbeat 異常（欠損/古い/worker stale）を検出したら `amazon-notify-pubsub.service` を再起動
+4. watch 自動更新:
+   - `deployment/systemd/amazon-notify-watch-renew.service` と `deployment/systemd/amazon-notify-watch-renew.timer` を `/etc/systemd/system/` に配置
+   - `config.json` に `pubsub_topic` を設定（または `deployment/systemd/amazon-notify-watch-renew.env` の `PUBSUB_TOPIC` を設定）
+   - timer が日次で `--setup-watch` を再実行して watch 期限切れを防止
+5. 初回に Gmail watch を登録します。
 
 ```bash
 /opt/amazon-notify/.venv/bin/amazon-notify \
@@ -329,26 +346,32 @@ sudo bash deployment/systemd/install-systemd.sh \
   --pubsub-topic projects/PROJECT_ID/topics/TOPIC_ID
 ```
 
-4. 反映して起動します。
+6. 反映して起動します。
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now amazon-notify-pubsub.service
 sudo systemctl enable --now amazon-notify-fallback.timer
+sudo systemctl enable --now amazon-notify-main-watchdog.timer
+sudo systemctl enable --now amazon-notify-watch-renew.timer
 ```
 
-5. 状態を確認します。
+7. 状態を確認します。
 
 ```bash
 sudo systemctl status amazon-notify-pubsub.service
 sudo systemctl status amazon-notify-fallback.timer
+sudo systemctl status amazon-notify-main-watchdog.timer
+sudo systemctl status amazon-notify-watch-renew.timer
 sudo journalctl -u amazon-notify-pubsub.service -f
 ```
 
-6. サブ系の判定ログを確認したい場合:
+8. サブ系の判定ログを確認したい場合:
 
 ```bash
 sudo journalctl -u amazon-notify-fallback.service -f
+sudo journalctl -u amazon-notify-main-watchdog.service -f
+sudo journalctl -u amazon-notify-watch-renew.service -f
 ```
 
 ## 運用メモ

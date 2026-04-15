@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from amazon_notify import config, gmail_client, notifier
+from amazon_notify import (
+    config,
+    gmail_client,
+    gmail_transient_state,
+    notification_bridge,
+    notifier,
+)
 from tests.unit.notifier_test_helpers import build_runtime, single_page
 
 
@@ -50,7 +56,7 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     state = {"last_message_id": "msg-1"}
 
     monkeypatch.setattr(
-        gmail_client, "send_discord_alert", lambda *_args, **_kwargs: True
+        notification_bridge, "send_discord_alert", lambda *_args, **_kwargs: True
     )
     gmail_client.record_transient_issue(
         state,
@@ -67,11 +73,13 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
 
     calls: list[tuple[str, str]] = []
 
-    def fake_send_recovery(webhook_url: str, message: str) -> None:
+    def fake_send_recovery(webhook_url: str, message: str, **_kwargs) -> None:
         calls.append((webhook_url, message))
         return True
 
-    monkeypatch.setattr(gmail_client, "send_discord_recovery", fake_send_recovery)
+    monkeypatch.setattr(
+        notification_bridge, "send_discord_recovery", fake_send_recovery
+    )
 
     gmail_client.notify_recovery_if_needed(
         "https://discord.invalid/webhook", state, state_file
@@ -100,7 +108,7 @@ def test_notify_recovery_keeps_state_when_discord_send_fails(
     state_file.write_text(json.dumps(state), encoding="utf-8")
 
     monkeypatch.setattr(
-        gmail_client, "send_discord_recovery", lambda *_args, **_kwargs: False
+        notification_bridge, "send_discord_recovery", lambda *_args, **_kwargs: False
     )
 
     gmail_client.notify_recovery_if_needed(
@@ -127,9 +135,9 @@ def test_notify_recovery_silent_clear_when_transient_was_never_alerted(
 
     calls: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
-        lambda _webhook, message: calls.append(message) or True,
+        lambda _webhook, message, **_kwargs: calls.append(message) or True,
     )
     gmail_client.notify_recovery_if_needed(
         "https://discord.invalid/webhook", state, state_file
@@ -164,9 +172,9 @@ def test_notify_recovery_uses_latest_persisted_state(
 
     calls: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
-        lambda _webhook, message: calls.append(message) or True,
+        lambda _webhook, message, **_kwargs: calls.append(message) or True,
     )
 
     gmail_client.notify_recovery_if_needed(
@@ -201,11 +209,11 @@ def test_record_transient_issue_uses_latest_persisted_state_for_cooldown(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
-        lambda _webhook, message: alerts.append(message) or True,
+        lambda _webhook, message, **_kwargs: alerts.append(message) or True,
     )
-    monkeypatch.setattr(gmail_client.time, "time", lambda: 1100.0)
+    monkeypatch.setattr(gmail_transient_state.time, "time", lambda: 1100.0)
 
     sent = gmail_client.record_transient_issue(
         stale_state,
@@ -471,9 +479,9 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message),
+        lambda webhook_url, message, **_kwargs: alerts.append(message),
     )
 
     notifier.run_once(runtime)
@@ -769,8 +777,15 @@ def test_report_unhandled_exception_handles_persistence_failures(
     assert result.checkpoint_before is None
 
 
-def test_incident_memory_map_returns_empty_for_non_dict_runtime_attr() -> None:
-    class _RuntimeLike:
-        incident_memory_suppressed_until = "invalid"
+def test_incident_memory_map_is_scoped_by_state_file(tmp_path: Path) -> None:
+    runtime_a = build_runtime(tmp_path / "a")
+    runtime_b = build_runtime(tmp_path / "b")
 
-    assert notifier._incident_memory_map(_RuntimeLike()) == {}
+    notifier._INCIDENT_MEMORY_MAP.clear()
+    map_a = notifier._incident_memory_map(runtime_a)
+    map_b = notifier._incident_memory_map(runtime_b)
+    map_a["delivery_failed"] = 123.0
+
+    assert map_a is notifier._incident_memory_map(runtime_a)
+    assert map_b is notifier._incident_memory_map(runtime_b)
+    assert "delivery_failed" not in map_b
