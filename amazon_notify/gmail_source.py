@@ -4,7 +4,7 @@ import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from .backoff import next_delay_seconds
 from .config import LOGGER, RuntimePaths
@@ -30,18 +30,54 @@ from .text import decode_mime_words
 T = TypeVar("T")
 
 
-@dataclass
-class GmailMailSource:
-    discord_webhook_url: str
-    state: dict
-    state_file: Path
-    dry_run: bool
-    gmail_api_max_retries: int
-    gmail_api_base_delay_seconds: float
-    gmail_api_max_delay_seconds: float
-    runtime_paths: RuntimePaths
-    transient_alert_min_duration_seconds: float
-    transient_alert_cooldown_seconds: float
+class GmailClient(Protocol):
+    http_error_type: type[Exception]
+
+    def get_gmail_service_with_status(
+        self,
+        *,
+        webhook_url: str | None,
+        state: dict | None,
+        state_file: Path | None,
+        paths: RuntimePaths,
+        transient_alert_min_duration_seconds: float,
+        transient_alert_cooldown_seconds: float,
+    ) -> tuple[Any | None, AuthStatus]: ...
+
+    def list_recent_messages_page(
+        self,
+        service: Any,
+        *,
+        query: str,
+        max_results: int,
+        page_token: str | None = None,
+    ) -> tuple[list[dict[str, str]], str | None]: ...
+
+    def get_message_detail(self, service: Any, message_id: str) -> dict[str, Any]: ...
+
+    def notify_recovery_if_needed(
+        self, webhook_url: str, state: dict, state_file: Path
+    ) -> None: ...
+
+    def record_transient_issue(
+        self,
+        state: dict,
+        state_file: Path,
+        err: Exception | str,
+        *,
+        webhook_url: str | None = None,
+        alert_message: str | None = None,
+        min_alert_duration_seconds: float,
+        alert_cooldown_seconds: float,
+    ) -> bool: ...
+
+    def is_retryable_http_error(self, exc: Exception) -> bool: ...
+
+    def is_transient_network_error(self, exc: Exception) -> bool: ...
+
+
+@dataclass(frozen=True)
+class GmailClientAdapter:
     get_gmail_service_with_status_fn: Callable[..., tuple[Any | None, AuthStatus]] = (
         get_gmail_service_with_status
     )
@@ -58,6 +94,76 @@ class GmailMailSource:
         is_transient_network_error
     )
     http_error_type: type[Exception] = HttpError
+
+    def get_gmail_service_with_status(
+        self, **kwargs
+    ) -> tuple[Any | None, AuthStatus]:
+        return self.get_gmail_service_with_status_fn(**kwargs)
+
+    def list_recent_messages_page(
+        self,
+        service: Any,
+        *,
+        query: str,
+        max_results: int,
+        page_token: str | None = None,
+    ) -> tuple[list[dict[str, str]], str | None]:
+        return self.list_recent_messages_page_fn(
+            service,
+            query=query,
+            max_results=max_results,
+            page_token=page_token,
+        )
+
+    def get_message_detail(self, service: Any, message_id: str) -> dict[str, Any]:
+        return self.get_message_detail_fn(service, message_id)
+
+    def notify_recovery_if_needed(
+        self, webhook_url: str, state: dict, state_file: Path
+    ) -> None:
+        self.notify_recovery_if_needed_fn(webhook_url, state, state_file)
+
+    def record_transient_issue(
+        self,
+        state: dict,
+        state_file: Path,
+        err: Exception | str,
+        *,
+        webhook_url: str | None = None,
+        alert_message: str | None = None,
+        min_alert_duration_seconds: float,
+        alert_cooldown_seconds: float,
+    ) -> bool:
+        return self.record_transient_issue_fn(
+            state,
+            state_file,
+            err,
+            webhook_url=webhook_url,
+            alert_message=alert_message,
+            min_alert_duration_seconds=min_alert_duration_seconds,
+            alert_cooldown_seconds=alert_cooldown_seconds,
+        )
+
+    def is_retryable_http_error(self, exc: Exception) -> bool:
+        return self.is_retryable_http_error_fn(exc)
+
+    def is_transient_network_error(self, exc: Exception) -> bool:
+        return self.is_transient_network_error_fn(exc)
+
+
+@dataclass
+class GmailMailSource:
+    discord_webhook_url: str
+    state: dict
+    state_file: Path
+    dry_run: bool
+    gmail_api_max_retries: int
+    gmail_api_base_delay_seconds: float
+    gmail_api_max_delay_seconds: float
+    runtime_paths: RuntimePaths
+    transient_alert_min_duration_seconds: float
+    transient_alert_cooldown_seconds: float
+    gmail_client: GmailClient = field(default_factory=GmailClientAdapter)
     auth_status: AuthStatus = field(default=AuthStatus.READY, init=False)
 
     def get_auth_status(self) -> AuthStatus:
@@ -66,7 +172,7 @@ class GmailMailSource:
     def notify_recovery_if_needed(self) -> None:
         if self.dry_run:
             return
-        self.notify_recovery_if_needed_fn(
+        self.gmail_client.notify_recovery_if_needed(
             self.discord_webhook_url, self.state, self.state_file
         )
 
@@ -77,7 +183,7 @@ class GmailMailSource:
             "一時的な通信障害が継続しています。しばらく自動再試行を続けます。\n"
             f"エラー: {err}"
         )
-        self.record_transient_issue_fn(
+        self.gmail_client.record_transient_issue(
             self.state,
             self.state_file,
             err,
@@ -97,9 +203,9 @@ class GmailMailSource:
                 return fn()
             except Exception as exc:
                 last_exc = exc
-                should_retry = self.is_transient_network_error_fn(
+                should_retry = self.gmail_client.is_transient_network_error(
                     exc
-                ) or self.is_retryable_http_error_fn(exc)
+                ) or self.gmail_client.is_retryable_http_error(exc)
                 if (not should_retry) or attempt == self.gmail_api_max_retries:
                     break
                 delay = next_delay_seconds(
@@ -117,14 +223,15 @@ class GmailMailSource:
                 )
                 time.sleep(delay)
 
-        assert last_exc is not None
+        if last_exc is None:
+            raise RuntimeError(f"{operation_name} failed without captured exception")
         raise last_exc
 
     def iter_new_messages(
         self, checkpoint: Checkpoint, max_messages: int
     ) -> Iterable[MailEnvelope]:
         # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
-        service, status = self.get_gmail_service_with_status_fn(
+        service, status = self.gmail_client.get_gmail_service_with_status(
             webhook_url=None if self.dry_run else self.discord_webhook_url,
             state=None if self.dry_run else self.state,
             state_file=None if self.dry_run else self.state_file,
@@ -155,7 +262,7 @@ class GmailMailSource:
                 def _list_page(
                     _page_token: str | None = page_token,
                 ) -> tuple[list[dict[str, str]], str | None]:
-                    return self.list_recent_messages_page_fn(
+                    return self.gmail_client.list_recent_messages_page(
                         service,
                         query="in:inbox",
                         max_results=list_page_size,
@@ -166,13 +273,13 @@ class GmailMailSource:
                     "list_recent_messages", _list_page
                 )
             except Exception as exc:
-                if isinstance(exc, self.http_error_type):
-                    if self.is_retryable_http_error_fn(exc):
+                if isinstance(exc, self.gmail_client.http_error_type):
+                    if self.gmail_client.is_retryable_http_error(exc):
                         raise TransientSourceError(
                             f"Gmail API 一時エラー: {exc}"
                         ) from exc
                     raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
-                if self.is_transient_network_error_fn(exc):
+                if self.gmail_client.is_transient_network_error(exc):
                     raise TransientSourceError(str(exc)) from exc
                 raise SourceError(f"Gmail API 予期しないエラー: {exc}") from exc
 
@@ -229,7 +336,7 @@ class GmailMailSource:
             try:
 
                 def _get_detail(_message_id: str = msg_id) -> dict[str, Any]:
-                    return self.get_message_detail_fn(service, _message_id)
+                    return self.gmail_client.get_message_detail(service, _message_id)
 
                 msg = self._call_gmail_api_with_retry(
                     "get_message_detail",

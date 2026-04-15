@@ -25,6 +25,12 @@ For stable architecture-level decisions, see `docs/engineering-decisions.en.md`.
 ## 2. Adopted decisions
 
 ### 2.0 Current update scope
+- Consolidated `GmailMailSource` injection points behind a typed `GmailClient` protocol and `GmailClientAdapter`.
+- Replaced production-path `assert` usage in retry/incident flows with explicit guards for runtime-safe behavior under optimized execution.
+- Moved incident in-memory suppression ownership from mutable `RuntimeConfig` state to notifier-managed process cache keyed by `state_file`.
+- Unified StreamingPull trigger success/failure/heartbeat/backoff handling into `_run_trigger_once` to avoid branch drift.
+- Removed legacy `TypeError` fallback shims from Gmail alert/recovery dedupe wrappers and enforced explicit keyword-argument contract.
+- Added regression coverage for paginated checkpoint boundaries and concurrent Discord dedupe claim suppression.
 - Unified Discord dedupe-state path handling via runtime path injection (`--config`-anchored resolution).
 - Split Gmail runtime logic by responsibility (`gmail_auth.py` and `gmail_transient_state.py`) while keeping `gmail_client.py` as compatibility facade.
 - Added explicit runtime-artifact role documentation in README/operations docs (source-of-truth vs derived vs rebuildable cache vs coordination/lock).

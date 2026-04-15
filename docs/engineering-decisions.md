@@ -229,11 +229,12 @@
 ## 15. incident のメモリ抑制を module global から外した理由
 
 ### 採用
-- 抑制マップを mutable module global ではなく runtime スコープ（`RuntimeConfig`）で保持する。
+- 抑制マップを `RuntimeConfig` の mutable フィールドから切り離し、`notifier` 内のプロセスキャッシュ（`state_file` 単位）で管理する。
 
 ### 理由
+- 設定オブジェクトに mutable state を混在させず、設定責務と実行時メモリ責務を分離するため。
+- `state_file` ごとの分離を保ちながら、同一 runtime 内では抑制状態を継続利用できるようにするため。
 - テスト分離性を高め、fixture 依存の隠れた副作用を減らすため。
-- 将来の複数 runtime / 並行実行時の状態競合リスクを下げるため。
 
 ## 16. Discord dedupe lock を fail-fast にした理由
 
@@ -365,11 +366,21 @@
 - append-only 設計は「壊れにくさ」には強いが、長期運用では「寿命管理」と「復元手順の再現性」が支配的になる。
 - ドキュメント手順だけでは drift するため、実際にコマンドとして保持し、定期的に drill 可能にした。
 
-## 27. 開発環境適用を明示する理由
+## 27. Gmail Source の依存注入を Protocol + Adapter に集約した理由
 
 ### 採用
-- 機能追加時は `.venv` へ再インストールして CLI エントリポイント差分を反映する（`pip install -e .`）。
-- 反映確認は `python -m amazon_notify.cli --help` と test suite で行う。
+- `GmailMailSource` に分散していた関数注入を `GmailClient` Protocol で束ね、既定実装として `GmailClientAdapter` を導入した。
+- notifier 側は Gmail 境界（service/status, list/detail, retry 判定, transient/recovery 通知）を 1 オブジェクト注入に統一した。
 
 ### 理由
-- `amazon-notify` は CLI ツールなので、コード変更だけでなく「開発環境で実際に呼べる状態」までを完了条件に含めるべきだから。
+- コンストラクタ引数の肥大化を抑え、テスト差し替え境界を明確にするため。
+- Gmail 境界を明示的な型契約に閉じ込めることで、将来変更の影響範囲を制御しやすくするため。
+
+## 28. StreamingPull trigger 実行経路を共通化した理由
+
+### 採用
+- idle trigger と message trigger に重複していた成功/失敗/heartbeat/backoff 更新を `_run_trigger_once` に集約した。
+
+### 理由
+- 同種ロジックの分岐重複を減らし、運用時の failure semantics のズレを防ぐため。
+- heartbeat と連続失敗カウントの扱いを 1 箇所に固定し、回帰時の検証コストを下げるため。

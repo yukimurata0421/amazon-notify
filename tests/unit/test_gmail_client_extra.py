@@ -160,7 +160,7 @@ def test_notify_token_recovery_skips_when_state_not_active(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_recovery",
-        lambda webhook_url, message: calls.append(message) or True,
+        lambda webhook_url, message, **_kwargs: calls.append(message) or True,
     )
 
     gmail_client.notify_token_recovery_if_needed(
@@ -404,7 +404,7 @@ def test_get_gmail_service_refresh_transient_error_marks_issue(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message) or True,
+        lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     state_file = tmp_path / "state.json"
@@ -454,7 +454,7 @@ def test_get_gmail_service_refresh_fatal_with_interactive_recovers(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message) or True,
+        lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     service = gmail_client.get_gmail_service(
@@ -485,7 +485,7 @@ def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message) or True,
+        lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     state_file = tmp_path / "state.json"

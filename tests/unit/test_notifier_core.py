@@ -473,7 +473,7 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message),
+        lambda webhook_url, message, **_kwargs: alerts.append(message),
     )
 
     notifier.run_once(runtime)
@@ -769,8 +769,15 @@ def test_report_unhandled_exception_handles_persistence_failures(
     assert result.checkpoint_before is None
 
 
-def test_incident_memory_map_returns_empty_for_non_dict_runtime_attr() -> None:
-    class _RuntimeLike:
-        incident_memory_suppressed_until = "invalid"
+def test_incident_memory_map_is_scoped_by_state_file(tmp_path: Path) -> None:
+    runtime_a = build_runtime(tmp_path / "a")
+    runtime_b = build_runtime(tmp_path / "b")
 
-    assert notifier._incident_memory_map(_RuntimeLike()) == {}
+    notifier._INCIDENT_MEMORY_MAP.clear()
+    map_a = notifier._incident_memory_map(runtime_a)
+    map_b = notifier._incident_memory_map(runtime_b)
+    map_a["delivery_failed"] = 123.0
+
+    assert map_a is notifier._incident_memory_map(runtime_a)
+    assert map_b is notifier._incident_memory_map(runtime_b)
+    assert "delivery_failed" not in map_b

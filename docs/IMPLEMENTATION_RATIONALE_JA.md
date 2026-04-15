@@ -7,7 +7,7 @@ English version: [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.
 構造全体の設計判断は `docs/engineering-decisions.md` を参照してください。
 
 対象:
-- `main` ブランチの実装（v0.4.0 系の改善を含む）
+- `main` ブランチの実装（v0.5.0 以降 / Unreleased を含む）
 - 単一ホスト運用（systemd + ローカルファイル）前提
 
 ## 1. 判断の基準
@@ -31,6 +31,12 @@ English version: [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.
 ## 2. 採用した主な判断
 
 ### 2.0 今回の更新（概要）
+- `GmailMailSource` の関数群注入を `GmailClient` Protocol + `GmailClientAdapter` へ集約し、境界を型で明示。
+- retry / incident 経路の production-path `assert` を明示ガードへ置換し、最適化実行時の安全性を高めた。
+- incident メモリ抑制を `RuntimeConfig` mutable state から `notifier` 側プロセスキャッシュ（`state_file` 単位）へ移行。
+- StreamingPull の trigger 成功/失敗/heartbeat/backoff 更新を `_run_trigger_once` に集約し、分岐間の挙動差分を排除。
+- Discord alert/recovery dedupe wrapper から legacy `TypeError` fallback を削除し、キーワード引数契約を明確化。
+- pagination 境界と concurrent dedupe の回帰テストを追加し、frontier 契約と重複抑止契約を強化。
 - Discord dedupe state の path 解決を runtime 注入へ統一（`--config` 基準で一貫）。
 - Gmail 実装を責務単位で分割（`gmail_auth.py` / `gmail_transient_state.py`）。
 - README/運用文書で runtime artifacts の役割を分類して明示。

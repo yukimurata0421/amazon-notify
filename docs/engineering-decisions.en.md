@@ -152,11 +152,12 @@ Reasoning:
 
 ## 15. Why Incident Memory Suppression Moved off Module Globals
 Adopted:
-- in-memory suppression map is runtime-scoped (`RuntimeConfig`) instead of mutable module-global state.
+- in-memory suppression map was removed from mutable `RuntimeConfig` fields and moved to notifier-owned process cache keyed by `state_file`.
 
 Reasoning:
-- Improve test isolation and future multi-runtime safety.
-- Reduce hidden shared state and fixture-only cleanup dependency.
+- Keep configuration objects immutable in practice and separate config responsibility from runtime memory ownership.
+- Preserve per-runtime isolation (`state_file` boundary) while reusing suppression state across runs in the same process.
+- Improve test isolation and reduce fixture-only shared-state cleanup dependency.
 
 ## 16. Why Discord Dedupe Lock Became Fail-Fast
 Adopted:
@@ -249,3 +250,20 @@ Adopted:
 Reasoning:
 - Published repositories should not read as tied to a **specific machine layout** or home directory.
 - **No runtime behavior change**—documentation alignment only.
+
+## 26. Why Gmail Source Injection Was Consolidated into Protocol + Adapter
+Adopted:
+- Consolidated multi-function injection in `GmailMailSource` behind a `GmailClient` protocol with a default `GmailClientAdapter`.
+- Notifier now injects one adapter object for Gmail boundaries (service/status, list/detail, retryability checks, transient/recovery signaling).
+
+Reasoning:
+- Reduce constructor sprawl and make test substitution boundaries clearer.
+- Keep Gmail integration concerns behind an explicit typed boundary to limit future change impact.
+
+## 27. Why StreamingPull Trigger Execution Was Unified
+Adopted:
+- Consolidated duplicated idle-trigger and message-trigger success/failure/heartbeat/backoff handling into `_run_trigger_once`.
+
+Reasoning:
+- Prevent semantic drift between two logically identical failure-handling paths.
+- Keep heartbeat and consecutive-failure policy updates in one place to reduce regression risk and review cost.

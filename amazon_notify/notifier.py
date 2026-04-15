@@ -30,7 +30,7 @@ from .gmail_client import (
     notify_recovery_if_needed,
     record_transient_issue,
 )
-from .gmail_source import GmailMailSource
+from .gmail_source import GmailClientAdapter, GmailMailSource
 from .pipeline import NotificationPipeline
 from .runtime import RuntimeConfig
 from .text import (
@@ -41,8 +41,8 @@ from .text import (
 from .time_utils import utc_now_iso
 
 _INCIDENT_MEMORY_SUPPRESSION_SECONDS = 1800.0
-# Backward-compatible symbol export for existing tests/integrations.
-_AUTH_STATUS_SYMBOL = AuthStatus
+_INCIDENT_MEMORY_MAP: dict[Path, dict[str, float]] = {}
+__all__ = ["AuthStatus", "report_unhandled_exception", "run_once"]
 
 
 @dataclass
@@ -114,7 +114,8 @@ def _handle_incident_lifecycle(
         and not dry_run
         and discord_webhook_url
     ):
-        assert failure_kind is not None
+        if failure_kind is None:
+            return
         now_epoch = time.time()
         suppressed_until = incident_memory_suppressed_until.get(failure_kind)
         if suppressed_until is not None and now_epoch < suppressed_until:
@@ -180,7 +181,8 @@ def _handle_incident_lifecycle(
         and not dry_run
         and discord_webhook_url
     ):
-        assert active_incident is not None
+        if active_incident is None:
+            return
         recovery_msg = (
             "障害状態から復旧しました。\n"
             f"kind: {active_kind}\n"
@@ -204,10 +206,13 @@ def _handle_incident_lifecycle(
 
 
 def _incident_memory_map(runtime: RuntimeConfig) -> dict[str, float]:
-    candidate = getattr(runtime, "incident_memory_suppressed_until", None)
-    if isinstance(candidate, dict):
-        return candidate
-    return {}
+    state_path = runtime.state_file.resolve()
+    cached = _INCIDENT_MEMORY_MAP.get(state_path)
+    if cached is not None:
+        return cached
+    map_for_runtime: dict[str, float] = {}
+    _INCIDENT_MEMORY_MAP[state_path] = map_for_runtime
+    return map_for_runtime
 
 
 def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
@@ -234,14 +239,16 @@ def _build_pipeline(
         runtime_paths=runtime_paths,
         transient_alert_min_duration_seconds=runtime.transient_alert_min_duration_seconds,
         transient_alert_cooldown_seconds=runtime.transient_alert_cooldown_seconds,
-        get_gmail_service_with_status_fn=get_gmail_service_with_status,
-        list_recent_messages_page_fn=list_recent_messages_page,
-        get_message_detail_fn=get_message_detail,
-        notify_recovery_if_needed_fn=notify_recovery_if_needed,
-        record_transient_issue_fn=record_transient_issue,
-        is_retryable_http_error_fn=is_retryable_http_error,
-        is_transient_network_error_fn=is_transient_network_error,
-        http_error_type=HttpError,
+        gmail_client=GmailClientAdapter(
+            get_gmail_service_with_status_fn=get_gmail_service_with_status,
+            list_recent_messages_page_fn=list_recent_messages_page,
+            get_message_detail_fn=get_message_detail,
+            notify_recovery_if_needed_fn=notify_recovery_if_needed,
+            record_transient_issue_fn=record_transient_issue,
+            is_retryable_http_error_fn=is_retryable_http_error,
+            is_transient_network_error_fn=is_transient_network_error,
+            http_error_type=HttpError,
+        ),
     )
     classifier = RegexClassifier(
         amazon_pattern=runtime.amazon_pattern,

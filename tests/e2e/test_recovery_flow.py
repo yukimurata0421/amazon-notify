@@ -67,12 +67,12 @@ def test_e2e_transient_error_then_recovery_notification(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message) or True,
+        lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
     monkeypatch.setattr(
         gmail_client,
         "send_discord_recovery",
-        lambda webhook_url, message: recoveries.append(message) or True,
+        lambda webhook_url, message, **_kwargs: recoveries.append(message) or True,
     )
 
     notifier.run_once(runtime)

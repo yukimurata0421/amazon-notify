@@ -46,7 +46,7 @@ def test_get_gmail_service_missing_token_alerts_once(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message),
+        lambda webhook_url, message, **_kwargs: alerts.append(message),
     )
 
     first = gmail_client.get_gmail_service(
@@ -117,7 +117,7 @@ def test_get_gmail_service_token_recovery_notifies_once(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_recovery",
-        lambda webhook_url, message: recoveries.append(message) or True,
+        lambda webhook_url, message, **_kwargs: recoveries.append(message) or True,
     )
 
     service = gmail_client.get_gmail_service(
@@ -170,7 +170,7 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda webhook_url, message: alerts.append(message) or True,
+        lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     service = gmail_client.get_gmail_service(

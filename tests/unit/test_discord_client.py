@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -399,6 +400,51 @@ def test_reserve_and_finalize_dedupe_claim_edge_paths(
         owner="mine",
         sent=True,
     )
+
+
+def test_post_webhook_with_dedupe_suppresses_concurrent_duplicate(
+    monkeypatch, dedupe_state_path: Path
+) -> None:
+    call_started = threading.Event()
+    allow_finish = threading.Event()
+    call_count = {"count": 0}
+
+    def fake_post_webhook(*_args, **_kwargs) -> bool:
+        call_count["count"] += 1
+        call_started.set()
+        allow_finish.wait(timeout=1.0)
+        return True
+
+    monkeypatch.setattr(discord_client, "_post_webhook", fake_post_webhook)
+
+    first_result: dict[str, bool] = {}
+
+    def _first_send() -> None:
+        first_result["sent"] = discord_client._post_webhook_with_dedupe(
+            webhook_url="https://discord.invalid/webhook",
+            content="same-content",
+            notification_kind="alert",
+            dedupe_state_path=dedupe_state_path,
+            dedupe_window_seconds=600.0,
+        )
+
+    first_thread = threading.Thread(target=_first_send)
+    first_thread.start()
+    call_started.wait(timeout=1.0)
+
+    second_sent = discord_client._post_webhook_with_dedupe(
+        webhook_url="https://discord.invalid/webhook",
+        content="same-content",
+        notification_kind="alert",
+        dedupe_state_path=dedupe_state_path,
+        dedupe_window_seconds=600.0,
+    )
+    allow_finish.set()
+    first_thread.join(timeout=1.0)
+
+    assert first_result["sent"] is True
+    assert second_sent is True
+    assert call_count["count"] == 1
     monkeypatch.setattr(
         discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock()
     )

@@ -1,5 +1,5 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
-[![Tag](https://img.shields.io/badge/tag-0.4.0-blue)](https://github.com/yukimurata0421/amazon-notify/blob/main/CHANGELOG.md#040---2026-04-07)
+[![Tag](https://img.shields.io/badge/tag-0.5.0-blue)](https://github.com/yukimurata0421/amazon-notify/blob/main/CHANGELOG.md#050---2026-04-12)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yukimurata0421/amazon-notify/main/.github/badges/coverage.json)](https://github.com/yukimurata0421/amazon-notify/blob/main/.github/badges/coverage.json)
 [![Lint](https://img.shields.io/badge/lint-ruff-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
@@ -24,7 +24,7 @@ English README: [README.md](./README.md)
 |---|---|
 | `main` ブランチ | 最新実装（リリースタグより先行する場合あり） |
 | Latest release | GitHub 上の最新タグ付きリリース |
-| Next intended release | `0.5.0`（`CHANGELOG.md` の Unreleased を参照） |
+| Next intended release | `0.6.0`（`CHANGELOG.md` の Unreleased を参照） |
 
 ## 動作例
 

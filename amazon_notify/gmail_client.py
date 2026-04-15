@@ -143,15 +143,11 @@ def _send_discord_alert_with_dedupe(
     *,
     dedupe_state_path: Path | None,
 ) -> bool:
-    try:
-        return send_discord_alert(
-            webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
-        )
-    except TypeError:
-        # Test doubles may keep the legacy 2-arg shape.
-        return send_discord_alert(webhook_url, message)
+    return send_discord_alert(
+        webhook_url,
+        message,
+        dedupe_state_path=dedupe_state_path,
+    )
 
 
 def _send_discord_recovery_with_dedupe(
@@ -160,15 +156,11 @@ def _send_discord_recovery_with_dedupe(
     *,
     dedupe_state_path: Path | None,
 ) -> bool:
-    try:
-        return send_discord_recovery(
-            webhook_url,
-            message,
-            dedupe_state_path=dedupe_state_path,
-        )
-    except TypeError:
-        # Test doubles may keep the legacy 2-arg shape.
-        return send_discord_recovery(webhook_url, message)
+    return send_discord_recovery(
+        webhook_url,
+        message,
+        dedupe_state_path=dedupe_state_path,
+    )
 
 
 def ensure_google_dependencies() -> None:
@@ -543,7 +535,8 @@ def start_gmail_watch_with_retry(
             )
             time.sleep(delay)
 
-    assert last_exc is not None
+    if last_exc is None:
+        raise RuntimeError("start_gmail_watch_with_retry exhausted without exception")
     raise last_exc
 
 
