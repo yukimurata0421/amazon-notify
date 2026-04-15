@@ -32,8 +32,7 @@ T = TypeVar("T")
 
 class GmailClient(Protocol):
     @property
-    def http_error_type(self) -> type[Exception]:
-        ...
+    def http_error_type(self) -> type[Exception]: ...
 
     def get_gmail_service_with_status(
         self,
@@ -97,9 +96,7 @@ class GmailClientAdapter:
     )
     http_error_type: type[Exception] = HttpError
 
-    def get_gmail_service_with_status(
-        self, **kwargs
-    ) -> tuple[Any | None, AuthStatus]:
+    def get_gmail_service_with_status(self, **kwargs) -> tuple[Any | None, AuthStatus]:
         return self.get_gmail_service_with_status_fn(**kwargs)
 
     def list_recent_messages_page(
