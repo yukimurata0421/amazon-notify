@@ -179,7 +179,7 @@ def test_record_transient_issue_suppresses_alert_before_persistence_threshold(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda _w, message: alerts.append(message) or True,
+        lambda _w, message, **_kwargs: alerts.append(message) or True,
     )
     monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
 
@@ -210,7 +210,7 @@ def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda _w, message: alerts.append(message) or True,
+        lambda _w, message, **_kwargs: alerts.append(message) or True,
     )
 
     now_values = iter([1000.0, 1070.0, 1100.0, 1140.0])
@@ -270,7 +270,7 @@ def test_record_transient_issue_clamps_negative_thresholds(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda _w, message: alerts.append(message) or True,
+        lambda _w, message, **_kwargs: alerts.append(message) or True,
     )
     monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
 

@@ -270,7 +270,7 @@ def test_notify_token_recovery_updates_state_under_lock(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_recovery",
-        lambda _webhook_url, message: recoveries.append(message) or True,
+        lambda _webhook_url, message, **_kwargs: recoveries.append(message) or True,
     )
 
     gmail_client.notify_token_recovery_if_needed(

@@ -67,7 +67,7 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
 
     calls: list[tuple[str, str]] = []
 
-    def fake_send_recovery(webhook_url: str, message: str) -> None:
+    def fake_send_recovery(webhook_url: str, message: str, **_kwargs) -> None:
         calls.append((webhook_url, message))
         return True
 

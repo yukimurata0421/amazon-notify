@@ -101,7 +101,7 @@ def test_e2e_transient_alert_threshold_respects_default_window(
     monkeypatch.setattr(
         gmail_client,
         "send_discord_alert",
-        lambda _webhook_url, message: alerts.append(message) or True,
+        lambda _webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
 
     for _ in range(3):
