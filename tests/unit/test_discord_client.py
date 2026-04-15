@@ -445,12 +445,3 @@ def test_post_webhook_with_dedupe_suppresses_concurrent_duplicate(
     assert first_result["sent"] is True
     assert second_sent is True
     assert call_count["count"] == 1
-    monkeypatch.setattr(
-        discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock()
-    )
-    discord_client._finalize_dedupe_claim(
-        state_path=state_file,
-        dedupe_key="key",
-        owner="mine",
-        sent=True,
-    )

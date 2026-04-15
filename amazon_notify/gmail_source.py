@@ -31,7 +31,8 @@ T = TypeVar("T")
 
 
 class GmailClient(Protocol):
-    http_error_type: type[Exception]
+    @property
+    def http_error_type(self) -> type[Exception]: ...
 
     def get_gmail_service_with_status(
         self,
