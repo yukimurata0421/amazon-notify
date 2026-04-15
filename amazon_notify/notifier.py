@@ -222,45 +222,89 @@ def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
     return get_runtime_paths()
 
 
+_PIPELINE_CACHE: dict[
+    Path,
+    tuple[
+        RuntimeConfig, NotificationPipeline, JsonlCheckpointStore, GmailClientAdapter
+    ],
+] = {}
+
+
 def _build_pipeline(
     *,
     runtime: RuntimeConfig,
     state: dict,
     runtime_paths: RuntimePaths,
 ) -> tuple[NotificationPipeline, JsonlCheckpointStore]:
+    """Build (or reuse cached) pipeline components.
+
+    Stateless components (classifier, notifier, checkpoint_store, gmail_client
+    adapter) are cached per ``state_file``.  The ``GmailMailSource`` is
+    recreated each call because it carries mutable per-run state.
+    """
+    cache_key = runtime.state_file.resolve()
+    cached = _PIPELINE_CACHE.get(cache_key)
+
+    if cached is not None and cached[0] is runtime:
+        _, prev_pipeline, checkpoint_store, gmail_client = cached
+        source = GmailMailSource(
+            discord_webhook_url=runtime.discord_webhook_url,
+            state=state,
+            state_file=runtime.state_file,
+            dry_run=runtime.dry_run,
+            gmail_api_max_retries=runtime.gmail_api.max_retries,
+            gmail_api_base_delay_seconds=runtime.gmail_api.base_delay_seconds,
+            gmail_api_max_delay_seconds=runtime.gmail_api.max_delay_seconds,
+            runtime_paths=runtime_paths,
+            transient_alert_min_duration_seconds=runtime.transient_alert.min_duration_seconds,
+            transient_alert_cooldown_seconds=runtime.transient_alert.cooldown_seconds,
+            gmail_client=gmail_client,
+        )
+        pipeline = NotificationPipeline(
+            source=source,
+            classifier=prev_pipeline.classifier,
+            notifier=prev_pipeline.notifier,
+            checkpoint_store=checkpoint_store,
+            max_messages=runtime.max_messages,
+            dry_run=runtime.dry_run,
+        )
+        _PIPELINE_CACHE[cache_key] = (runtime, pipeline, checkpoint_store, gmail_client)
+        return pipeline, checkpoint_store
+
+    gmail_client = GmailClientAdapter(
+        get_gmail_service_with_status_fn=get_gmail_service_with_status,
+        list_recent_messages_page_fn=list_recent_messages_page,
+        get_message_detail_fn=get_message_detail,
+        notify_recovery_if_needed_fn=notify_recovery_if_needed,
+        record_transient_issue_fn=record_transient_issue,
+        is_retryable_http_error_fn=is_retryable_http_error,
+        is_transient_network_error_fn=is_transient_network_error,
+        http_error_type=HttpError,
+    )
     source = GmailMailSource(
         discord_webhook_url=runtime.discord_webhook_url,
         state=state,
         state_file=runtime.state_file,
         dry_run=runtime.dry_run,
-        gmail_api_max_retries=runtime.gmail_api_max_retries,
-        gmail_api_base_delay_seconds=runtime.gmail_api_base_delay_seconds,
-        gmail_api_max_delay_seconds=runtime.gmail_api_max_delay_seconds,
+        gmail_api_max_retries=runtime.gmail_api.max_retries,
+        gmail_api_base_delay_seconds=runtime.gmail_api.base_delay_seconds,
+        gmail_api_max_delay_seconds=runtime.gmail_api.max_delay_seconds,
         runtime_paths=runtime_paths,
-        transient_alert_min_duration_seconds=runtime.transient_alert_min_duration_seconds,
-        transient_alert_cooldown_seconds=runtime.transient_alert_cooldown_seconds,
-        gmail_client=GmailClientAdapter(
-            get_gmail_service_with_status_fn=get_gmail_service_with_status,
-            list_recent_messages_page_fn=list_recent_messages_page,
-            get_message_detail_fn=get_message_detail,
-            notify_recovery_if_needed_fn=notify_recovery_if_needed,
-            record_transient_issue_fn=record_transient_issue,
-            is_retryable_http_error_fn=is_retryable_http_error,
-            is_transient_network_error_fn=is_transient_network_error,
-            http_error_type=HttpError,
-        ),
+        transient_alert_min_duration_seconds=runtime.transient_alert.min_duration_seconds,
+        transient_alert_cooldown_seconds=runtime.transient_alert.cooldown_seconds,
+        gmail_client=gmail_client,
     )
     classifier = RegexClassifier(
         amazon_pattern=runtime.amazon_pattern,
         subject_pattern=runtime.subject_pattern,
     )
-    notifier = DiscordNotifier(
+    notifier_impl = DiscordNotifier(
         webhook_url=runtime.discord_webhook_url,
         dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=runtime.dry_run,
-        max_attempts=runtime.discord_max_retries,
-        base_delay_seconds=runtime.discord_base_delay_seconds,
-        max_delay_seconds=runtime.discord_max_delay_seconds,
+        max_attempts=runtime.discord_retry.max_retries,
+        base_delay_seconds=runtime.discord_retry.base_delay_seconds,
+        max_delay_seconds=runtime.discord_retry.max_delay_seconds,
     )
     checkpoint_store = JsonlCheckpointStore(
         state_file=runtime.state_file,
@@ -270,11 +314,12 @@ def _build_pipeline(
     pipeline = NotificationPipeline(
         source=source,
         classifier=classifier,
-        notifier=notifier,
+        notifier=notifier_impl,
         checkpoint_store=checkpoint_store,
         max_messages=runtime.max_messages,
         dry_run=runtime.dry_run,
     )
+    _PIPELINE_CACHE[cache_key] = (runtime, pipeline, checkpoint_store, gmail_client)
     return pipeline, checkpoint_store
 
 

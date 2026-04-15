@@ -17,22 +17,22 @@ def resolve_watchdog_options(
     heartbeat_file = (
         app_config.resolve_runtime_path(args.heartbeat_file)
         if args.heartbeat_file
-        else runtime.pubsub_heartbeat_file
+        else runtime.pubsub.heartbeat_file
     )
     heartbeat_interval_seconds = (
         float(args.heartbeat_interval_seconds)
         if args.heartbeat_interval_seconds is not None
-        else float(runtime.pubsub_heartbeat_interval_seconds)
+        else float(runtime.pubsub.heartbeat_interval_seconds)
     )
     heartbeat_max_age_seconds = (
         float(args.heartbeat_max_age_seconds)
         if args.heartbeat_max_age_seconds is not None
-        else float(runtime.pubsub_heartbeat_max_age_seconds)
+        else float(runtime.pubsub.heartbeat_max_age_seconds)
     )
     main_service_name = (
         args.main_service_name.strip()
         if args.main_service_name
-        else str(runtime.pubsub_main_service_name)
+        else str(runtime.pubsub.main_service_name)
     )
     return (
         heartbeat_file,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import Any, Protocol, TypedDict
 
 
 class FailureKind(StrEnum):
@@ -70,6 +70,31 @@ class RunResult:
         payload["failure_kind"] = self.failure_kind.value if self.failure_kind else None
         payload["auth_status"] = self.auth_status.value if self.auth_status else None
         return payload
+
+
+class PersistentState(TypedDict, total=False):
+    """Typed representation of the JSON state dict.
+
+    All keys are optional because the state file may be empty or only
+    partially populated during normal operation.
+    """
+
+    last_message_id: str | None
+
+    # transient network issue tracking
+    transient_network_issue_active: bool
+    last_transient_error: str
+    last_transient_error_at: str
+    transient_network_issue_first_seen_at_epoch: float
+    transient_network_issue_last_seen_at_epoch: float
+    transient_network_issue_occurrences: int
+    transient_network_issue_last_alert_at_epoch: float
+    transient_network_issue_notified: bool
+
+    # token issue tracking
+    token_issue_active: bool
+    token_issue_reason: str
+    token_issue_at: str
 
 
 class MailSource(Protocol):

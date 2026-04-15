@@ -8,19 +8,35 @@ Summary:
 - Consolidated Gmail source injection behind a protocol-based boundary and reduced retry/incident-path assert dependence.
 - Unified StreamingPull trigger handling and moved incident in-memory suppression ownership from runtime config to notifier-managed process cache.
 - Expanded regression coverage for paginated checkpoint boundaries and concurrent Discord dedupe behavior.
+- Senior-level code review: generalized retry, sub-config decomposition, notification bridge extraction, security hardening, and additional test coverage.
+
+### Added
+- `amazon_notify/notification_bridge.py`: extracted Discord dedupe notification wrappers from `gmail_client.py` to separate Gmail boundary concerns from Discord-specific logic.
+- `amazon_notify/backoff.retry_with_backoff()`: generic retry utility with exponential back-off, replacing duplicated retry loops in `gmail_source.py` and `gmail_client.py`.
+- `RuntimeConfig` sub-configs (`GmailApiConfig`, `DiscordRetryConfig`, `PubSubConfig`, `TransientAlertConfig`) with backward-compatible flat-attribute access via `__getattr__`.
+- `PersistentState` TypedDict in `domain.py` for compile-time key-name validation of the JSON state dict.
+- `mask_webhook_url()` in `runtime.py` to redact webhook tokens from log output.
+- `_flock_with_timeout()` in `discord_client.py` for bounded file-lock acquisition (10 s default).
+- Pipeline component caching in `notifier._PIPELINE_CACHE` to avoid redundant object creation across `run_once` calls.
+- `.github/dependabot.yml` for automated pip and GitHub Actions dependency updates.
+- CI `pip` cache (`cache: pip` in `actions/setup-python@v6`) for faster dependency installation.
 
 ### Changed
 - Refactored `GmailMailSource` dependency wiring into a protocol-based adapter (`GmailClientAdapter`) to reduce constructor sprawl and centralize Gmail boundary injection.
+- Simplified `GmailClientAdapter` to delegate via `__getattr__` instead of explicit per-method wrappers.
 - Replaced production-path `assert` dependencies in retry/incident flows with explicit guards so behavior remains stable under optimized runtime flags.
 - Unified StreamingPull trigger execution by consolidating duplicated idle/event success-failure handling into a shared path.
 - Moved incident in-memory suppression ownership out of `RuntimeConfig` mutable state into notifier-managed process cache keyed by runtime `state_file`.
 - Removed legacy `TypeError` fallback shims from `gmail_client.py` dedupe alert/recovery wrappers; test doubles now follow the explicit keyword-argument contract.
+- Narrowed `except Exception` in `discord_client._post_webhook` to `except requests.exceptions.RequestException` to avoid swallowing programming errors.
+- Added docstring to `amazon_notify/commands/__init__.py` explaining the DI-seam purpose of the command layer.
 
 ### Tests
 - Added pagination-boundary regressions to verify oldest-first processing when checkpoint appears on a later Gmail listing page.
 - Added checkpoint-not-found multi-page regression to ensure fail-safe frontier preservation when the boundary is absent from listing windows.
 - Added concurrent dedupe-claim regression to confirm in-flight suppression prevents duplicate Discord posts under same-content concurrent sends.
 - Updated token/transient recovery test doubles to validate the explicit dedupe keyword-argument contract for Gmail alert/recovery wrappers.
+- Added `tests/unit/test_review_additions.py` with coverage for: non-retryable request exceptions, truncated JSONL recovery, `max_messages` truncation, incident memory map isolation, `mask_webhook_url`, `retry_with_backoff` validation, and `time-machine` migration demo.
 
 ## [0.5.0] - 2026-04-12
 

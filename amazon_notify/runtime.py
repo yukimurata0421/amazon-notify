@@ -15,7 +15,81 @@ DEFAULT_EVENTS_FILE_RELATIVE = "events.jsonl"
 DEFAULT_RUNS_FILE_RELATIVE = "runs.jsonl"
 DEFAULT_DISCORD_DEDUPE_STATE_FILE_RELATIVE = ".discord_dedupe_state.json"
 DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE = "runtime/pubsub-heartbeat.txt"
+DEFAULT_SERVICE_STATUS_FILE_RELATIVE = "runtime/amazon-notify-status.json"
 MIN_POLL_INTERVAL_SECONDS = 10
+
+
+@dataclass(frozen=True)
+class GmailApiConfig:
+    max_retries: int = 4
+    base_delay_seconds: float = 1.0
+    max_delay_seconds: float = 30.0
+
+
+@dataclass(frozen=True)
+class DiscordRetryConfig:
+    max_retries: int = 4
+    base_delay_seconds: float = 1.0
+    max_delay_seconds: float = 30.0
+
+
+@dataclass(frozen=True)
+class PubSubConfig:
+    main_service_name: str = "amazon-notify-pubsub.service"
+    heartbeat_file: Path = Path(DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE)
+    heartbeat_interval_seconds: float = 30.0
+    heartbeat_max_age_seconds: float = 300.0
+    trigger_failure_max_consecutive: int = 5
+    trigger_failure_base_delay_seconds: float = 1.0
+    trigger_failure_max_delay_seconds: float = 60.0
+    stream_reconnect_base_delay_seconds: float = 1.0
+    stream_reconnect_max_delay_seconds: float = 60.0
+    stream_reconnect_max_attempts: int = 0
+    idle_trigger_interval_seconds: float = 300.0
+
+
+@dataclass(frozen=True)
+class TransientAlertConfig:
+    min_duration_seconds: float = 600.0
+    cooldown_seconds: float = 1800.0
+
+
+_FLAT_ATTR_MAP: dict[str, tuple[str, str]] = {
+    "gmail_api_max_retries": ("gmail_api", "max_retries"),
+    "gmail_api_base_delay_seconds": ("gmail_api", "base_delay_seconds"),
+    "gmail_api_max_delay_seconds": ("gmail_api", "max_delay_seconds"),
+    "discord_max_retries": ("discord_retry", "max_retries"),
+    "discord_base_delay_seconds": ("discord_retry", "base_delay_seconds"),
+    "discord_max_delay_seconds": ("discord_retry", "max_delay_seconds"),
+    "pubsub_main_service_name": ("pubsub", "main_service_name"),
+    "pubsub_heartbeat_file": ("pubsub", "heartbeat_file"),
+    "pubsub_heartbeat_interval_seconds": ("pubsub", "heartbeat_interval_seconds"),
+    "pubsub_heartbeat_max_age_seconds": ("pubsub", "heartbeat_max_age_seconds"),
+    "pubsub_trigger_failure_max_consecutive": (
+        "pubsub",
+        "trigger_failure_max_consecutive",
+    ),
+    "pubsub_trigger_failure_base_delay_seconds": (
+        "pubsub",
+        "trigger_failure_base_delay_seconds",
+    ),
+    "pubsub_trigger_failure_max_delay_seconds": (
+        "pubsub",
+        "trigger_failure_max_delay_seconds",
+    ),
+    "pubsub_stream_reconnect_base_delay_seconds": (
+        "pubsub",
+        "stream_reconnect_base_delay_seconds",
+    ),
+    "pubsub_stream_reconnect_max_delay_seconds": (
+        "pubsub",
+        "stream_reconnect_max_delay_seconds",
+    ),
+    "pubsub_stream_reconnect_max_attempts": ("pubsub", "stream_reconnect_max_attempts"),
+    "pubsub_idle_trigger_interval_seconds": ("pubsub", "idle_trigger_interval_seconds"),
+    "transient_alert_min_duration_seconds": ("transient_alert", "min_duration_seconds"),
+    "transient_alert_cooldown_seconds": ("transient_alert", "cooldown_seconds"),
+}
 
 
 @dataclass(frozen=True)
@@ -28,32 +102,29 @@ class RuntimeConfig:
     discord_dedupe_state_file: Path
     max_messages: int
     dry_run: bool
-    gmail_api_max_retries: int
-    gmail_api_base_delay_seconds: float
-    gmail_api_max_delay_seconds: float
-    discord_max_retries: int
-    discord_base_delay_seconds: float
-    discord_max_delay_seconds: float
-    pubsub_main_service_name: str
-    pubsub_heartbeat_file: Path
-    pubsub_heartbeat_interval_seconds: float
-    pubsub_heartbeat_max_age_seconds: float
-    pubsub_trigger_failure_max_consecutive: int
-    pubsub_trigger_failure_base_delay_seconds: float
-    pubsub_trigger_failure_max_delay_seconds: float
-    pubsub_stream_reconnect_base_delay_seconds: float
-    pubsub_stream_reconnect_max_delay_seconds: float
-    pubsub_stream_reconnect_max_attempts: int
-    transient_alert_min_duration_seconds: float
-    transient_alert_cooldown_seconds: float
+    gmail_api: GmailApiConfig
+    discord_retry: DiscordRetryConfig
+    pubsub: PubSubConfig
+    transient_alert: TransientAlertConfig
+    service_status_file: Path
     runtime_paths: RuntimePaths
     subject_pattern: Pattern[str] | None
+
+    def __getattr__(self, name: str) -> Any:
+        mapping = _FLAT_ATTR_MAP.get(name)
+        if mapping is not None:
+            group_name, attr_name = mapping
+            return getattr(object.__getattribute__(self, group_name), attr_name)
+        raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
 
     def __getitem__(self, key: str) -> Any:
         return getattr(self, key)
 
     def get(self, key: str, default: Any = None) -> Any:
-        return getattr(self, key, default)
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            return default
 
     @classmethod
     def from_mapping(
@@ -84,58 +155,75 @@ class RuntimeConfig:
             ),
             max_messages=int(config.get("max_messages", 50)),
             dry_run=dry_run,
-            gmail_api_max_retries=int(config.get("gmail_api_max_retries", 4)),
-            gmail_api_base_delay_seconds=float(
-                config.get("gmail_api_base_delay_seconds", 1.0)
+            gmail_api=GmailApiConfig(
+                max_retries=int(config.get("gmail_api_max_retries", 4)),
+                base_delay_seconds=float(
+                    config.get("gmail_api_base_delay_seconds", 1.0)
+                ),
+                max_delay_seconds=float(
+                    config.get("gmail_api_max_delay_seconds", 30.0)
+                ),
             ),
-            gmail_api_max_delay_seconds=float(
-                config.get("gmail_api_max_delay_seconds", 30.0)
+            discord_retry=DiscordRetryConfig(
+                max_retries=int(config.get("discord_max_retries", 4)),
+                base_delay_seconds=float(config.get("discord_base_delay_seconds", 1.0)),
+                max_delay_seconds=float(config.get("discord_max_delay_seconds", 30.0)),
             ),
-            discord_max_retries=int(config.get("discord_max_retries", 4)),
-            discord_base_delay_seconds=float(
-                config.get("discord_base_delay_seconds", 1.0)
+            pubsub=PubSubConfig(
+                main_service_name=str(
+                    config.get(
+                        "pubsub_main_service_name", "amazon-notify-pubsub.service"
+                    )
+                ),
+                heartbeat_file=app_config.resolve_runtime_path(
+                    config.get(
+                        "pubsub_heartbeat_file",
+                        DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE,
+                    ),
+                    base_dir=base_dir,
+                ),
+                heartbeat_interval_seconds=float(
+                    config.get("pubsub_heartbeat_interval_seconds", 30.0)
+                ),
+                heartbeat_max_age_seconds=float(
+                    config.get("pubsub_heartbeat_max_age_seconds", 300.0)
+                ),
+                trigger_failure_max_consecutive=int(
+                    config.get("pubsub_trigger_failure_max_consecutive", 5)
+                ),
+                trigger_failure_base_delay_seconds=float(
+                    config.get("pubsub_trigger_failure_base_delay_seconds", 1.0)
+                ),
+                trigger_failure_max_delay_seconds=float(
+                    config.get("pubsub_trigger_failure_max_delay_seconds", 60.0)
+                ),
+                stream_reconnect_base_delay_seconds=float(
+                    config.get("pubsub_stream_reconnect_base_delay_seconds", 1.0)
+                ),
+                stream_reconnect_max_delay_seconds=float(
+                    config.get("pubsub_stream_reconnect_max_delay_seconds", 60.0)
+                ),
+                stream_reconnect_max_attempts=int(
+                    config.get("pubsub_stream_reconnect_max_attempts", 0)
+                ),
+                idle_trigger_interval_seconds=float(
+                    config.get("pubsub_idle_trigger_interval_seconds", 300.0)
+                ),
             ),
-            discord_max_delay_seconds=float(
-                config.get("discord_max_delay_seconds", 30.0)
+            transient_alert=TransientAlertConfig(
+                min_duration_seconds=float(
+                    config.get("transient_alert_min_duration_seconds", 600.0)
+                ),
+                cooldown_seconds=float(
+                    config.get("transient_alert_cooldown_seconds", 1800.0)
+                ),
             ),
-            pubsub_main_service_name=str(
-                config.get("pubsub_main_service_name", "amazon-notify-pubsub.service")
-            ),
-            pubsub_heartbeat_file=app_config.resolve_runtime_path(
+            service_status_file=app_config.resolve_runtime_path(
                 config.get(
-                    "pubsub_heartbeat_file", DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE
+                    "service_status_file",
+                    DEFAULT_SERVICE_STATUS_FILE_RELATIVE,
                 ),
                 base_dir=base_dir,
-            ),
-            pubsub_heartbeat_interval_seconds=float(
-                config.get("pubsub_heartbeat_interval_seconds", 30.0)
-            ),
-            pubsub_heartbeat_max_age_seconds=float(
-                config.get("pubsub_heartbeat_max_age_seconds", 300.0)
-            ),
-            pubsub_trigger_failure_max_consecutive=int(
-                config.get("pubsub_trigger_failure_max_consecutive", 5)
-            ),
-            pubsub_trigger_failure_base_delay_seconds=float(
-                config.get("pubsub_trigger_failure_base_delay_seconds", 1.0)
-            ),
-            pubsub_trigger_failure_max_delay_seconds=float(
-                config.get("pubsub_trigger_failure_max_delay_seconds", 60.0)
-            ),
-            pubsub_stream_reconnect_base_delay_seconds=float(
-                config.get("pubsub_stream_reconnect_base_delay_seconds", 1.0)
-            ),
-            pubsub_stream_reconnect_max_delay_seconds=float(
-                config.get("pubsub_stream_reconnect_max_delay_seconds", 60.0)
-            ),
-            pubsub_stream_reconnect_max_attempts=int(
-                config.get("pubsub_stream_reconnect_max_attempts", 0)
-            ),
-            transient_alert_min_duration_seconds=float(
-                config.get("transient_alert_min_duration_seconds", 600.0)
-            ),
-            transient_alert_cooldown_seconds=float(
-                config.get("transient_alert_cooldown_seconds", 1800.0)
             ),
             runtime_paths=runtime_paths,
             subject_pattern=compile_optional_pattern(
@@ -170,6 +258,11 @@ def compile_required_pattern(pattern: str, config_key: str) -> Pattern[str]:
         raise ValueError(
             f"config.json の {config_key} が不正な正規表現です: {exc}"
         ) from exc
+
+
+def mask_webhook_url(url: str) -> str:
+    parsed = urlparse(url)
+    return f"{parsed.scheme}://{parsed.netloc}/...redacted..."
 
 
 def looks_like_discord_webhook_url(value: str) -> bool:
@@ -293,7 +386,7 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
                 "pubsub_main_service_name は空文字以外の文字列で指定してください。"
             )
 
-    for key in ("pubsub_heartbeat_file",):
+    for key in ("pubsub_heartbeat_file", "service_status_file"):
         if key not in config:
             continue
         heartbeat_path_value = config.get(key)
@@ -311,6 +404,7 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
     for key in (
         "pubsub_heartbeat_interval_seconds",
         "pubsub_heartbeat_max_age_seconds",
+        "pubsub_idle_trigger_interval_seconds",
     ):
         if key not in config:
             continue

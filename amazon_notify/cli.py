@@ -27,7 +27,7 @@ from .gmail_client import (
     start_gmail_watch_with_retry,
 )
 from .notifier import report_unhandled_exception, run_once
-from .runtime import RuntimeConfig, looks_like_discord_webhook_url
+from .runtime import RuntimeConfig, looks_like_discord_webhook_url, mask_webhook_url
 from .runtime import build_runtime as build_runtime_impl
 from .runtime import compile_optional_pattern as compile_optional_pattern_impl
 from .runtime import validate_config as validate_config_impl
@@ -665,7 +665,7 @@ def main() -> None:
     if not looks_like_discord_webhook_url(config["discord_webhook_url"]):
         app_config.LOGGER.warning(
             "CONFIG_DISCORD_WEBHOOK_URL_UNUSUAL: value=%s",
-            config["discord_webhook_url"],
+            mask_webhook_url(config["discord_webhook_url"]),
         )
 
     runtime = build_runtime_impl(

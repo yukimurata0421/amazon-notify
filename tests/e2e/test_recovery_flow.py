@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 
-from amazon_notify import gmail_client, notifier
+from amazon_notify import (
+    gmail_client,
+    gmail_transient_state,
+    notification_bridge,
+    notifier,
+)
 from amazon_notify.runtime import RuntimeConfig
 
 
@@ -65,12 +70,12 @@ def test_e2e_transient_error_then_recovery_notification(
     recoveries: list[str] = []
 
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
         lambda webhook_url, message, **_kwargs: recoveries.append(message) or True,
     )
@@ -95,11 +100,11 @@ def test_e2e_transient_alert_threshold_respects_default_window(
     state = {"last_message_id": "baseline"}
 
     timeline = iter([1000.0, 1300.0, 1701.0])
-    monkeypatch.setattr(gmail_client.time, "time", lambda: next(timeline))
+    monkeypatch.setattr(gmail_transient_state.time, "time", lambda: next(timeline))
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda _webhook_url, message, **_kwargs: alerts.append(message) or True,
     )

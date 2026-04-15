@@ -1,7 +1,13 @@
 import json
 from pathlib import Path
 
-from amazon_notify import config, gmail_client, notifier
+from amazon_notify import (
+    config,
+    gmail_client,
+    gmail_transient_state,
+    notification_bridge,
+    notifier,
+)
 from tests.unit.notifier_test_helpers import build_runtime, single_page
 
 
@@ -50,7 +56,7 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
     state = {"last_message_id": "msg-1"}
 
     monkeypatch.setattr(
-        gmail_client, "send_discord_alert", lambda *_args, **_kwargs: True
+        notification_bridge, "send_discord_alert", lambda *_args, **_kwargs: True
     )
     gmail_client.record_transient_issue(
         state,
@@ -71,7 +77,9 @@ def test_mark_issue_and_notify_recovery(monkeypatch, tmp_path: Path) -> None:
         calls.append((webhook_url, message))
         return True
 
-    monkeypatch.setattr(gmail_client, "send_discord_recovery", fake_send_recovery)
+    monkeypatch.setattr(
+        notification_bridge, "send_discord_recovery", fake_send_recovery
+    )
 
     gmail_client.notify_recovery_if_needed(
         "https://discord.invalid/webhook", state, state_file
@@ -100,7 +108,7 @@ def test_notify_recovery_keeps_state_when_discord_send_fails(
     state_file.write_text(json.dumps(state), encoding="utf-8")
 
     monkeypatch.setattr(
-        gmail_client, "send_discord_recovery", lambda *_args, **_kwargs: False
+        notification_bridge, "send_discord_recovery", lambda *_args, **_kwargs: False
     )
 
     gmail_client.notify_recovery_if_needed(
@@ -127,9 +135,9 @@ def test_notify_recovery_silent_clear_when_transient_was_never_alerted(
 
     calls: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
-        lambda _webhook, message: calls.append(message) or True,
+        lambda _webhook, message, **_kwargs: calls.append(message) or True,
     )
     gmail_client.notify_recovery_if_needed(
         "https://discord.invalid/webhook", state, state_file
@@ -164,9 +172,9 @@ def test_notify_recovery_uses_latest_persisted_state(
 
     calls: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
-        lambda _webhook, message: calls.append(message) or True,
+        lambda _webhook, message, **_kwargs: calls.append(message) or True,
     )
 
     gmail_client.notify_recovery_if_needed(
@@ -201,11 +209,11 @@ def test_record_transient_issue_uses_latest_persisted_state_for_cooldown(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
-        lambda _webhook, message: alerts.append(message) or True,
+        lambda _webhook, message, **_kwargs: alerts.append(message) or True,
     )
-    monkeypatch.setattr(gmail_client.time, "time", lambda: 1100.0)
+    monkeypatch.setattr(gmail_transient_state.time, "time", lambda: 1100.0)
 
     sent = gmail_client.record_transient_issue(
         stale_state,
@@ -471,7 +479,7 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message),
     )

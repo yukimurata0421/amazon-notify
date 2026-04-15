@@ -45,9 +45,9 @@ def handle_streaming_mode(
     run_once_with_guard_fn(runtime)
 
     reconnect_attempt = 0
-    reconnect_max_attempts = runtime.pubsub_stream_reconnect_max_attempts
-    reconnect_base_delay = runtime.pubsub_stream_reconnect_base_delay_seconds
-    reconnect_max_delay = runtime.pubsub_stream_reconnect_max_delay_seconds
+    reconnect_max_attempts = runtime.pubsub.stream_reconnect_max_attempts
+    reconnect_base_delay = runtime.pubsub.stream_reconnect_base_delay_seconds
+    reconnect_max_delay = runtime.pubsub.stream_reconnect_max_delay_seconds
 
     while True:
         try:
@@ -62,9 +62,9 @@ def handle_streaming_mode(
                 flow_control_max_messages=args.pubsub_flow_max_messages,
                 heartbeat_file=heartbeat_file,
                 heartbeat_interval_seconds=heartbeat_interval_seconds,
-                trigger_failure_max_consecutive=runtime.pubsub_trigger_failure_max_consecutive,
-                trigger_failure_base_delay_seconds=runtime.pubsub_trigger_failure_base_delay_seconds,
-                trigger_failure_max_delay_seconds=runtime.pubsub_trigger_failure_max_delay_seconds,
+                trigger_failure_max_consecutive=runtime.pubsub.trigger_failure_max_consecutive,
+                trigger_failure_base_delay_seconds=runtime.pubsub.trigger_failure_base_delay_seconds,
+                trigger_failure_max_delay_seconds=runtime.pubsub.trigger_failure_max_delay_seconds,
             )
             return
         except KeyboardInterrupt:

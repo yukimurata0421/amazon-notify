@@ -3,7 +3,13 @@ from pathlib import Path
 
 import pytest
 
-from amazon_notify import gmail_client
+from amazon_notify import (
+    backoff,
+    gmail_auth,
+    gmail_client,
+    gmail_transient_state,
+    notification_bridge,
+)
 from amazon_notify.config import RuntimePaths
 from amazon_notify.domain import AuthStatus
 
@@ -158,7 +164,7 @@ def test_notify_token_recovery_skips_when_state_not_active(
 
     calls: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
         lambda webhook_url, message, **_kwargs: calls.append(message) or True,
     )
@@ -177,11 +183,11 @@ def test_record_transient_issue_suppresses_alert_before_persistence_threshold(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda _w, message, **_kwargs: alerts.append(message) or True,
     )
-    monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
+    monkeypatch.setattr(gmail_transient_state.time, "time", lambda: 1000.0)
 
     sent = gmail_client.record_transient_issue(
         state,
@@ -208,13 +214,13 @@ def test_record_transient_issue_alerts_after_threshold_and_respects_cooldown(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda _w, message, **_kwargs: alerts.append(message) or True,
     )
 
     now_values = iter([1000.0, 1070.0, 1100.0, 1140.0])
-    monkeypatch.setattr(gmail_client.time, "time", lambda: next(now_values))
+    monkeypatch.setattr(gmail_transient_state.time, "time", lambda: next(now_values))
 
     first = gmail_client.record_transient_issue(
         state,
@@ -268,11 +274,11 @@ def test_record_transient_issue_clamps_negative_thresholds(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda _w, message, **_kwargs: alerts.append(message) or True,
     )
-    monkeypatch.setattr(gmail_client.time, "time", lambda: 1000.0)
+    monkeypatch.setattr(gmail_transient_state.time, "time", lambda: 1000.0)
 
     sent = gmail_client.record_transient_issue(
         state,
@@ -294,7 +300,7 @@ def test_refresh_with_retry_retries_on_transient_and_then_succeeds(monkeypatch) 
     creds = _DummyCreds()
     creds.refresh_outcomes = [TimeoutError("timed out"), None]
     sleeps: list[int] = []
-    monkeypatch.setattr(gmail_client.time, "sleep", lambda sec: sleeps.append(sec))
+    monkeypatch.setattr(gmail_auth.time, "sleep", lambda sec: sleeps.append(sec))
 
     result = gmail_client.refresh_with_retry(
         creds,
@@ -315,7 +321,7 @@ def test_refresh_with_retry_returns_non_transient_error_without_sleep(
     monkeypatch.setattr(gmail_client, "is_transient_network_error", lambda exc: False)
 
     sleeps: list[int] = []
-    monkeypatch.setattr(gmail_client.time, "sleep", lambda sec: sleeps.append(sec))
+    monkeypatch.setattr(gmail_auth.time, "sleep", lambda sec: sleeps.append(sec))
 
     result = gmail_client.refresh_with_retry(
         creds,
@@ -402,7 +408,7 @@ def test_get_gmail_service_refresh_transient_error_marks_issue(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
@@ -452,7 +458,7 @@ def test_get_gmail_service_refresh_fatal_with_interactive_recovers(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
@@ -483,7 +489,7 @@ def test_get_gmail_service_invalid_token_without_refresh_token_marks_issue(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
@@ -625,7 +631,7 @@ def test_start_gmail_watch_with_retry_retries_transient_errors(monkeypatch) -> N
             return _Users()
 
     sleeps: list[float] = []
-    monkeypatch.setattr(gmail_client.time, "sleep", lambda sec: sleeps.append(sec))
+    monkeypatch.setattr(backoff.time, "sleep", lambda sec: sleeps.append(sec))
 
     response = gmail_client.start_gmail_watch_with_retry(
         _Service(),

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from amazon_notify import cli, config, gmail_client
+from amazon_notify import cli, config, gmail_client, notification_bridge
 
 
 class DummyCreds:
@@ -44,7 +44,7 @@ def test_get_gmail_service_missing_token_alerts_once(
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message),
     )
@@ -115,7 +115,7 @@ def test_get_gmail_service_token_recovery_notifies_once(
 
     recoveries: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
         lambda webhook_url, message, **_kwargs: recoveries.append(message) or True,
     )
@@ -168,7 +168,7 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
 
     alerts: list[str] = []
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_alert",
         lambda webhook_url, message, **_kwargs: alerts.append(message) or True,
     )
@@ -268,7 +268,7 @@ def test_notify_token_recovery_updates_state_under_lock(
         fake_state_update_lock,
     )
     monkeypatch.setattr(
-        gmail_client,
+        notification_bridge,
         "send_discord_recovery",
         lambda _webhook_url, message, **_kwargs: recoveries.append(message) or True,
     )

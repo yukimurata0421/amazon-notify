@@ -1,5 +1,4 @@
 import socket
-import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn
@@ -65,9 +64,8 @@ except ModuleNotFoundError as exc:
 
 from . import config as app_config
 from . import gmail_auth, gmail_transient_state
-from .backoff import next_delay_seconds
+from .backoff import retry_with_backoff
 from .config import LOGGER, RuntimePaths
-from .discord_client import send_discord_alert, send_discord_recovery
 from .domain import AuthStatus
 from .gmail_api import (
     get_message_detail as get_message_detail_impl,
@@ -81,10 +79,18 @@ from .gmail_api import (
 from .gmail_api import (
     start_gmail_watch as start_gmail_watch_impl,
 )
+from .notification_bridge import (
+    dedupe_state_path_for_state_file as _dedupe_state_path_for_state_file,
+)
+from .notification_bridge import (
+    send_alert_with_dedupe as _send_discord_alert_with_dedupe,
+)
+from .notification_bridge import (
+    send_recovery_with_dedupe as _send_discord_recovery_with_dedupe,
+)
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
-_DISCORD_DEDUPE_STATE_FILENAME = ".discord_dedupe_state.json"
 DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = (
     gmail_transient_state.DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS
 )
@@ -131,36 +137,6 @@ if urllib3_exceptions is not None:
 
 def _resolve_runtime_paths(paths: RuntimePaths | None) -> RuntimePaths:
     return app_config.get_runtime_paths() if paths is None else paths
-
-
-def _dedupe_state_path_for_state_file(state_file: Path) -> Path:
-    return state_file.parent / _DISCORD_DEDUPE_STATE_FILENAME
-
-
-def _send_discord_alert_with_dedupe(
-    webhook_url: str,
-    message: str,
-    *,
-    dedupe_state_path: Path | None,
-) -> bool:
-    return send_discord_alert(
-        webhook_url,
-        message,
-        dedupe_state_path=dedupe_state_path,
-    )
-
-
-def _send_discord_recovery_with_dedupe(
-    webhook_url: str,
-    message: str,
-    *,
-    dedupe_state_path: Path | None,
-) -> bool:
-    return send_discord_recovery(
-        webhook_url,
-        message,
-        dedupe_state_path=dedupe_state_path,
-    )
 
 
 def ensure_google_dependencies() -> None:
@@ -433,8 +409,11 @@ def _ensure_usable_credentials(
             _send_discord_alert_with_dedupe(
                 _webhook_url,
                 message,
-                dedupe_state_path=runtime_paths.runtime_dir
-                / _DISCORD_DEDUPE_STATE_FILENAME,
+                dedupe_state_path=(
+                    _dedupe_state_path_for_state_file(state_file)
+                    if state_file is not None
+                    else None
+                ),
             )
         ),
     )
@@ -502,42 +481,36 @@ def start_gmail_watch_with_retry(
     base_delay: float = 1.0,
     max_delay: float = 60.0,
 ) -> dict[str, Any]:
-    if retries < 1:
-        raise ValueError("retries must be >= 1")
+    def _call() -> dict[str, Any]:
+        return start_gmail_watch(
+            service,
+            topic_name=topic_name,
+            label_ids=label_ids,
+            label_filter_action=label_filter_action,
+        )
 
-    last_exc: Exception | None = None
-    for attempt in range(1, retries + 1):
-        try:
-            return start_gmail_watch(
-                service,
-                topic_name=topic_name,
-                label_ids=label_ids,
-                label_filter_action=label_filter_action,
-            )
-        except Exception as exc:
-            last_exc = exc
-            should_retry = is_transient_network_error(exc) or is_retryable_http_error(
-                exc
-            )
-            if (not should_retry) or attempt == retries:
-                break
-            delay = next_delay_seconds(
-                attempt,
-                base_delay=base_delay,
-                max_delay=max_delay,
-            )
-            LOGGER.warning(
-                "GMAIL_WATCH_RETRY: attempt=%s/%s retry_in=%.2fs error=%s",
-                attempt,
-                retries,
-                delay,
-                exc,
-            )
-            time.sleep(delay)
+    def _should_retry(exc: Exception) -> bool:
+        return is_transient_network_error(exc) or is_retryable_http_error(exc)
 
-    if last_exc is None:
-        raise RuntimeError("start_gmail_watch_with_retry exhausted without exception")
-    raise last_exc
+    def _on_retry(
+        attempt: int, max_attempts: int, delay: float, exc: Exception
+    ) -> None:
+        LOGGER.warning(
+            "GMAIL_WATCH_RETRY: attempt=%s/%s retry_in=%.2fs error=%s",
+            attempt,
+            max_attempts,
+            delay,
+            exc,
+        )
+
+    return retry_with_backoff(
+        _call,
+        max_attempts=retries,
+        base_delay=base_delay,
+        max_delay=max_delay,
+        should_retry=_should_retry,
+        on_retry=_on_retry,
+    )
 
 
 def get_gmail_service_with_status(
