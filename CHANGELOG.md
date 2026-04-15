@@ -11,6 +11,7 @@ Summary:
 - Senior-level code review: generalized retry, sub-config decomposition, notification bridge extraction, security hardening, and additional test coverage.
 
 ### Added
+- `MetricsReport` TypedDict in `metrics.py` for compile-time field documentation.
 - `amazon_notify/notification_bridge.py`: extracted Discord dedupe notification wrappers from `gmail_client.py` to separate Gmail boundary concerns from Discord-specific logic.
 - `amazon_notify/backoff.retry_with_backoff()`: generic retry utility with exponential back-off, replacing duplicated retry loops in `gmail_source.py` and `gmail_client.py`.
 - `RuntimeConfig` sub-configs (`GmailApiConfig`, `DiscordRetryConfig`, `PubSubConfig`, `TransientAlertConfig`) with backward-compatible flat-attribute access via `__getattr__`.
@@ -22,6 +23,10 @@ Summary:
 - CI `pip` cache (`cache: pip` in `actions/setup-python@v6`) for faster dependency installation.
 
 ### Changed
+- Removed dead code: `cli.compile_optional_pattern` wrapper (unused in production), `config.configure_runtime_paths` (unused), simplified `notifier._resolve_runtime_paths` isinstance guard.
+- `status.py`: split `_build_runtime_report` (182 lines) into `_build_readability_checks` and `_build_consistency_checks`.
+- `config.py`: `save_state` now calls `os.fsync` on the parent directory after `os.replace` for crash safety. `load_config`/`load_state` return `dict[str, Any]` instead of bare `dict`.
+- `metrics.py`: fixed duplicate `dedupe_hit_count` calculation (was identical to `suppressed_count`).
 - Refactored `GmailMailSource` dependency wiring into a protocol-based adapter (`GmailClientAdapter`) to reduce constructor sprawl and centralize Gmail boundary injection.
 - Simplified `GmailClientAdapter` to delegate via `__getattr__` instead of explicit per-method wrappers.
 - Replaced production-path `assert` dependencies in retry/incident flows with explicit guards so behavior remains stable under optimized runtime flags.

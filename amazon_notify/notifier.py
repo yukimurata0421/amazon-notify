@@ -7,7 +7,7 @@ from pathlib import Path
 from re import Pattern
 
 from .checkpoint_store import JsonlCheckpointStore
-from .config import LOGGER, RuntimePaths, get_runtime_paths, load_state
+from .config import LOGGER, RuntimePaths, load_state
 from .discord_client import (
     send_discord_alert,
     send_discord_notification,
@@ -216,10 +216,7 @@ def _incident_memory_map(runtime: RuntimeConfig) -> dict[str, float]:
 
 
 def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
-    runtime_paths = runtime.runtime_paths
-    if isinstance(runtime_paths, RuntimePaths):
-        return runtime_paths
-    return get_runtime_paths()
+    return runtime.runtime_paths
 
 
 _PIPELINE_CACHE: dict[

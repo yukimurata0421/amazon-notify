@@ -29,17 +29,8 @@ from .gmail_client import (
 from .notifier import report_unhandled_exception, run_once
 from .runtime import RuntimeConfig, looks_like_discord_webhook_url, mask_webhook_url
 from .runtime import build_runtime as build_runtime_impl
-from .runtime import compile_optional_pattern as compile_optional_pattern_impl
 from .runtime import validate_config as validate_config_impl
 from .streaming_pull import run_streaming_pull
-
-
-def compile_optional_pattern(pattern: str | None, config_key: str):
-    try:
-        return compile_optional_pattern_impl(pattern, config_key)
-    except ValueError as exc:
-        _stderr_error(str(exc))
-        sys.exit(1)
 
 
 def _stderr_error(message: str) -> None:

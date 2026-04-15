@@ -98,64 +98,50 @@ def _ok_text(value: bool) -> str:
     return "ok" if value else "degraded"
 
 
-def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
-    state_payload, state_error, state_exists = _read_json_object(runtime.state_file)
-    events_scan = _scan_events_jsonl(runtime.events_file)
-    runs_scan = _scan_runs_jsonl(runtime.runs_file)
-
-    checkpoint_index_payload, checkpoint_index_error, checkpoint_index_exists = (
-        _read_json_object(
-            runtime.events_file.with_name(
-                f"{runtime.events_file.name}.checkpoint.index.json"
-            )
-        )
-    )
-    runs_index_payload, runs_index_error, runs_index_exists = _read_json_object(
-        runtime.runs_file.with_name(f"{runtime.runs_file.name}.summary.index.json")
-    )
-
-    state_last_message_id = _state_last_message_id(state_payload)
-    runs_state_summary = _normalize_summary(
-        state_payload.get("last_run_summary")
-        if isinstance(state_payload, dict)
-        else None
-    )
-
-    frontier = events_scan["last_checkpoint"]
-    if frontier is None and state_last_message_id is not None:
-        frontier = state_last_message_id
-
-    runs_summary = runs_scan["summary"]
-    last_success_at = runs_summary.get("last_success_at") if runs_summary else None
-    last_failure_kind = runs_summary.get("last_failure_kind") if runs_summary else None
-
-    incident, incident_status = _derive_incident_status(
-        state_payload=state_payload,
-        latest_incident_event=events_scan["last_incident_event"],
-    )
-
-    checks: list[dict[str, str | bool]] = []
-    checks.append(
+def _build_readability_checks(
+    runtime: RuntimeConfig,
+    *,
+    state_error: str | None,
+    state_exists: bool,
+    events_scan: dict[str, Any],
+    runs_scan: dict[str, Any],
+) -> list[dict[str, str | bool]]:
+    return [
         {
             "name": "state_json_readable",
             "ok": state_error is None,
             "detail": _readable_detail(runtime.state_file, state_exists, state_error),
-        }
-    )
-    checks.append(
+        },
         {
             "name": "events_jsonl_readable",
             "ok": events_scan["error"] is None,
             "detail": _jsonl_detail(runtime.events_file, events_scan),
-        }
-    )
-    checks.append(
+        },
         {
             "name": "runs_jsonl_readable",
             "ok": runs_scan["error"] is None,
             "detail": _jsonl_detail(runtime.runs_file, runs_scan),
-        }
-    )
+        },
+    ]
+
+
+def _build_consistency_checks(
+    runtime: RuntimeConfig,
+    *,
+    state_payload: dict[str, Any] | None,
+    state_error: str | None,
+    events_scan: dict[str, Any],
+    runs_scan: dict[str, Any],
+    state_last_message_id: str | None,
+    runs_state_summary: dict[str, Any] | None,
+    checkpoint_index_payload: dict[str, Any] | None,
+    checkpoint_index_error: str | None,
+    checkpoint_index_exists: bool,
+    runs_index_payload: dict[str, Any] | None,
+    runs_index_error: str | None,
+    runs_index_exists: bool,
+) -> list[dict[str, str | bool]]:
+    checks: list[dict[str, str | bool]] = []
 
     checkpoint_ok, checkpoint_detail = _check_checkpoint_consistency(
         events_frontier=events_scan["last_checkpoint"],
@@ -191,6 +177,7 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
         if isinstance(runs_index_payload, dict)
         else None
     )
+    runs_summary = runs_scan["summary"]
     run_summary_ok, run_summary_detail = _check_run_summary_consistency(
         runs_summary=runs_summary,
         state_summary=runs_state_summary,
@@ -235,6 +222,85 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
         }
     )
 
+    return checks
+
+
+def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
+    state_payload, state_error, state_exists = _read_json_object(runtime.state_file)
+    events_scan = _scan_events_jsonl(runtime.events_file)
+    runs_scan = _scan_runs_jsonl(runtime.runs_file)
+
+    checkpoint_index_payload, checkpoint_index_error, checkpoint_index_exists = (
+        _read_json_object(
+            runtime.events_file.with_name(
+                f"{runtime.events_file.name}.checkpoint.index.json"
+            )
+        )
+    )
+    runs_index_payload, runs_index_error, runs_index_exists = _read_json_object(
+        runtime.runs_file.with_name(f"{runtime.runs_file.name}.summary.index.json")
+    )
+
+    state_last_message_id = _state_last_message_id(state_payload)
+    runs_state_summary = _normalize_summary(
+        state_payload.get("last_run_summary")
+        if isinstance(state_payload, dict)
+        else None
+    )
+
+    frontier = events_scan["last_checkpoint"]
+    if frontier is None and state_last_message_id is not None:
+        frontier = state_last_message_id
+
+    runs_summary = runs_scan["summary"]
+    last_success_at = runs_summary.get("last_success_at") if runs_summary else None
+    last_failure_kind = runs_summary.get("last_failure_kind") if runs_summary else None
+
+    incident, incident_status = _derive_incident_status(
+        state_payload=state_payload,
+        latest_incident_event=events_scan["last_incident_event"],
+    )
+
+    readability_checks = _build_readability_checks(
+        runtime,
+        state_error=state_error,
+        state_exists=state_exists,
+        events_scan=events_scan,
+        runs_scan=runs_scan,
+    )
+    consistency_checks = _build_consistency_checks(
+        runtime,
+        state_payload=state_payload,
+        state_error=state_error,
+        events_scan=events_scan,
+        runs_scan=runs_scan,
+        state_last_message_id=state_last_message_id,
+        runs_state_summary=runs_state_summary,
+        checkpoint_index_payload=checkpoint_index_payload,
+        checkpoint_index_error=checkpoint_index_error,
+        checkpoint_index_exists=checkpoint_index_exists,
+        runs_index_payload=runs_index_payload,
+        runs_index_error=runs_index_error,
+        runs_index_exists=runs_index_exists,
+    )
+    checks = readability_checks + consistency_checks
+
+    checkpoint_ok = all(
+        bool(c["ok"]) for c in consistency_checks if "checkpoint" in str(c["name"])
+    )
+    run_summary_ok = all(
+        bool(c["ok"]) for c in consistency_checks if "run_summary" in str(c["name"])
+    )
+    incident_ok = all(
+        bool(c["ok"]) for c in consistency_checks if "incident" in str(c["name"])
+    )
+
+    runs_index_summary = _normalize_summary(
+        runs_index_payload.get("summary")
+        if isinstance(runs_index_payload, dict)
+        else None
+    )
+
     overall_status = "ok" if all(bool(check["ok"]) for check in checks) else "degraded"
 
     return {
@@ -261,8 +327,8 @@ def _build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
         "incident_status": incident_status,
         "incident": incident,
         "consistency": {
-            "checkpoint_consistent": checkpoint_ok and checkpoint_index_ok,
-            "run_summary_consistent": run_summary_ok and runs_index_ok,
+            "checkpoint_consistent": checkpoint_ok,
+            "run_summary_consistent": run_summary_ok,
             "incident_consistent": incident_ok,
         },
         "runtime_status": {

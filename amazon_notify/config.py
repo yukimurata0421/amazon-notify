@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import logging
 import os
@@ -8,6 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 DEFAULT_RUNTIME_DIR = Path.cwd()
 DEFAULT_CONFIG_PATH = DEFAULT_RUNTIME_DIR / "config.json"
@@ -75,19 +78,21 @@ def setup_logging(log_path: Path | None = None, *, structured: bool = False) -> 
     LOGGER.propagate = False
 
 
-def load_config(path: Path) -> dict:
+def load_config(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        raw: dict[str, Any] = json.load(file)
+        return raw
 
 
-def load_state(path: Path) -> dict:
+def load_state(path: Path) -> dict[str, Any]:
     if not path.exists():
         return {"last_message_id": None}
     with path.open("r", encoding="utf-8") as file:
-        return json.load(file)
+        raw: dict[str, Any] = json.load(file)
+        return raw
 
 
-def save_state(path: Path, state: dict) -> None:
+def save_state(path: Path, state: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(
         prefix=f".{path.name}.",
@@ -100,6 +105,11 @@ def save_state(path: Path, state: dict) -> None:
             file.flush()
             os.fsync(file.fileno())
         os.replace(tmp_path, path)
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
     except Exception:
         try:
             os.remove(tmp_path)
@@ -121,11 +131,6 @@ def get_runtime_paths(config_path: str | Path | None = None) -> RuntimePaths:
         token=runtime_dir / "token.json",
         default_log=runtime_dir / "logs" / "amazon_mail_notifier.log",
     )
-
-
-def configure_runtime_paths(config_path: str | Path) -> Path:
-    # Backward-compatible helper: no global mutation, only derived path resolution.
-    return get_runtime_paths(config_path).runtime_dir
 
 
 def resolve_runtime_path(path_value: str | Path, base_dir: Path | None = None) -> Path:

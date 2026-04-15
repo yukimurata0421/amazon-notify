@@ -3,10 +3,24 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from .runtime import RuntimeConfig
 from .time_utils import utc_now_iso
+
+
+class MetricsReport(TypedDict):
+    checked_at: str
+    window_size: int
+    runs_in_window: int
+    checkpoint_age_seconds: float | None
+    notifications_sent: int
+    run_success_count: int
+    run_failure_count: int
+    run_failure_ratio: float
+    incident_suppressed_count: int
+    dedupe_hit_count: int
+    open_incident_duration_seconds: float | None
 
 
 def build_metrics_report(runtime: RuntimeConfig, *, window: int = 20) -> dict[str, Any]:
@@ -27,9 +41,6 @@ def build_metrics_report(runtime: RuntimeConfig, *, window: int = 20) -> dict[st
     suppressed_count = sum(
         1 for row in events if row.get("event") == "incident_suppressed"
     )
-    dedupe_hit_count = sum(
-        1 for row in events if row.get("event") == "incident_suppressed"
-    )
 
     checkpoint_age_seconds = _checkpoint_age_seconds(events)
     open_incident_duration_seconds = _open_incident_duration_seconds(state_payload)
@@ -44,7 +55,7 @@ def build_metrics_report(runtime: RuntimeConfig, *, window: int = 20) -> dict[st
         "run_failure_count": failure_count,
         "run_failure_ratio": round(failure_ratio, 4),
         "incident_suppressed_count": suppressed_count,
-        "dedupe_hit_count": dedupe_hit_count,
+        "dedupe_hit_count": suppressed_count,
         "open_incident_duration_seconds": open_incident_duration_seconds,
     }
     return metrics

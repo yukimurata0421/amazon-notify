@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from amazon_notify import cli, config, gmail_client, notification_bridge
+from amazon_notify import config, gmail_client, notification_bridge
 
 
 class DummyCreds:
@@ -190,20 +190,11 @@ def test_get_gmail_service_refresh_failure_does_not_start_oauth_in_noninteractiv
     assert "自動更新に失敗" in saved["token_issue_reason"]
 
 
-def test_compile_optional_pattern_exits_for_invalid_regex(capsys) -> None:
-    with pytest.raises(SystemExit) as exc_info:
-        cli.compile_optional_pattern("[", "amazon_subject_pattern")
-
-    assert exc_info.value.code == 1
-    assert "amazon_subject_pattern" in capsys.readouterr().err
-
-
-def test_configure_runtime_paths_updates_default_locations(tmp_path: Path) -> None:
+def test_get_runtime_paths_updates_default_locations(tmp_path: Path) -> None:
     config_path = tmp_path / "runtime" / "config.json"
-    runtime_dir = config.configure_runtime_paths(config_path)
     paths = config.get_runtime_paths(config_path)
 
-    assert runtime_dir == config_path.parent.resolve()
+    assert paths.runtime_dir == config_path.parent.resolve()
     assert paths.config == config_path.resolve()
     assert paths.credentials == config_path.parent.resolve() / "credentials.json"
     assert paths.token == config_path.parent.resolve() / "token.json"
