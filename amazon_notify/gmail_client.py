@@ -93,6 +93,7 @@ except ModuleNotFoundError as exc:
     class HttpError(Exception):  # type: ignore[no-redef]
         """Fallback error type when googleapiclient is unavailable."""
 
+
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 DEFAULT_TRANSIENT_ALERT_MIN_DURATION_SECONDS = (
