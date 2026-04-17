@@ -13,7 +13,7 @@ from .backoff import next_delay_seconds
 from .config import LOGGER, save_state
 
 try:
-    from google.cloud import pubsub_v1  # type: ignore[attr-defined]
+    import google.cloud.pubsub_v1 as pubsub_v1
 
     PUBSUB_IMPORT_ERROR: ImportError | None = None
 except ImportError as exc:

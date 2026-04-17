@@ -14,7 +14,7 @@ except ModuleNotFoundError:
     urllib3_exceptions = None  # type: ignore[assignment]
 
 try:
-    from google.auth.transport.requests import Request
+    from google.auth.transport.requests import Request as GoogleAuthRequest
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
@@ -55,7 +55,7 @@ except ModuleNotFoundError as exc:
     def build(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
 
-    def Request(*_args, **_kwargs) -> NoReturn:
+    def GoogleAuthRequest(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
 
     class HttpError(Exception):  # type: ignore[no-redef]
@@ -294,7 +294,7 @@ def refresh_with_retry(
         max_delay=max_delay,
         request_factory=request_factory,
         ensure_google_dependencies_fn=ensure_google_dependencies,
-        default_request_factory=Request,
+        default_request_factory=GoogleAuthRequest,
         is_transient_network_error_fn=is_transient_network_error,
         is_retryable_http_error_fn=is_retryable_http_error,
     )
