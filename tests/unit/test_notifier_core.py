@@ -8,7 +8,7 @@ from amazon_notify import (
     notification_bridge,
     notifier,
 )
-from tests.unit.notifier_test_helpers import build_runtime, single_page
+from tests.unit.notifier_test_helpers import build_runtime, patch_gmail_ready, single_page
 
 
 def _read_json(path: Path) -> dict:
@@ -475,7 +475,6 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(
         raise TimeoutError("timed out")
 
     monkeypatch.setattr(notifier, "list_recent_messages_page", raise_timeout)
-    monkeypatch.setattr(notifier.time, "sleep", lambda _sec: None)
 
     alerts: list[str] = []
     monkeypatch.setattr(
@@ -486,7 +485,7 @@ def test_run_once_marks_transient_issue_when_message_list_times_out(
 
     notifier.run_once(runtime)
 
-    saved = _read_json(state_file)
+    saved = _read_json(runtime.transient_state_file)
     assert saved["transient_network_issue_active"] is True
     assert "timed out" in saved["last_transient_error"]
     assert alerts
@@ -777,15 +776,5 @@ def test_report_unhandled_exception_handles_persistence_failures(
     assert result.checkpoint_before is None
 
 
-def test_incident_memory_map_is_scoped_by_state_file(tmp_path: Path) -> None:
-    runtime_a = build_runtime(tmp_path / "a")
-    runtime_b = build_runtime(tmp_path / "b")
-
-    notifier._INCIDENT_MEMORY_MAP.clear()
-    map_a = notifier._incident_memory_map(runtime_a)
-    map_b = notifier._incident_memory_map(runtime_b)
-    map_a["delivery_failed"] = 123.0
-
-    assert map_a is notifier._incident_memory_map(runtime_a)
-    assert map_b is notifier._incident_memory_map(runtime_b)
-    assert "delivery_failed" not in map_b
+def test_notifier_does_not_expose_incident_memory_cache() -> None:
+    assert not hasattr(notifier, "_INCIDENT_MEMORY_MAP")

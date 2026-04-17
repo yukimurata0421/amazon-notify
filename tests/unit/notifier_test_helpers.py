@@ -2,6 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from _pytest.monkeypatch import MonkeyPatch
+
+from amazon_notify import notifier
+from amazon_notify.domain import AuthStatus
 from amazon_notify.runtime import RuntimeConfig
 
 
@@ -32,3 +36,16 @@ def single_page(messages: list[dict[str, str]]):
         return messages, None
 
     return _page
+
+
+def patch_gmail_ready(
+    monkeypatch: MonkeyPatch,
+    *,
+    service: object | None = None,
+) -> None:
+    resolved_service = object() if service is None else service
+    monkeypatch.setattr(
+        notifier,
+        "get_gmail_service_with_status",
+        lambda **_: (resolved_service, AuthStatus.READY),
+    )

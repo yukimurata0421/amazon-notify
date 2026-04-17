@@ -131,6 +131,7 @@ def test_main_validate_config_success(monkeypatch, tmp_path: Path, capsys) -> No
         ["--doctor", "--rebuild-indexes"],
         ["--reauth", "--health-check"],
         ["--streaming-pull", "--rebuild-indexes"],
+        ["--scenario-harness", "--metrics"],
         ["--reauth", "--test-discord", "--setup-watch"],
     ],
 )

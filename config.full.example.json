@@ -25,6 +25,7 @@
   "discord_max_delay_seconds": 30.0,
   "structured_logging": false,
   "state_file": "state.json",
+  "transient_state_file": "transient_state.json",
   "events_file": "events.jsonl",
   "runs_file": "runs.jsonl",
   "log_file": "logs/amazon_mail_notifier.log"

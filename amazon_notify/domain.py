@@ -73,15 +73,19 @@ class RunResult:
 
 
 class PersistentState(TypedDict, total=False):
-    """Typed representation of the JSON state dict.
-
-    All keys are optional because the state file may be empty or only
-    partially populated during normal operation.
-    """
+    """Primary state snapshot (checkpoint / summary / incident)."""
 
     last_message_id: str | None
+    last_run_summary: dict[str, Any]
+    active_incident_kind: str
+    active_incident_message: str
+    active_incident_at: str
+    incident_suppressed_count: int
 
-    # transient network issue tracking
+
+class TransientState(TypedDict, total=False):
+    """Operational transient state (separated from primary state.json)."""
+
     transient_network_issue_active: bool
     last_transient_error: str
     last_transient_error_at: str

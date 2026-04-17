@@ -4,7 +4,7 @@ from pathlib import Path
 from amazon_notify import notifier
 from amazon_notify.domain import AuthStatus, FailureKind
 from amazon_notify.errors import CheckpointError
-from tests.unit.notifier_test_helpers import build_runtime, single_page
+from tests.unit.notifier_test_helpers import build_runtime, patch_gmail_ready, single_page
 
 
 def _read_json(path: Path) -> dict:
@@ -29,11 +29,7 @@ def test_contract_checkpoint_advances_only_when_notification_succeeds(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",
@@ -73,11 +69,7 @@ def test_ordered_frontier_delivery_failure_stops_frontier_advancement(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",
@@ -123,11 +115,7 @@ def test_ordered_frontier_message_detail_failure_preserves_frontier(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",
@@ -191,11 +179,7 @@ def test_ordered_frontier_stops_processing_newer_messages_after_midstream_failur
             ]
         ),
     )
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
 
     def fake_detail(_service, message_id: str) -> dict:
         if message_id == "msg-b":
@@ -238,11 +222,7 @@ def test_incident_lifecycle_suppresses_repeated_same_failure_and_recovers(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",
@@ -307,11 +287,7 @@ def test_run_once_marks_checkpoint_failed_when_run_result_persist_fails(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",
@@ -394,7 +370,7 @@ def test_run_once_does_not_crash_when_failure_event_persist_fails(
     assert result.failure_kind == FailureKind.AUTH_FAILED
 
 
-def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_write_fails(
+def test_repeat_alert_occurs_when_incident_state_write_fails(
     monkeypatch,
     tmp_path: Path,
 ) -> None:
@@ -403,11 +379,7 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
 
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",
@@ -441,13 +413,10 @@ def test_incident_memory_suppression_reduces_repeat_alert_when_incident_state_wr
         "open_incident",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("state disk full")),
     )
-    monkeypatch.setattr(notifier.time, "time", lambda: 1_000.0)
-    notifier._INCIDENT_MEMORY_MAP.clear()
-
     notifier.run_once(runtime)
     notifier.run_once(runtime)
 
-    assert len(alerts) == 1
+    assert len(alerts) == 2
 
 
 def test_checkpoint_boundary_on_second_page_processes_first_page_messages(
@@ -458,11 +427,7 @@ def test_checkpoint_boundary_on_second_page_processes_first_page_messages(
     runtime.state_file.write_text(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
 
     pages = {
         None: ([{"id": "m3"}, {"id": "m2"}], "p2"),
@@ -518,11 +483,7 @@ def test_checkpoint_not_found_across_multiple_pages_raises_source_failed(
     runtime.state_file.write_text(
         json.dumps({"last_message_id": "old-id"}), encoding="utf-8"
     )
-    monkeypatch.setattr(
-        notifier,
-        "get_gmail_service_with_status",
-        lambda **_: (object(), AuthStatus.READY),
-    )
+    patch_gmail_ready(monkeypatch)
     monkeypatch.setattr(
         notifier,
         "list_recent_messages_page",

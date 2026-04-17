@@ -81,12 +81,12 @@ def test_e2e_transient_error_then_recovery_notification(
     )
 
     notifier.run_once(runtime)
-    after_failure = _read_json(state_file)
+    after_failure = _read_json(runtime.transient_state_file)
     assert after_failure["transient_network_issue_active"] is True
     assert len(alerts) == 1
 
     notifier.run_once(runtime)
-    after_recovery = _read_json(state_file)
+    after_recovery = _read_json(runtime.transient_state_file)
     assert after_recovery["transient_network_issue_active"] is False
     assert len(recoveries) == 1
     assert "復旧" in recoveries[0]

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,8 +39,6 @@ from .text import (
 )
 from .time_utils import utc_now_iso
 
-_INCIDENT_MEMORY_SUPPRESSION_SECONDS = 1800.0
-_INCIDENT_MEMORY_MAP: dict[Path, dict[str, float]] = {}
 __all__ = ["AuthStatus", "report_unhandled_exception", "run_once"]
 
 
@@ -102,7 +99,6 @@ def _handle_incident_lifecycle(
     dedupe_state_path: Path,
     dry_run: bool,
     result: RunResult,
-    incident_memory_suppressed_until: dict[str, float],
 ) -> None:
     active_incident = checkpoint_store.load_incident_state()
     active_kind = active_incident["kind"] if active_incident else None
@@ -116,15 +112,6 @@ def _handle_incident_lifecycle(
     ):
         if failure_kind is None:
             return
-        now_epoch = time.time()
-        suppressed_until = incident_memory_suppressed_until.get(failure_kind)
-        if suppressed_until is not None and now_epoch < suppressed_until:
-            LOGGER.warning(
-                "INCIDENT_ALERT_SUPPRESSED_IN_MEMORY: kind=%s remaining=%.1fs",
-                failure_kind,
-                suppressed_until - now_epoch,
-            )
-            return
         # 同一インシデント継続時は抑制して連投を避ける。
         if active_kind == failure_kind:
             try:
@@ -132,16 +119,12 @@ def _handle_incident_lifecycle(
                     kind=failure_kind,
                     run_id=result.run_id,
                 )
-                incident_memory_suppressed_until.pop(failure_kind, None)
             except OSError as exc:
                 LOGGER.error(
                     "INCIDENT_SUPPRESS_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
                     result.run_id,
                     failure_kind,
                     exc,
-                )
-                incident_memory_suppressed_until[failure_kind] = (
-                    now_epoch + _INCIDENT_MEMORY_SUPPRESSION_SECONDS
                 )
             return
 
@@ -161,16 +144,12 @@ def _handle_incident_lifecycle(
                     opened_at=result.ended_at,
                     run_id=result.run_id,
                 )
-                incident_memory_suppressed_until.pop(failure_kind, None)
             except OSError as exc:
                 LOGGER.error(
                     "INCIDENT_OPEN_STATE_WRITE_FAILED: run_id=%s kind=%s error=%s",
                     result.run_id,
                     failure_kind,
                     exc,
-                )
-                incident_memory_suppressed_until[failure_kind] = (
-                    now_epoch + _INCIDENT_MEMORY_SUPPRESSION_SECONDS
                 )
         return
 
@@ -205,26 +184,8 @@ def _handle_incident_lifecycle(
                 )
 
 
-def _incident_memory_map(runtime: RuntimeConfig) -> dict[str, float]:
-    state_path = runtime.state_file.resolve()
-    cached = _INCIDENT_MEMORY_MAP.get(state_path)
-    if cached is not None:
-        return cached
-    map_for_runtime: dict[str, float] = {}
-    _INCIDENT_MEMORY_MAP[state_path] = map_for_runtime
-    return map_for_runtime
-
-
 def _resolve_runtime_paths(runtime: RuntimeConfig) -> RuntimePaths:
     return runtime.runtime_paths
-
-
-_PIPELINE_CACHE: dict[
-    Path,
-    tuple[
-        RuntimeConfig, NotificationPipeline, JsonlCheckpointStore, GmailClientAdapter
-    ],
-] = {}
 
 
 def _build_pipeline(
@@ -233,41 +194,7 @@ def _build_pipeline(
     state: dict,
     runtime_paths: RuntimePaths,
 ) -> tuple[NotificationPipeline, JsonlCheckpointStore]:
-    """Build (or reuse cached) pipeline components.
-
-    Stateless components (classifier, notifier, checkpoint_store, gmail_client
-    adapter) are cached per ``state_file``.  The ``GmailMailSource`` is
-    recreated each call because it carries mutable per-run state.
-    """
-    cache_key = runtime.state_file.resolve()
-    cached = _PIPELINE_CACHE.get(cache_key)
-
-    if cached is not None and cached[0] is runtime:
-        _, prev_pipeline, checkpoint_store, gmail_client = cached
-        source = GmailMailSource(
-            discord_webhook_url=runtime.discord_webhook_url,
-            state=state,
-            state_file=runtime.state_file,
-            dry_run=runtime.dry_run,
-            gmail_api_max_retries=runtime.gmail_api.max_retries,
-            gmail_api_base_delay_seconds=runtime.gmail_api.base_delay_seconds,
-            gmail_api_max_delay_seconds=runtime.gmail_api.max_delay_seconds,
-            runtime_paths=runtime_paths,
-            transient_alert_min_duration_seconds=runtime.transient_alert.min_duration_seconds,
-            transient_alert_cooldown_seconds=runtime.transient_alert.cooldown_seconds,
-            gmail_client=gmail_client,
-        )
-        pipeline = NotificationPipeline(
-            source=source,
-            classifier=prev_pipeline.classifier,
-            notifier=prev_pipeline.notifier,
-            checkpoint_store=checkpoint_store,
-            max_messages=runtime.max_messages,
-            dry_run=runtime.dry_run,
-        )
-        _PIPELINE_CACHE[cache_key] = (runtime, pipeline, checkpoint_store, gmail_client)
-        return pipeline, checkpoint_store
-
+    """Build fresh pipeline components for one run."""
     gmail_client = GmailClientAdapter(
         get_gmail_service_with_status_fn=get_gmail_service_with_status,
         list_recent_messages_page_fn=list_recent_messages_page,
@@ -282,6 +209,7 @@ def _build_pipeline(
         discord_webhook_url=runtime.discord_webhook_url,
         state=state,
         state_file=runtime.state_file,
+        transient_state_file=runtime.transient_state_file,
         dry_run=runtime.dry_run,
         gmail_api_max_retries=runtime.gmail_api.max_retries,
         gmail_api_base_delay_seconds=runtime.gmail_api.base_delay_seconds,
@@ -316,14 +244,12 @@ def _build_pipeline(
         max_messages=runtime.max_messages,
         dry_run=runtime.dry_run,
     )
-    _PIPELINE_CACHE[cache_key] = (runtime, pipeline, checkpoint_store, gmail_client)
     return pipeline, checkpoint_store
 
 
 def run_once(runtime: RuntimeConfig) -> RunResult:
     discord_webhook_url = runtime.discord_webhook_url
     dry_run = runtime.dry_run
-    incident_memory_suppressed_until = _incident_memory_map(runtime)
 
     state = load_state(runtime.state_file)
     LOGGER.info(
@@ -344,7 +270,6 @@ def run_once(runtime: RuntimeConfig) -> RunResult:
         dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=dry_run,
         result=result,
-        incident_memory_suppressed_until=incident_memory_suppressed_until,
     )
 
     if result.notified_count == 0:
@@ -423,6 +348,5 @@ def report_unhandled_exception(runtime: RuntimeConfig, exc: Exception) -> RunRes
         dedupe_state_path=runtime.discord_dedupe_state_file,
         dry_run=runtime.dry_run,
         result=result,
-        incident_memory_suppressed_until=_incident_memory_map(runtime),
     )
     return result

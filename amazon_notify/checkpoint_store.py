@@ -21,6 +21,78 @@ _RUN_SUMMARY_INDEX_SUFFIX = ".summary.index.json"
 _RUN_SUMMARY_STATE_KEY = "last_run_summary"
 
 
+class _CheckpointIndex:
+    def __init__(self, *, events_file: Path):
+        self.path = events_file.with_name(f"{events_file.name}{_CHECKPOINT_INDEX_SUFFIX}")
+
+    def read_payload(self, *, read_json_file) -> dict[str, Any] | None:
+        return read_json_file(self.path)
+
+    def update(self, *, checkpoint: object, offset: int, eof_size: int) -> None:
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "checkpoint": checkpoint if isinstance(checkpoint, str) else None,
+            "offset": offset,
+            "eof_size": eof_size,
+            "updated_at": utc_now_iso(),
+        }
+        try:
+            save_state(self.path, payload)
+        except OSError as exc:
+            LOGGER.warning(
+                "CHECKPOINT_INDEX_UPDATE_FAILED: path=%s error=%s",
+                self.path,
+                exc,
+            )
+
+    def remove(self) -> None:
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError as exc:
+            LOGGER.warning("INDEX_FILE_REMOVE_FAILED: path=%s error=%s", self.path, exc)
+
+
+class _RunSummaryIndex:
+    def __init__(self, *, runs_file: Path):
+        self.path = runs_file.with_name(f"{runs_file.name}{_RUN_SUMMARY_INDEX_SUFFIX}")
+
+    def read_payload(self, *, read_json_file) -> dict[str, Any] | None:
+        return read_json_file(self.path)
+
+    def update(
+        self,
+        *,
+        summary: dict[str, Any],
+        run_id: str | None,
+        offset: int,
+        eof_size: int,
+    ) -> None:
+        if not run_id:
+            return
+        payload = {
+            "schema_version": SCHEMA_VERSION,
+            "run_id": run_id,
+            "offset": offset,
+            "eof_size": eof_size,
+            "summary": summary,
+            "updated_at": utc_now_iso(),
+        }
+        try:
+            save_state(self.path, payload)
+        except OSError as exc:
+            LOGGER.warning(
+                "RUN_SUMMARY_INDEX_UPDATE_FAILED: path=%s error=%s",
+                self.path,
+                exc,
+            )
+
+    def remove(self) -> None:
+        try:
+            self.path.unlink(missing_ok=True)
+        except OSError as exc:
+            LOGGER.warning("INDEX_FILE_REMOVE_FAILED: path=%s error=%s", self.path, exc)
+
+
 def _is_disk_full_error(exc: OSError) -> bool:
     errno_value = getattr(exc, "errno", None)
     if errno_value == ENOSPC:
@@ -45,15 +117,13 @@ class JsonlCheckpointStore:
         self.state_file = state_file
         self.events_file = events_file or state_file.with_name("events.jsonl")
         self.runs_file = runs_file or state_file.with_name("runs.jsonl")
-        self.events_checkpoint_index_file = self.events_file.with_name(
-            f"{self.events_file.name}{_CHECKPOINT_INDEX_SUFFIX}"
-        )
-        self.runs_summary_index_file = self.runs_file.with_name(
-            f"{self.runs_file.name}{_RUN_SUMMARY_INDEX_SUFFIX}"
-        )
+        self._checkpoint_index = _CheckpointIndex(events_file=self.events_file)
+        self._run_summary_index = _RunSummaryIndex(runs_file=self.runs_file)
+        self.events_checkpoint_index_file = self._checkpoint_index.path
+        self.runs_summary_index_file = self._run_summary_index.path
         self._incident_store = IncidentStateStore(
             state_file=self.state_file,
-            append_event_fn=self.append_event,
+            event_appender=self,
         )
 
     def load_checkpoint(self) -> Checkpoint:
@@ -239,7 +309,7 @@ class JsonlCheckpointStore:
             )
             rebuilt["checkpoint_index"] = True
         else:
-            self._safe_unlink(self.events_checkpoint_index_file)
+            self._checkpoint_index.remove()
 
         run_entries, runs_eof_size = self._load_jsonl_entries(self.runs_file)
         if run_entries:
@@ -256,7 +326,7 @@ class JsonlCheckpointStore:
             self._update_state_summary_snapshot(summary)
             rebuilt["run_summary_index"] = True
         else:
-            self._safe_unlink(self.runs_summary_index_file)
+            self._run_summary_index.remove()
 
         return rebuilt
 
@@ -341,10 +411,38 @@ class JsonlCheckpointStore:
         return entries, file_size
 
     def _load_checkpoint_from_index(self) -> str | None:
-        payload = self._read_json_file(self.events_checkpoint_index_file)
+        payload = self._checkpoint_index.read_payload(read_json_file=self._read_json_file)
         if payload is None:
             return None
 
+        validated = self._validate_checkpoint_index(payload)
+        if validated is None:
+            return None
+        checkpoint, offset, eof_size = validated
+
+        current_size = self._safe_file_size(self.events_file)
+        if current_size is None:
+            return None
+
+        if current_size < eof_size:
+            return None
+
+        if current_size > eof_size:
+            latest = self._scan_checkpoint_incremental(
+                checkpoint=checkpoint,
+                offset=offset,
+                eof_size=eof_size,
+            )
+            if latest is None:
+                return None
+            checkpoint = latest
+
+        return checkpoint if isinstance(checkpoint, str) else None
+
+    def _validate_checkpoint_index(
+        self,
+        payload: dict[str, Any],
+    ) -> tuple[object, int, int] | None:
         checkpoint = payload.get("checkpoint")
         offset = payload.get("offset")
         eof_size = payload.get("eof_size")
@@ -361,36 +459,36 @@ class JsonlCheckpointStore:
         if row.get("checkpoint") != checkpoint:
             return None
 
-        current_size = self._safe_file_size(self.events_file)
-        if current_size is None:
-            return None
+        return checkpoint, offset, eof_size
 
-        if current_size < eof_size:
-            return None
-
-        if current_size > eof_size:
-            appended_entries, updated_size = self._load_jsonl_entries(
-                self.events_file,
-                start_offset=eof_size,
-            )
-            last_checkpoint_entry = self._find_last_checkpoint_entry(appended_entries)
-            if last_checkpoint_entry is not None:
-                last_offset, last_payload = last_checkpoint_entry
-                latest_checkpoint = last_payload.get("checkpoint")
-                self._update_checkpoint_index(
-                    checkpoint=latest_checkpoint,
-                    offset=last_offset,
-                    eof_size=updated_size,
-                )
-                return latest_checkpoint
-
+    def _scan_checkpoint_incremental(
+        self,
+        *,
+        checkpoint: object,
+        offset: int,
+        eof_size: int,
+    ) -> object | None:
+        appended_entries, updated_size = self._load_jsonl_entries(
+            self.events_file,
+            start_offset=eof_size,
+        )
+        last_checkpoint_entry = self._find_last_checkpoint_entry(appended_entries)
+        if last_checkpoint_entry is not None:
+            last_offset, last_payload = last_checkpoint_entry
+            latest_checkpoint = last_payload.get("checkpoint")
             self._update_checkpoint_index(
-                checkpoint=checkpoint,
-                offset=offset,
+                checkpoint=latest_checkpoint,
+                offset=last_offset,
                 eof_size=updated_size,
             )
+            return latest_checkpoint
 
-        return checkpoint if isinstance(checkpoint, str) else None
+        self._update_checkpoint_index(
+            checkpoint=checkpoint,
+            offset=offset,
+            eof_size=updated_size,
+        )
+        return checkpoint
 
     def _update_checkpoint_index(
         self,
@@ -399,24 +497,14 @@ class JsonlCheckpointStore:
         offset: int,
         eof_size: int,
     ) -> None:
-        payload = {
-            "schema_version": SCHEMA_VERSION,
-            "checkpoint": checkpoint if isinstance(checkpoint, str) else None,
-            "offset": offset,
-            "eof_size": eof_size,
-            "updated_at": utc_now_iso(),
-        }
-        try:
-            save_state(self.events_checkpoint_index_file, payload)
-        except OSError as exc:
-            LOGGER.warning(
-                "CHECKPOINT_INDEX_UPDATE_FAILED: path=%s error=%s",
-                self.events_checkpoint_index_file,
-                exc,
-            )
+        self._checkpoint_index.update(
+            checkpoint=checkpoint,
+            offset=offset,
+            eof_size=eof_size,
+        )
 
     def _load_run_summary_from_index(self) -> dict[str, Any] | None:
-        payload = self._read_json_file(self.runs_summary_index_file)
+        payload = self._run_summary_index.read_payload(read_json_file=self._read_json_file)
         if payload is None:
             return None
 
@@ -503,24 +591,12 @@ class JsonlCheckpointStore:
         offset: int,
         eof_size: int,
     ) -> None:
-        if not run_id:
-            return
-        payload = {
-            "schema_version": SCHEMA_VERSION,
-            "run_id": run_id,
-            "offset": offset,
-            "eof_size": eof_size,
-            "summary": summary,
-            "updated_at": utc_now_iso(),
-        }
-        try:
-            save_state(self.runs_summary_index_file, payload)
-        except OSError as exc:
-            LOGGER.warning(
-                "RUN_SUMMARY_INDEX_UPDATE_FAILED: path=%s error=%s",
-                self.runs_summary_index_file,
-                exc,
-            )
+        self._run_summary_index.update(
+            summary=summary,
+            run_id=run_id,
+            offset=offset,
+            eof_size=eof_size,
+        )
 
     def _update_state_summary_snapshot(self, summary: dict[str, Any]) -> None:
         try:
@@ -536,7 +612,7 @@ class JsonlCheckpointStore:
             )
 
     def _read_summary_from_index_snapshot(self) -> dict[str, Any] | None:
-        payload = self._read_json_file(self.runs_summary_index_file)
+        payload = self._run_summary_index.read_payload(read_json_file=self._read_json_file)
         if payload is None:
             return None
         return self._normalize_summary(payload.get("summary"))
@@ -668,12 +744,6 @@ class JsonlCheckpointStore:
             return path.stat().st_size
         except OSError:
             return None
-
-    def _safe_unlink(self, path: Path) -> None:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as exc:
-            LOGGER.warning("INDEX_FILE_REMOVE_FAILED: path=%s error=%s", path, exc)
 
     @staticmethod
     def _find_last_checkpoint_entry(

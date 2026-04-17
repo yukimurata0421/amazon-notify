@@ -20,6 +20,7 @@ _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 _DEDUPE_SCHEMA_VERSION = 1
 _DEDUPE_LOCK_FILENAME = ".discord_dedupe_state.lock"
 _DEDUPE_MAX_RETENTION_SECONDS = 31 * 24 * 60 * 60
+_DEDUPE_MAX_ENTRIES = 20_000
 _DEDUPE_INFLIGHT_TTL_SECONDS = 120.0
 _DEDUPE_WINDOW_SECONDS = {
     "alert": 900.0,
@@ -191,7 +192,52 @@ def _prune_dedupe_entries(
             continue
 
         entries[key] = entry
+
+    if len(entries) > _DEDUPE_MAX_ENTRIES:
+        sortable: list[tuple[float, str]] = []
+        for key, entry in entries.items():
+            last_sent_at = entry.get("last_sent_at")
+            if isinstance(last_sent_at, (int, float)):
+                sortable.append((float(last_sent_at), key))
+            else:
+                sortable.append((float("-inf"), key))
+        sortable.sort()
+        remove_n = len(entries) - _DEDUPE_MAX_ENTRIES
+        for _, key in sortable[:remove_n]:
+            entries.pop(key, None)
+            changed = True
     return changed
+
+
+def load_dedupe_summary(
+    state_path: Path,
+    *,
+    hit_window_seconds: float = _DEDUPE_WINDOW_SECONDS["notification"],
+) -> dict[str, float | int | bool]:
+    now_epoch = time.time()
+    try:
+        with _discord_dedupe_lock(state_path):
+            entries = _read_dedupe_entries(state_path)
+            pruned = _prune_dedupe_entries(entries, now_epoch=now_epoch)
+            if pruned:
+                _write_dedupe_entries(state_path, entries)
+    except OSError:
+        entries = _read_dedupe_entries(state_path)
+
+    hit_count = 0
+    for entry in entries.values():
+        last_sent_at = entry.get("last_sent_at")
+        if not isinstance(last_sent_at, (int, float)):
+            continue
+        if (now_epoch - float(last_sent_at)) <= hit_window_seconds:
+            hit_count += 1
+
+    return {
+        "entry_count": len(entries),
+        "dedupe_hit_count": hit_count,
+        "hit_window_seconds": float(hit_window_seconds),
+        "readable": True,
+    }
 
 
 def _build_dedupe_key(notification_kind: str, content: str) -> str:
