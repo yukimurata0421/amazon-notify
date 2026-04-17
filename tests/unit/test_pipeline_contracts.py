@@ -500,15 +500,5 @@ def test_checkpoint_not_found_across_multiple_pages_raises_source_failed(
     assert _read_json(runtime.state_file)["last_message_id"] == "old-id"
 
 
-def test_incident_memory_map_is_scoped_by_state_file(tmp_path: Path) -> None:
-    runtime_a = build_runtime(tmp_path / "a")
-    runtime_b = build_runtime(tmp_path / "b")
-
-    notifier._INCIDENT_MEMORY_MAP.clear()
-    map_a = notifier._incident_memory_map(runtime_a)
-    map_b = notifier._incident_memory_map(runtime_b)
-    map_a["delivery_failed"] = 123.0
-
-    assert map_a is notifier._incident_memory_map(runtime_a)
-    assert map_b is notifier._incident_memory_map(runtime_b)
-    assert "delivery_failed" not in map_b
+def test_incident_memory_map_global_is_removed() -> None:
+    assert not hasattr(notifier, "_INCIDENT_MEMORY_MAP")
