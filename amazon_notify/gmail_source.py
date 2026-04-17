@@ -133,6 +133,7 @@ class GmailMailSource:
     discord_webhook_url: str
     state: dict
     state_file: Path
+    transient_state_file: Path
     dry_run: bool
     gmail_api_max_retries: int
     gmail_api_base_delay_seconds: float
@@ -150,7 +151,7 @@ class GmailMailSource:
         if self.dry_run:
             return
         self.gmail_client.notify_recovery_if_needed(
-            self.discord_webhook_url, self.state, self.state_file
+            self.discord_webhook_url, self.state, self.transient_state_file
         )
 
     def mark_transient_issue(self, err: Exception | str) -> None:
@@ -162,7 +163,7 @@ class GmailMailSource:
         )
         self.gmail_client.record_transient_issue(
             self.state,
-            self.state_file,
+            self.transient_state_file,
             err,
             webhook_url=self.discord_webhook_url,
             alert_message=message,
@@ -200,11 +201,19 @@ class GmailMailSource:
     def iter_new_messages(
         self, checkpoint: Checkpoint, max_messages: int
     ) -> Iterable[MailEnvelope]:
+        service = self._resolve_service_for_run()
+        return self._iter_new_messages_with_service(
+            service=service,
+            checkpoint=checkpoint,
+            max_messages=max_messages,
+        )
+
+    def _resolve_service_for_run(self) -> Any:
         # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
         service, status = self.gmail_client.get_gmail_service_with_status(
             webhook_url=None if self.dry_run else self.discord_webhook_url,
             state=None if self.dry_run else self.state,
-            state_file=None if self.dry_run else self.state_file,
+            state_file=None if self.dry_run else self.transient_state_file,
             paths=self.runtime_paths,
             transient_alert_min_duration_seconds=self.transient_alert_min_duration_seconds,
             transient_alert_cooldown_seconds=self.transient_alert_cooldown_seconds,
@@ -221,7 +230,15 @@ class GmailMailSource:
             raise PermanentAuthError(
                 f"Gmail service が利用できません。auth_status={status.value}"
             )
+        return service
 
+    def _iter_new_messages_with_service(
+        self,
+        *,
+        service: Any,
+        checkpoint: Checkpoint,
+        max_messages: int,
+    ) -> Iterable[MailEnvelope]:
         list_page_size = min(500, max(max_messages, 100))
 
         def _safe_fetch_page(

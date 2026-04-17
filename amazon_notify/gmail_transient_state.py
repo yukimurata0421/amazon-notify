@@ -32,8 +32,24 @@ def state_update_lock(state_file: Path):
 
 
 def sync_state_from_source(target: dict, source: dict) -> None:
-    target.clear()
-    target.update(source)
+    managed_keys = (
+        "transient_network_issue_active",
+        "last_transient_error",
+        "last_transient_error_at",
+        "transient_network_issue_first_seen_at_epoch",
+        "transient_network_issue_last_seen_at_epoch",
+        "transient_network_issue_occurrences",
+        "transient_network_issue_last_alert_at_epoch",
+        "transient_network_issue_notified",
+        "token_issue_active",
+        "token_issue_reason",
+        "token_issue_at",
+    )
+    for key in managed_keys:
+        target.pop(key, None)
+    for key in managed_keys:
+        if key in source:
+            target[key] = source[key]
 
 
 def clear_transient_issue_keys(state: dict) -> None:

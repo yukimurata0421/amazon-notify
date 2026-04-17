@@ -13,6 +13,7 @@ from .config import RuntimePaths
 DEFAULT_LOG_FILE_RELATIVE = "logs/amazon_mail_notifier.log"
 DEFAULT_EVENTS_FILE_RELATIVE = "events.jsonl"
 DEFAULT_RUNS_FILE_RELATIVE = "runs.jsonl"
+DEFAULT_TRANSIENT_STATE_FILE_RELATIVE = "transient_state.json"
 DEFAULT_DISCORD_DEDUPE_STATE_FILE_RELATIVE = ".discord_dedupe_state.json"
 DEFAULT_PUBSUB_HEARTBEAT_FILE_RELATIVE = "runtime/pubsub-heartbeat.txt"
 DEFAULT_SERVICE_STATUS_FILE_RELATIVE = "runtime/amazon-notify-status.json"
@@ -97,6 +98,7 @@ class RuntimeConfig:
     discord_webhook_url: str
     amazon_pattern: Pattern[str]
     state_file: Path
+    transient_state_file: Path
     events_file: Path
     runs_file: Path
     discord_dedupe_state_file: Path
@@ -140,6 +142,10 @@ class RuntimeConfig:
             ),
             state_file=app_config.resolve_runtime_path(
                 config.get("state_file", "state.json"), base_dir=base_dir
+            ),
+            transient_state_file=app_config.resolve_runtime_path(
+                config.get("transient_state_file", DEFAULT_TRANSIENT_STATE_FILE_RELATIVE),
+                base_dir=base_dir,
             ),
             events_file=app_config.resolve_runtime_path(
                 config.get("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
@@ -431,6 +437,7 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
 
     for key, default_value in (
         ("state_file", "state.json"),
+        ("transient_state_file", DEFAULT_TRANSIENT_STATE_FILE_RELATIVE),
         ("log_file", DEFAULT_LOG_FILE_RELATIVE),
         ("events_file", DEFAULT_EVENTS_FILE_RELATIVE),
         ("runs_file", DEFAULT_RUNS_FILE_RELATIVE),

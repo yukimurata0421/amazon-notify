@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from .config import load_state, save_state
 from .gmail_transient_state import state_update_lock
+
+
+class EventAppender(Protocol):
+    def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None:
+        ...
 
 
 class IncidentStateStore:
@@ -13,10 +17,10 @@ class IncidentStateStore:
         self,
         *,
         state_file: Path,
-        append_event_fn: Callable[[str, str, dict[str, Any]], None],
+        event_appender: EventAppender,
     ):
         self.state_file = state_file
-        self._append_event = append_event_fn
+        self._event_appender = event_appender
 
     def load_incident_state(self) -> dict[str, Any] | None:
         state = load_state(self.state_file)
@@ -35,7 +39,7 @@ class IncidentStateStore:
             suppressed_count = int(state.get("incident_suppressed_count", 0)) + 1
             state["incident_suppressed_count"] = suppressed_count
             save_state(self.state_file, state)
-        self._append_event(
+        self._event_appender.append_event(
             "incident_suppressed",
             run_id,
             {
@@ -60,7 +64,7 @@ class IncidentStateStore:
             state["active_incident_at"] = opened_at
             state["incident_suppressed_count"] = 0
             save_state(self.state_file, state)
-        self._append_event(
+        self._event_appender.append_event(
             "incident_opened",
             run_id,
             {
@@ -79,7 +83,7 @@ class IncidentStateStore:
             at = state.get("active_incident_at")
             suppressed_count = int(state.get("incident_suppressed_count", 0))
 
-            self._append_event(
+            self._event_appender.append_event(
                 "incident_recovered",
                 run_id,
                 {

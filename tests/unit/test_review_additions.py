@@ -85,6 +85,7 @@ def test_iter_new_messages_truncates_at_max_messages(monkeypatch) -> None:
         discord_webhook_url="https://discord.invalid/webhook",
         state={},
         state_file=Path("/tmp/state.json"),
+        transient_state_file=Path("/tmp/transient_state.json"),
         dry_run=False,
         gmail_api_max_retries=1,
         gmail_api_base_delay_seconds=1.0,
@@ -100,21 +101,11 @@ def test_iter_new_messages_truncates_at_max_messages(monkeypatch) -> None:
     assert len(envelopes) == 3
 
 
-# ── #14-d  incident memory map isolation per state_file ──
+# ── #14-d  incident cache removal ──
 
 
-def test_incident_memory_map_isolates_by_state_file(tmp_path: Path) -> None:
-    notifier._INCIDENT_MEMORY_MAP.clear()
-    runtime_a = build_runtime(tmp_path / "a")
-    runtime_b = build_runtime(tmp_path / "b")
-
-    map_a = notifier._incident_memory_map(runtime_a)
-    map_b = notifier._incident_memory_map(runtime_b)
-    map_a["delivery_failed"] = 123.0
-
-    assert map_a is notifier._incident_memory_map(runtime_a)
-    assert map_b is notifier._incident_memory_map(runtime_b)
-    assert "delivery_failed" not in map_b
+def test_notifier_removes_incident_memory_cache_global() -> None:
+    assert not hasattr(notifier, "_INCIDENT_MEMORY_MAP")
 
 
 # ── #11  time-machine migration demo ──

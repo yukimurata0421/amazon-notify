@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 import pytest
@@ -107,13 +108,19 @@ def test_build_metrics_includes_dedupe_entry_count(tmp_path: Path) -> None:
     (tmp_path / "events.jsonl").write_text("", encoding="utf-8")
     (tmp_path / "runs.jsonl").write_text("", encoding="utf-8")
     (tmp_path / ".discord_dedupe_state.json").write_text(
-        json.dumps({"schema_version": 1, "entries": {"k1": {"last_sent_at": 1.0}}}),
+        json.dumps(
+            {
+                "schema_version": 1,
+                "entries": {"k1": {"last_sent_at": time.time()}},
+            }
+        ),
         encoding="utf-8",
     )
 
     rt = _runtime(tmp_path)
     m = build_metrics_report(rt, recent_run_window=5)
     assert m["dedupe"]["entry_count"] == 1
+    assert m["dedupe"]["dedupe_hit_count"] == 1
     assert m["dedupe"]["readable"] is True
     plain = format_metrics_plain(m)
     assert "dedupe_entries: 1" in plain
