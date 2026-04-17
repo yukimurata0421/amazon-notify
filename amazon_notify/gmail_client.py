@@ -31,6 +31,7 @@ from .notification_bridge import (
 )
 
 GoogleAuthRequest: Callable[..., Any]
+Request: Callable[..., Any]
 
 try:
     from requests import exceptions as requests_exceptions
@@ -92,6 +93,9 @@ except ModuleNotFoundError as exc:
 
     class HttpError(Exception):  # type: ignore[no-redef]
         """Fallback error type when googleapiclient is unavailable."""
+
+
+Request = GoogleAuthRequest
 
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
@@ -299,7 +303,7 @@ def refresh_with_retry(
         max_delay=max_delay,
         request_factory=request_factory,
         ensure_google_dependencies_fn=ensure_google_dependencies,
-        default_request_factory=GoogleAuthRequest,
+        default_request_factory=Request,
         is_transient_network_error_fn=is_transient_network_error,
         is_retryable_http_error_fn=is_retryable_http_error,
     )

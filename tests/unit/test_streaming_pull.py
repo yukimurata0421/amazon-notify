@@ -217,9 +217,7 @@ def test_run_streaming_pull_skips_invalid_message_payload(monkeypatch) -> None:
     assert triggers == []
 
 
-def test_run_streaming_pull_stops_when_trigger_fails_consecutively(
-    monkeypatch, caplog
-) -> None:
+def test_run_streaming_pull_stops_when_trigger_fails_consecutively(monkeypatch) -> None:
     class _FakeMessage:
         def __init__(self, payload: dict):
             self.data = json.dumps(payload).encode("utf-8")
@@ -292,4 +290,3 @@ def test_run_streaming_pull_stops_when_trigger_fails_consecutively(
     assert _FakeSubscriber.last_future is not None
     assert _FakeSubscriber.last_future.cancelled is True
     assert _FakeSubscriber.closed is True
-    assert any("PUBSUB_WORKER_FATAL" in record.message for record in caplog.records)

@@ -9,6 +9,7 @@ This is the primary navigation page for docs. Start with `HYBRID_QUICKSTART` and
 ## Operations
 - [OPERATIONS.en.md](./OPERATIONS.en.md)
 - [HYBRID_ARCHITECTURE.en.md](./HYBRID_ARCHITECTURE.en.md)
+- [CI_PUSH_FIXLOG_2026-04-18.en.md](./CI_PUSH_FIXLOG_2026-04-18.en.md)
 
 ## Design Notes
 - [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.md)
