@@ -13,9 +13,21 @@ class CorruptedMiddleScenario:
     def setup(self, runtime) -> None:
         runtime.state_file.write_text("{}", encoding="utf-8")
         runtime.events_file.write_text(
-            json.dumps({"event": "checkpoint_advanced", "checkpoint": "cp-1", "at": "2026-01-01T00:00:00+00:00"})
+            json.dumps(
+                {
+                    "event": "checkpoint_advanced",
+                    "checkpoint": "cp-1",
+                    "at": "2026-01-01T00:00:00+00:00",
+                }
+            )
             + "\n{bad}\n"
-            + json.dumps({"event": "checkpoint_advanced", "checkpoint": "cp-2", "at": "2026-01-01T00:00:01+00:00"})
+            + json.dumps(
+                {
+                    "event": "checkpoint_advanced",
+                    "checkpoint": "cp-2",
+                    "at": "2026-01-01T00:00:01+00:00",
+                }
+            )
             + "\n",
             encoding="utf-8",
         )
@@ -27,6 +39,8 @@ class CorruptedMiddleScenario:
             "ok": code == 1,
             "status": report["status"],
             "events_readable": next(
-                c["ok"] for c in report["checks"] if c["name"] == "events_jsonl_readable"
+                c["ok"]
+                for c in report["checks"]
+                if c["name"] == "events_jsonl_readable"
             ),
         }

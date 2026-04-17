@@ -12,7 +12,9 @@ class CheckpointInterruptWindowScenario:
     name = "checkpoint_interrupt_window"
 
     def setup(self, runtime) -> None:
-        runtime.state_file.write_text(json.dumps({"last_message_id": "cp-1"}), encoding="utf-8")
+        runtime.state_file.write_text(
+            json.dumps({"last_message_id": "cp-1"}), encoding="utf-8"
+        )
         runtime.events_file.write_text(
             json.dumps(
                 {

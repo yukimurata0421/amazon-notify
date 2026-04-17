@@ -15,7 +15,6 @@ from amazon_notify.checkpoint_store import JsonlCheckpointStore
 from amazon_notify.domain import AuthStatus, Checkpoint
 from amazon_notify.gmail_source import GmailClientAdapter, GmailMailSource
 from amazon_notify.runtime import mask_webhook_url
-from tests.unit.notifier_test_helpers import build_runtime
 
 # ── #14-a  discord_client: non-retryable request exception returns False ──
 

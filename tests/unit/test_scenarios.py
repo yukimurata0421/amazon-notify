@@ -66,6 +66,6 @@ def test_cli_scenario_harness_exits_zero(monkeypatch, tmp_path: Path, capsys) ->
 
     assert exc_info.value.code == 0
     raw = capsys.readouterr().out
-    out = json.loads(raw[raw.find("{"):])
+    out = json.loads(raw[raw.find("{") :])
     assert out["status"] == "ok"
     assert out["results"][0]["name"] == "truncated_jsonl"

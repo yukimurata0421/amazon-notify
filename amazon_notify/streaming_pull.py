@@ -13,7 +13,7 @@ from .backoff import next_delay_seconds
 from .config import LOGGER, save_state
 
 try:
-    from google.cloud import pubsub_v1
+    from google.cloud import pubsub_v1  # type: ignore[attr-defined]
 
     PUBSUB_IMPORT_ERROR: ImportError | None = None
 except ImportError as exc:
@@ -215,24 +215,30 @@ class _StreamingPullRunner:
             else:
                 updated_last_error = last_error
 
-            updates: dict[str, float | bool | int | str | None] = {
-                "updated_at": time.time(),
-                "last_error": updated_last_error,
-            }
+            snapshot = replace(
+                self.heartbeat_state,
+                updated_at=time.time(),
+                last_error=updated_last_error,
+            )
             if worker_last_seen_at is not None:
-                updates["worker_last_seen_at"] = worker_last_seen_at
+                snapshot = replace(snapshot, worker_last_seen_at=worker_last_seen_at)
             if callback_last_seen_at is not None:
-                updates["callback_last_seen_at"] = callback_last_seen_at
+                snapshot = replace(
+                    snapshot, callback_last_seen_at=callback_last_seen_at
+                )
             if trigger_started_at is not None:
-                updates["trigger_started_at"] = trigger_started_at
+                snapshot = replace(snapshot, trigger_started_at=trigger_started_at)
             if trigger_completed_at is not None:
-                updates["trigger_completed_at"] = trigger_completed_at
+                snapshot = replace(snapshot, trigger_completed_at=trigger_completed_at)
             if last_trigger_ok is not None:
-                updates["last_trigger_ok"] = last_trigger_ok
+                snapshot = replace(snapshot, last_trigger_ok=last_trigger_ok)
             if consecutive_trigger_failures is not None:
-                updates["consecutive_trigger_failures"] = consecutive_trigger_failures
+                snapshot = replace(
+                    snapshot,
+                    consecutive_trigger_failures=consecutive_trigger_failures,
+                )
 
-            self.heartbeat_state = replace(self.heartbeat_state, **updates)
+            self.heartbeat_state = snapshot
 
     def _mark_heartbeat(self) -> None:
         if self.heartbeat_file is None:

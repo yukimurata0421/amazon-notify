@@ -4,7 +4,11 @@ from pathlib import Path
 from amazon_notify import notifier
 from amazon_notify.domain import AuthStatus, FailureKind
 from amazon_notify.errors import CheckpointError
-from tests.unit.notifier_test_helpers import build_runtime, patch_gmail_ready, single_page
+from tests.unit.notifier_test_helpers import (
+    build_runtime,
+    patch_gmail_ready,
+    single_page,
+)
 
 
 def _read_json(path: Path) -> dict:

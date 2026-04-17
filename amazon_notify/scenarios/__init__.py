@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, Protocol
+from typing import Any, Protocol, TypeVar, cast
 
 from ..config import RuntimePaths
 from ..runtime import RuntimeConfig
@@ -26,11 +27,15 @@ class ScenarioResult:
 
 
 _SCENARIOS: dict[str, Scenario] = {}
+_S = TypeVar("_S")
 
 
-def register_scenario(name: str) -> Callable[[Scenario], Scenario]:
-    def _decorator(scenario: Scenario) -> Scenario:
-        registered = scenario() if isinstance(scenario, type) else scenario
+def register_scenario(name: str) -> Callable[[_S], _S]:
+    def _decorator(scenario: _S) -> _S:
+        if isinstance(scenario, type):
+            registered = cast(Scenario, scenario())
+        else:
+            registered = cast(Scenario, scenario)
         _SCENARIOS[name] = registered
         return scenario
 
@@ -53,16 +58,21 @@ def _clone_runtime(runtime: RuntimeConfig, runtime_dir: Path) -> RuntimeConfig:
         "events_file": "events.jsonl",
         "runs_file": "runs.jsonl",
     }
-    return RuntimeConfig.from_mapping(cfg, paths=RuntimePaths(
-        runtime_dir=runtime_dir,
-        config=runtime_dir / "config.json",
-        credentials=runtime_dir / "credentials.json",
-        token=runtime_dir / "token.json",
-        default_log=runtime_dir / "logs" / "amazon_mail_notifier.log",
-    ))
+    return RuntimeConfig.from_mapping(
+        cfg,
+        paths=RuntimePaths(
+            runtime_dir=runtime_dir,
+            config=runtime_dir / "config.json",
+            credentials=runtime_dir / "credentials.json",
+            token=runtime_dir / "token.json",
+            default_log=runtime_dir / "logs" / "amazon_mail_notifier.log",
+        ),
+    )
 
 
-def run_scenarios(runtime: RuntimeConfig, names: list[str] | None = None) -> list[ScenarioResult]:
+def run_scenarios(
+    runtime: RuntimeConfig, names: list[str] | None = None
+) -> list[ScenarioResult]:
     selected = names or list_scenarios()
     results: list[ScenarioResult] = []
 
@@ -102,9 +112,15 @@ def run_scenarios(runtime: RuntimeConfig, names: list[str] | None = None) -> lis
     return results
 
 
-# scenario registrations
-from . import _checkpoint_interrupt_window  # noqa: E402,F401
-from . import _corrupted_middle  # noqa: E402,F401
-from . import _enospc  # noqa: E402,F401
-from . import _stale_incident_recovery  # noqa: E402,F401
-from . import _truncated_jsonl  # noqa: E402,F401
+def _register_builtin_scenarios() -> None:
+    for module_name in (
+        "_checkpoint_interrupt_window",
+        "_corrupted_middle",
+        "_enospc",
+        "_stale_incident_recovery",
+        "_truncated_jsonl",
+    ):
+        import_module(f"{__name__}.{module_name}")
+
+
+_register_builtin_scenarios()

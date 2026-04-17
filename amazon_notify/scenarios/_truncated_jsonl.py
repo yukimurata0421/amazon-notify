@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-
 from ..checkpoint_store import JsonlCheckpointStore
 from ..domain import Checkpoint
 from ..status import build_doctor_report
@@ -31,5 +29,7 @@ class TruncatedJsonlScenario:
         return {
             "ok": code == 0,
             "status": report["status"],
-            "tail_corruption_ignored": report["runtime_status"]["tail_corruption_ignored"]["events_jsonl"],
+            "tail_corruption_ignored": report["runtime_status"][
+                "tail_corruption_ignored"
+            ]["events_jsonl"],
         }

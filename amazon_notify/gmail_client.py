@@ -55,7 +55,7 @@ except ModuleNotFoundError as exc:
     def build(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
 
-    def Request(*_args, **_kwargs) -> NoReturn:  # type: ignore[no-redef]
+    def Request(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
 
     class HttpError(Exception):  # type: ignore[no-redef]

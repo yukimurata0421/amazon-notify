@@ -8,7 +8,7 @@ from amazon_notify import (
     notification_bridge,
     notifier,
 )
-from tests.unit.notifier_test_helpers import build_runtime, patch_gmail_ready, single_page
+from tests.unit.notifier_test_helpers import build_runtime, single_page
 
 
 def _read_json(path: Path) -> dict:

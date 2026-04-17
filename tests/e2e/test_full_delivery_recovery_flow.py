@@ -62,7 +62,9 @@ def test_e2e_delivery_then_incident_then_recovery(monkeypatch, tmp_path: Path) -
             raise next_item
         return next_item, None
 
-    monkeypatch.setattr(notifier, "list_recent_messages_page", fake_list_recent_messages_page)
+    monkeypatch.setattr(
+        notifier, "list_recent_messages_page", fake_list_recent_messages_page
+    )
     monkeypatch.setattr(
         notifier,
         "get_message_detail",
@@ -95,7 +97,6 @@ def test_e2e_delivery_then_incident_then_recovery(monkeypatch, tmp_path: Path) -
         "send_discord_recovery",
         lambda _webhook, message, **_kwargs: recoveries.append(message) or True,
     )
-
 
     monkeypatch.setattr(
         gmail_client,

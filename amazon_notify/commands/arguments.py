@@ -27,7 +27,9 @@ def validate_action_conflicts(args: argparse.Namespace) -> None:
     if len(selected_actions) <= 1:
         return
     joined = ", ".join(selected_actions)
-    stderr_error(f"action flags は同時指定できません。1つだけ指定してください: {joined}")
+    stderr_error(
+        f"action flags は同時指定できません。1つだけ指定してください: {joined}"
+    )
     raise SystemExit(1)
 
 
@@ -44,12 +46,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--once",
         action="store_true",
-        help="1回だけ実行して終了する（デフォルトはループ実行）",
+        help="1回だけ実行して終了する(デフォルトはループ実行)",
     )
     parser.add_argument(
         "--interval",
         type=int,
-        help="ループ実行時の待ち時間（秒）。configのpoll_interval_secondsより優先される。",
+        help="ループ実行時の待ち時間(秒)。configのpoll_interval_secondsより優先される。",
     )
     parser.add_argument(
         "--reauth",
@@ -115,7 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--log-file",
         type=str,
-        help="ログファイルの保存先（未指定時は logs/amazon_mail_notifier.log）。",
+        help="ログファイルの保存先(未指定時は logs/amazon_mail_notifier.log)。",
     )
     parser.add_argument(
         "--streaming-pull",
@@ -125,7 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pubsub-subscription",
         type=str,
-        help="StreamingPull 対象の subscription（projects/.../subscriptions/...）。",
+        help="StreamingPull 対象の subscription(projects/.../subscriptions/...)。",
     )
     parser.add_argument(
         "--pubsub-flow-max-messages",
@@ -139,7 +141,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         dest="pubsub_pending_warn_threshold",
         default=256,
-        help="StreamingPull の pending backlog 警告しきい値（旧名 --pubsub-trigger-queue-size 互換）。",
+        help="StreamingPull の pending backlog 警告しきい値(旧名 --pubsub-trigger-queue-size 互換)。",
     )
     parser.add_argument(
         "--heartbeat-file",
@@ -174,13 +176,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pubsub-topic",
         type=str,
-        help="watch 登録先 topic（projects/.../topics/...）。",
+        help="watch 登録先 topic(projects/.../topics/...)。",
     )
     parser.add_argument(
         "--watch-label-ids",
         type=str,
         default="INBOX",
-        help="watch 対象の Gmail label（カンマ区切り、既定は INBOX）。",
+        help="watch 対象の Gmail label(カンマ区切り、既定は INBOX)。",
     )
     parser.add_argument(
         "--watch-label-filter-action",
@@ -215,6 +217,6 @@ def build_parser() -> argparse.ArgumentParser:
         "--scenario-names",
         type=str,
         default="",
-        help="実行するシナリオ名（カンマ区切り）。未指定時は全件。",
+        help="実行するシナリオ名(カンマ区切り)。未指定時は全件。",
     )
     return parser
