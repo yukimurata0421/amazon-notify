@@ -3,6 +3,35 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn
 
+from . import config as app_config
+from . import gmail_auth, gmail_transient_state
+from .backoff import retry_with_backoff
+from .config import LOGGER, RuntimePaths
+from .domain import AuthStatus
+from .gmail_api import (
+    get_message_detail as get_message_detail_impl,
+)
+from .gmail_api import (
+    list_recent_messages as list_recent_messages_impl,
+)
+from .gmail_api import (
+    list_recent_messages_page as list_recent_messages_page_impl,
+)
+from .gmail_api import (
+    start_gmail_watch as start_gmail_watch_impl,
+)
+from .notification_bridge import (
+    dedupe_state_path_for_state_file as _dedupe_state_path_for_state_file,
+)
+from .notification_bridge import (
+    send_alert_with_dedupe as _send_discord_alert_with_dedupe,
+)
+from .notification_bridge import (
+    send_recovery_with_dedupe as _send_discord_recovery_with_dedupe,
+)
+
+GoogleAuthRequest: Callable[..., Any]
+
 try:
     from requests import exceptions as requests_exceptions
 except ModuleNotFoundError:
@@ -14,12 +43,13 @@ except ModuleNotFoundError:
     urllib3_exceptions = None  # type: ignore[assignment]
 
 try:
-    from google.auth.transport.requests import Request as GoogleAuthRequest
+    from google.auth.transport.requests import Request as _GoogleAuthRequest
     from google.oauth2.credentials import Credentials
     from google_auth_oauthlib.flow import InstalledAppFlow
     from googleapiclient.discovery import build
     from googleapiclient.errors import HttpError
 
+    GoogleAuthRequest = _GoogleAuthRequest
     GOOGLE_IMPORT_ERROR: ModuleNotFoundError | None = None
 except ModuleNotFoundError as exc:
     GOOGLE_IMPORT_ERROR = exc
@@ -55,39 +85,13 @@ except ModuleNotFoundError as exc:
     def build(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
 
-    def GoogleAuthRequest(*_args, **_kwargs) -> NoReturn:
+    def _google_auth_request(*_args, **_kwargs) -> NoReturn:
         _raise_google_import_error()
+
+    GoogleAuthRequest = _google_auth_request
 
     class HttpError(Exception):  # type: ignore[no-redef]
         """Fallback error type when googleapiclient is unavailable."""
-
-
-from . import config as app_config
-from . import gmail_auth, gmail_transient_state
-from .backoff import retry_with_backoff
-from .config import LOGGER, RuntimePaths
-from .domain import AuthStatus
-from .gmail_api import (
-    get_message_detail as get_message_detail_impl,
-)
-from .gmail_api import (
-    list_recent_messages as list_recent_messages_impl,
-)
-from .gmail_api import (
-    list_recent_messages_page as list_recent_messages_page_impl,
-)
-from .gmail_api import (
-    start_gmail_watch as start_gmail_watch_impl,
-)
-from .notification_bridge import (
-    dedupe_state_path_for_state_file as _dedupe_state_path_for_state_file,
-)
-from .notification_bridge import (
-    send_alert_with_dedupe as _send_discord_alert_with_dedupe,
-)
-from .notification_bridge import (
-    send_recovery_with_dedupe as _send_discord_recovery_with_dedupe,
-)
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 _RETRYABLE_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
