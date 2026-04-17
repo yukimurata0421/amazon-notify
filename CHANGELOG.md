@@ -35,6 +35,8 @@ Summary:
 - Removed legacy `TypeError` fallback shims from `gmail_client.py` dedupe alert/recovery wrappers; test doubles now follow the explicit keyword-argument contract.
 - Narrowed `except Exception` in `discord_client._post_webhook` to `except requests.exceptions.RequestException` to avoid swallowing programming errors.
 - Added docstring to `amazon_notify/commands/__init__.py` explaining the DI-seam purpose of the command layer.
+- Stabilized CI mypy behavior across environment differences by normalizing Google request-factory typing in `gmail_client.py` and preserving `Request` compatibility for existing tests.
+- Improved CI test determinism by removing a brittle log-capture assertion from `tests/unit/test_streaming_pull.py` that depended on global logger handler state.
 
 ### Tests
 - Added pagination-boundary regressions to verify oldest-first processing when checkpoint appears on a later Gmail listing page.
@@ -42,6 +44,7 @@ Summary:
 - Added concurrent dedupe-claim regression to confirm in-flight suppression prevents duplicate Discord posts under same-content concurrent sends.
 - Updated token/transient recovery test doubles to validate the explicit dedupe keyword-argument contract for Gmail alert/recovery wrappers.
 - Added `tests/unit/test_review_additions.py` with coverage for: non-retryable request exceptions, truncated JSONL recovery, `max_messages` truncation, incident memory map isolation, `mask_webhook_url`, `retry_with_backoff` validation, and `time-machine` migration demo.
+- Added `tests/unit/test_commands_modules.py` to cover `commands/arguments.py` and `commands/dispatch.py` paths, restoring CI coverage gate compliance (`--cov-fail-under=90`).
 
 ## [0.5.0] - 2026-04-12
 
