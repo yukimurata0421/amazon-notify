@@ -4,14 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-Summary:
-- Consolidated Gmail source injection behind a protocol-based boundary and reduced retry/incident-path assert dependence.
-- Unified StreamingPull trigger handling and moved incident in-memory suppression ownership from runtime config to notifier-managed process cache.
-- Expanded regression coverage for paginated checkpoint boundaries and concurrent Discord dedupe behavior.
-- Senior-level code review: generalized retry, sub-config decomposition, notification bridge extraction, security hardening, and additional test coverage.
+### Added
+- Documented long-term JSONL lifecycle in operations guides (JA/EN): rotation policy vs append-only authority, archive layout, restore steps, safe-to-delete table, and periodic restore drill; rationale captured in `docs/engineering-decisions.md` (§22).
+- Added composite fault scenario tests (`tests/scenarios/test_fault_scenarios.py`) for JSONL corruption, index rebuild, stale incident vs event log, and checkpoint persistence failure; rationale in `docs/engineering-decisions.md` (§23).
+- Added `--verify-state` (alias of `--doctor` JSON) for scheduled consistency checks; added `--metrics` / `--metrics-plain` / `--metrics-window` for thin operational export (checkpoint age, recent run stats, dedupe/incident summaries); rationale in `docs/engineering-decisions.md` (§24).
+- Added `time_utils.parse_utc_iso()` for metrics and timestamp parsing.
+- Documented path/layout independence in README and related docs (config-directory-relative paths, `--config`, placeholder install paths); rationale in `docs/engineering-decisions.md` (§25–26).
+- Added explicit review follow-up tracker: `docs/review-followup-2026-04-18.md` (status table by review item, including rationale for each decision).
+- Added tag-based Release workflow (`.github/workflows/release.yml`) that:
+  - requires a successful CI run for the tagged commit
+  - builds distributable artifacts (`dist/amazon-notify.zip`, wheel, sdist)
+  - creates a GitHub Release with body extracted from the matching `CHANGELOG.md` section.
+- Added tag-based GHCR publish workflow (`.github/workflows/ghcr.yml`) that:
+  - requires a successful CI run for the tagged commit
+  - builds and publishes Docker images to `ghcr.io/<owner>/amazon-notify`.
+- Added runtime operator diagnostics commands:
+  - `--status` for a thin one-shot summary (frontier, last success, incident status, last failure, consistency overview)
+  - `--doctor` for detailed JSON diagnostics across `state/events/runs/index` consistency checks.
 
 ### Added
-- `MetricsReport` TypedDict in `metrics.py` for compile-time field documentation.
 - `amazon_notify/notification_bridge.py`: extracted Discord dedupe notification wrappers from `gmail_client.py` to separate Gmail boundary concerns from Discord-specific logic.
 - `amazon_notify/backoff.retry_with_backoff()`: generic retry utility with exponential back-off, replacing duplicated retry loops in `gmail_source.py` and `gmail_client.py`.
 - `RuntimeConfig` sub-configs (`GmailApiConfig`, `DiscordRetryConfig`, `PubSubConfig`, `TransientAlertConfig`) with backward-compatible flat-attribute access via `__getattr__`.
@@ -23,64 +34,26 @@ Summary:
 - CI `pip` cache (`cache: pip` in `actions/setup-python@v6`) for faster dependency installation.
 
 ### Changed
-- Removed dead code: `cli.compile_optional_pattern` wrapper (unused in production), `config.configure_runtime_paths` (unused), simplified `notifier._resolve_runtime_paths` isinstance guard.
-- `status.py`: split `_build_runtime_report` (182 lines) into `_build_readability_checks` and `_build_consistency_checks`.
-- `config.py`: `save_state` now calls `os.fsync` on the parent directory after `os.replace` for crash safety. `load_config`/`load_state` return `dict[str, Any]` instead of bare `dict`.
-- `metrics.py`: fixed duplicate `dedupe_hit_count` calculation (was identical to `suppressed_count`).
-- Refactored `GmailMailSource` dependency wiring into a protocol-based adapter (`GmailClientAdapter`) to reduce constructor sprawl and centralize Gmail boundary injection.
-- Simplified `GmailClientAdapter` to delegate via `__getattr__` instead of explicit per-method wrappers.
-- Replaced production-path `assert` dependencies in retry/incident flows with explicit guards so behavior remains stable under optimized runtime flags.
-- Unified StreamingPull trigger execution by consolidating duplicated idle/event success-failure handling into a shared path.
-- Moved incident in-memory suppression ownership out of `RuntimeConfig` mutable state into notifier-managed process cache keyed by runtime `state_file`.
-- Removed legacy `TypeError` fallback shims from `gmail_client.py` dedupe alert/recovery wrappers; test doubles now follow the explicit keyword-argument contract.
-- Narrowed `except Exception` in `discord_client._post_webhook` to `except requests.exceptions.RequestException` to avoid swallowing programming errors.
-- Added docstring to `amazon_notify/commands/__init__.py` explaining the DI-seam purpose of the command layer.
-- Stabilized CI mypy behavior across environment differences by normalizing Google request-factory typing in `gmail_client.py` and preserving `Request` compatibility for existing tests.
-- Improved CI test determinism by removing a brittle log-capture assertion from `tests/unit/test_streaming_pull.py` that depended on global logger handler state.
-
-### Tests
-- Added pagination-boundary regressions to verify oldest-first processing when checkpoint appears on a later Gmail listing page.
-- Added checkpoint-not-found multi-page regression to ensure fail-safe frontier preservation when the boundary is absent from listing windows.
-- Added concurrent dedupe-claim regression to confirm in-flight suppression prevents duplicate Discord posts under same-content concurrent sends.
-- Updated token/transient recovery test doubles to validate the explicit dedupe keyword-argument contract for Gmail alert/recovery wrappers.
-- Added `tests/unit/test_review_additions.py` with coverage for: non-retryable request exceptions, truncated JSONL recovery, `max_messages` truncation, incident memory map isolation, `mask_webhook_url`, `retry_with_backoff` validation, and `time-machine` migration demo.
-- Added `tests/unit/test_commands_modules.py` to cover `commands/arguments.py` and `commands/dispatch.py` paths, restoring CI coverage gate compliance (`--cov-fail-under=90`).
-
-## [0.5.0] - 2026-04-12
-
-### Added
-- Documented long-term JSONL lifecycle in operations guides (JA/EN): rotation policy vs append-only authority, archive layout, restore steps, safe-to-delete table, and periodic restore drill; rationale captured in `docs/engineering-decisions.md` (§22).
-- Added composite fault scenario tests (`tests/scenarios/test_fault_scenarios.py`) for JSONL corruption, index rebuild, stale incident vs event log, and checkpoint persistence failure; rationale in `docs/engineering-decisions.md` (§23).
-- Added `--verify-state` (alias of `--doctor` JSON) for scheduled consistency checks; added `--metrics` / `--metrics-plain` / `--metrics-window` for thin operational export (checkpoint age, recent run stats, dedupe/incident summaries); rationale in `docs/engineering-decisions.md` (§24-25).
-- Added `time_utils.parse_utc_iso()` for metrics and timestamp parsing.
-- Documented path/layout independence in README and related docs (config-directory-relative paths, `--config`, placeholder install paths); rationale in `docs/engineering-decisions.en.md` (§25).
-- Added tag-based Release workflow (`.github/workflows/release.yml`) that:
-  - requires a successful CI run for the tagged commit
-  - builds distributable artifacts (`dist/amazon-notify.zip`, wheel, sdist)
-  - creates a GitHub Release with body extracted from the matching `CHANGELOG.md` section.
-- Added tag-based GHCR publish workflow (`.github/workflows/ghcr.yml`) that:
-  - requires a successful CI run for the tagged commit
-  - builds and publishes Docker images to `ghcr.io/<owner>/amazon-notify`.
-- Added runtime operator diagnostics commands:
-  - `--status` for a thin one-shot summary (frontier, last success, incident status, last failure, consistency overview)
-  - `--doctor` for detailed JSON diagnostics across `state/events/runs/index` consistency checks.
-- Added lifecycle operations commands for long-term retention:
-  - `--archive-runtime` (snapshot + manifest)
-  - `--restore-runtime --restore-label ...` (restore + index rebuild + verify)
-  - `--restore-drill` (non-destructive archive/restore drill in a temporary directory).
-- Added explicit integrity audit command `--verify-state` with additional checks:
-  - checkpoint event timestamp monotonicity
-  - incident event lifecycle validity.
-- Added minimal metrics export path:
-  - `--metrics` (JSON)
-  - `--metrics-plain` with `--metrics-window`.
-- Added fault-injection scenario harness:
-  - `--scenario-harness`
-  - optional `--scenario-names` filter for targeted scenario runs.
-
-### Changed
 - Expanded Docker docs (JA/EN) with GHCR usage examples for tagged images.
 - Expanded operations docs (JA/EN) with explicit manual update and rollback procedures, keeping production deploy out of CI/CD scope.
+- Refactored `GmailMailSource` dependency wiring into a protocol-based adapter (`GmailClientAdapter`) to reduce constructor bloat and centralize Gmail boundary injection.
+- Simplified `GmailClientAdapter` to delegate via `__getattr__` instead of explicit per-method wrappers.
+- Removed production-path `assert` dependencies in retry/incident flows and replaced them with explicit guard handling to keep behavior stable under optimized runtime flags.
+- Simplified StreamingPull trigger execution by consolidating duplicated idle/event trigger success-failure handling into a shared execution path.
+- Moved incident in-memory suppression ownership out of `RuntimeConfig` mutable state into notifier-managed process cache keyed by runtime state file, keeping per-runtime isolation without config mutation.
+- Tightened Discord dedupe alert/recovery sender contract by removing legacy `TypeError` fallback shims in `gmail_client.py`; test doubles now follow the explicit keyword-argument API.
+- Narrowed `except Exception` in `discord_client._post_webhook` to `except requests.exceptions.RequestException` to avoid swallowing programming errors.
+- Added docstring to `amazon_notify/commands/__init__.py` explaining the DI-seam purpose of the command layer.
+- Refactored `NotificationPipeline.run_once()` by extracting phase helpers for envelope processing, pipeline-error handling, unexpected-error handling, result building, and result persistence.
+- Switched Discord webhook transport to a module-level `requests.Session` with split timeout `(connect, read)`.
+- Added `DeprecationWarning` on `RuntimeConfig.__getattr__` flat-attribute access to guide migration toward sub-config access (`runtime.gmail_api.*`, `runtime.pubsub.*`, etc.).
+
+### Tests
+- Added pagination-boundary regression tests to verify correct oldest-first processing when checkpoint appears on a later Gmail listing page.
+- Added checkpoint-not-found multi-page regression test to ensure fail-safe frontier preservation when boundary is absent from listing windows.
+- Added concurrent dedupe claim test to confirm in-flight suppression prevents duplicate Discord posts under same-content concurrent sends.
+- Updated token/transient recovery test doubles to validate the explicit dedupe keyword-argument contract for Gmail alert/recovery wrappers.
+- Added `tests/unit/test_review_additions.py` with coverage for: non-retryable request exceptions, truncated JSONL recovery, `max_messages` truncation, incident memory map isolation, `mask_webhook_url`, `retry_with_backoff` validation, and `time-machine` migration demo.
 
 ## [0.4.0] - 2026-04-07
 

@@ -1,3 +1,4 @@
+import warnings
 from pathlib import Path
 
 import pytest
@@ -27,8 +28,30 @@ def test_build_runtime_defaults_and_mapping_api(tmp_path: Path) -> None:
     assert built.events_file == tmp_path / "events.jsonl"
     assert built.runs_file == tmp_path / "runs.jsonl"
     assert built.discord_dedupe_state_file == tmp_path / ".discord_dedupe_state.json"
+    assert built.service_status_file == tmp_path / "runtime/amazon-notify-status.json"
     assert built.runtime_paths.runtime_dir == tmp_path
     assert built.subject_pattern is None
+
+
+def test_runtime_flat_attr_access_emits_deprecation_warning_once(tmp_path: Path) -> None:
+    paths = _runtime_paths(tmp_path)
+    built = runtime.build_runtime(
+        {"discord_webhook_url": "https://discord.com/api/webhooks/1/token"},
+        dry_run=True,
+        paths=paths,
+    )
+    runtime._DEPRECATED_ATTR_WARNED.clear()
+
+    with pytest.deprecated_call(
+        match=r"RuntimeConfig\.gmail_api_max_retries is deprecated"
+    ):
+        assert built.gmail_api_max_retries == built.gmail_api.max_retries
+
+    # 同一属性への2回目アクセスでは重複警告しない。
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert built.gmail_api_max_retries == built.gmail_api.max_retries
+    assert not caught
 
 
 def test_build_runtime_raises_for_invalid_amazon_from_pattern(tmp_path: Path) -> None:

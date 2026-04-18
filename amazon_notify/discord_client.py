@@ -15,7 +15,14 @@ from .config import LOGGER, save_state
 DEFAULT_DISCORD_MAX_ATTEMPTS = 4
 DEFAULT_DISCORD_BASE_DELAY_SECONDS = 1.0
 DEFAULT_DISCORD_MAX_DELAY_SECONDS = 30.0
+DEFAULT_DISCORD_CONNECT_TIMEOUT_SECONDS = 3.05
+DEFAULT_DISCORD_READ_TIMEOUT_SECONDS = 10.0
 _RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
+_SESSION = requests.Session()
+_REQUEST_TIMEOUT = (
+    DEFAULT_DISCORD_CONNECT_TIMEOUT_SECONDS,
+    DEFAULT_DISCORD_READ_TIMEOUT_SECONDS,
+)
 
 _DEDUPE_SCHEMA_VERSION = 1
 _DEDUPE_LOCK_FILENAME = ".discord_dedupe_state.lock"
@@ -367,7 +374,11 @@ def _post_webhook(
 
     for attempt in range(1, max_attempts + 1):
         try:
-            response = requests.post(webhook_url, json={"content": content}, timeout=10)
+            response = _SESSION.post(
+                webhook_url,
+                json={"content": content},
+                timeout=_REQUEST_TIMEOUT,
+            )
         except requests.exceptions.RequestException as exc:
             if _should_retry_request_exception(exc) and attempt < max_attempts:
                 delay = next_delay_seconds(

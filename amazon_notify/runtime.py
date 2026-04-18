@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from re import Pattern
@@ -91,6 +92,7 @@ _FLAT_ATTR_MAP: dict[str, tuple[str, str]] = {
     "transient_alert_min_duration_seconds": ("transient_alert", "min_duration_seconds"),
     "transient_alert_cooldown_seconds": ("transient_alert", "cooldown_seconds"),
 }
+_DEPRECATED_ATTR_WARNED: set[str] = set()
 
 
 @dataclass(frozen=True)
@@ -115,6 +117,16 @@ class RuntimeConfig:
     def __getattr__(self, name: str) -> Any:
         mapping = _FLAT_ATTR_MAP.get(name)
         if mapping is not None:
+            if name not in _DEPRECATED_ATTR_WARNED:
+                warnings.warn(
+                    (
+                        f"RuntimeConfig.{name} is deprecated; "
+                        f"use RuntimeConfig.{mapping[0]}.{mapping[1]} instead"
+                    ),
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+                _DEPRECATED_ATTR_WARNED.add(name)
             group_name, attr_name = mapping
             return getattr(object.__getattribute__(self, group_name), attr_name)
         raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'")
@@ -144,9 +156,7 @@ class RuntimeConfig:
                 config.get("state_file", "state.json"), base_dir=base_dir
             ),
             transient_state_file=app_config.resolve_runtime_path(
-                config.get(
-                    "transient_state_file", DEFAULT_TRANSIENT_STATE_FILE_RELATIVE
-                ),
+                config.get("transient_state_file", DEFAULT_TRANSIENT_STATE_FILE_RELATIVE),
                 base_dir=base_dir,
             ),
             events_file=app_config.resolve_runtime_path(

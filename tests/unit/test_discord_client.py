@@ -30,22 +30,22 @@ def dedupe_state_path(tmp_path: Path) -> Path:
 
 
 def test_post_webhook_success(monkeypatch) -> None:
-    calls: list[tuple[str, dict, int]] = []
+    calls: list[tuple[str, dict, tuple[float, float]]] = []
 
-    def fake_post(url: str, json: dict, timeout: int):
+    def fake_post(url: str, json: dict, timeout: tuple[float, float]):
         calls.append((url, json, timeout))
         return _DummyResponse()
 
-    monkeypatch.setattr(discord_client.requests, "post", fake_post)
+    monkeypatch.setattr(discord_client._SESSION, "post", fake_post)
 
     assert discord_client._post_webhook("https://discord.invalid/webhook", "hello")
     assert calls[0][0] == "https://discord.invalid/webhook"
-    assert calls[0][2] == 10
+    assert calls[0][2] == discord_client._REQUEST_TIMEOUT
 
 
 def test_post_webhook_failure(monkeypatch) -> None:
     monkeypatch.setattr(
-        discord_client.requests,
+        discord_client._SESSION,
         "post",
         lambda *args, **kwargs: _DummyResponse(should_raise=True),
     )
@@ -63,7 +63,7 @@ def test_post_webhook_retries_on_rate_limit(monkeypatch) -> None:
         return _DummyResponse(status_code=204)
 
     sleeps: list[float] = []
-    monkeypatch.setattr(discord_client.requests, "post", fake_post)
+    monkeypatch.setattr(discord_client._SESSION, "post", fake_post)
     monkeypatch.setattr(discord_client.time, "sleep", lambda sec: sleeps.append(sec))
 
     assert discord_client._post_webhook(
@@ -83,7 +83,7 @@ def test_post_webhook_retries_on_transient_request_exception(monkeypatch) -> Non
         return _DummyResponse(status_code=204)
 
     sleeps: list[float] = []
-    monkeypatch.setattr(discord_client.requests, "post", fake_post)
+    monkeypatch.setattr(discord_client._SESSION, "post", fake_post)
     monkeypatch.setattr(discord_client.time, "sleep", lambda sec: sleeps.append(sec))
 
     assert discord_client._post_webhook(
@@ -272,7 +272,7 @@ def test_post_webhook_rejects_invalid_max_attempts() -> None:
 
 def test_post_webhook_returns_false_on_non_retryable_status(monkeypatch) -> None:
     monkeypatch.setattr(
-        discord_client.requests,
+        discord_client._SESSION,
         "post",
         lambda *_args, **_kwargs: _DummyResponse(status_code=400),
     )
@@ -394,6 +394,15 @@ def test_reserve_and_finalize_dedupe_claim_edge_paths(
         encoding="utf-8",
     )
     monkeypatch.setattr(discord_client, "_discord_dedupe_lock", original_lock)
+    discord_client._finalize_dedupe_claim(
+        state_path=state_file,
+        dedupe_key="key",
+        owner="mine",
+        sent=True,
+    )
+    monkeypatch.setattr(
+        discord_client, "_discord_dedupe_lock", lambda _p: _BrokenLock()
+    )
     discord_client._finalize_dedupe_claim(
         state_path=state_file,
         dedupe_key="key",

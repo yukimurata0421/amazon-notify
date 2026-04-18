@@ -9,11 +9,11 @@
 ## 運用
 - [OPERATIONS.md](./OPERATIONS.md)
 - [HYBRID_ARCHITECTURE_JA.md](./HYBRID_ARCHITECTURE_JA.md)
-- [CI_PUSH_FIXLOG_2026-04-18.md](./CI_PUSH_FIXLOG_2026-04-18.md)
 
 ## 設計背景
 - [IMPLEMENTATION_RATIONALE_JA.md](./IMPLEMENTATION_RATIONALE_JA.md)
 - [engineering-decisions.md](./engineering-decisions.md)
+- [review-followup-2026-04-18.md](./review-followup-2026-04-18.md)
 - [PORTABILITY_PARAMS_JA.md](./PORTABILITY_PARAMS_JA.md)
 
 ## English

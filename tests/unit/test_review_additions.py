@@ -23,7 +23,7 @@ def test_post_webhook_returns_false_on_non_retryable_request_exception(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        discord_client.requests,
+        discord_client._SESSION,
         "post",
         lambda *_a, **_kw: (_ for _ in ()).throw(
             discord_client.requests.exceptions.InvalidURL("bad url")
