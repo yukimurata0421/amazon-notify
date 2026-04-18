@@ -7,7 +7,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import time_machine
 
 from amazon_notify import discord_client, gmail_client, notification_bridge, notifier
 from amazon_notify.backoff import retry_with_backoff
@@ -107,18 +106,17 @@ def test_notifier_removes_incident_memory_cache_global() -> None:
     assert not hasattr(notifier, "_INCIDENT_MEMORY_MAP")
 
 
-# ── #11  time-machine migration demo ──
+# ── #11  transient alert threshold behavior ──
 
 
-@time_machine.travel("2026-04-15 12:00:00", tick=False)
-def test_transient_issue_suppresses_before_threshold_time_machine(
+def test_transient_issue_suppresses_before_threshold(
     monkeypatch, tmp_path: Path
 ) -> None:
-    """Same semantics as the monkeypatch-based test, using time-machine."""
     state_file = tmp_path / "state.json"
     state = {"last_message_id": "x"}
 
     alerts: list[str] = []
+    monkeypatch.setattr("amazon_notify.gmail_transient_state.time.time", lambda: 1000.0)
     monkeypatch.setattr(
         notification_bridge,
         "send_discord_alert",

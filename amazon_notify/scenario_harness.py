@@ -13,7 +13,7 @@ from typing import Any
 import requests
 
 from .checkpoint_store import JsonlCheckpointStore
-from .discord_client import _post_webhook
+from .discord_client import _SESSION, _post_webhook
 from .domain import Checkpoint, FailureKind
 from .errors import CheckpointError, TransientSourceError
 from .pipeline import NotificationPipeline
@@ -182,7 +182,7 @@ def _scenario_discord_429_retry() -> ScenarioResult:
         return responses[min(idx, len(responses) - 1)]
 
     with (
-        _patch_attr(requests, "post", fake_post),
+        _patch_attr(_SESSION, "post", fake_post),
         _patch_attr(time, "sleep", lambda _sec: None),
     ):
         ok = _post_webhook("https://discord.invalid/webhook", "hello", max_attempts=3)
@@ -202,7 +202,7 @@ def _scenario_discord_timeout_retry() -> ScenarioResult:
         return _Resp(204, "ok")
 
     with (
-        _patch_attr(requests, "post", fake_post),
+        _patch_attr(_SESSION, "post", fake_post),
         _patch_attr(time, "sleep", lambda _sec: None),
     ):
         ok = _post_webhook("https://discord.invalid/webhook", "hello", max_attempts=3)
