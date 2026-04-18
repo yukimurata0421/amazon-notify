@@ -511,6 +511,69 @@ def test_incident_store_writes_under_state_lock(monkeypatch, tmp_path: Path) -> 
     assert lock_calls == [state_file, state_file, state_file]
 
 
+def test_recover_incident_appends_event_after_state_persist(tmp_path: Path) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+    store.open_incident(
+        kind="delivery_failed",
+        message="failed",
+        opened_at="2026-04-07 00:00:00",
+        run_id="run-1",
+    )
+
+    observed_active_incident_flags: list[bool] = []
+
+    def fake_append_event(event_type: str, run_id: str, payload: dict) -> None:
+        _ = run_id
+        _ = payload
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+        observed_active_incident_flags.append(
+            "active_incident_kind" in state and bool(state["active_incident_kind"])
+        )
+        assert event_type == "incident_recovered"
+
+    store.append_event = fake_append_event  # type: ignore[method-assign]
+
+    recovered = store.recover_incident(run_id="run-2")
+
+    assert recovered is not None
+    assert observed_active_incident_flags == [False]
+
+
+def test_recover_incident_does_not_append_event_when_state_save_fails(
+    monkeypatch, tmp_path: Path
+) -> None:
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"last_message_id": "old"}), encoding="utf-8")
+    store = JsonlCheckpointStore(state_file=state_file)
+    store.open_incident(
+        kind="delivery_failed",
+        message="failed",
+        opened_at="2026-04-07 00:00:00",
+        run_id="run-1",
+    )
+
+    event_calls: list[tuple[str, str]] = []
+
+    def fake_append_event(event_type: str, run_id: str, payload: dict) -> None:
+        _ = payload
+        event_calls.append((event_type, run_id))
+
+    store.append_event = fake_append_event  # type: ignore[method-assign]
+    monkeypatch.setattr(
+        "amazon_notify.incident_store.save_state",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("state disk full")),
+    )
+
+    with pytest.raises(OSError, match="state disk full"):
+        store.recover_incident(run_id="run-2")
+
+    assert event_calls == []
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    assert state["active_incident_kind"] == "delivery_failed"
+
+
 def test_private_helpers_cover_edge_cases(tmp_path: Path, monkeypatch) -> None:
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"last_message_id": "x"}), encoding="utf-8")

@@ -267,3 +267,23 @@ Adopted:
 Reasoning:
 - Prevent semantic drift between two logically identical failure-handling paths.
 - Keep heartbeat and consecutive-failure policy updates in one place to reduce regression risk and review cost.
+
+## 28. Why Incident Recovery Uses State-First Then Event Append
+Adopted:
+- `IncidentStateStore.recover_incident()` now persists incident-clear state in `state.json` first, then appends `incident_recovered`.
+- If state persistence fails, recovery event append is skipped.
+
+Reasoning:
+- Avoid contradictory outcomes where the event log says "recovered" while persistent state still marks an active incident.
+- Apply the same source-of-truth ordering principle used in checkpoint flows to incident lifecycle transitions.
+
+## 29. Why We Added run_once Phases, Split HTTP Timeout, and Flat-Attr Deprecation Warnings
+Adopted:
+- Refactored `NotificationPipeline.run_once()` into phase helpers with `_RunState` for run-scoped mutable state.
+- Switched Discord webhook transport to a module-level `requests.Session` with split timeout `(connect, read)`.
+- Added one-shot-per-attribute `DeprecationWarning` for `RuntimeConfig.__getattr__` flat compatibility access.
+
+Reasoning:
+- Phase separation reduces nested control-flow complexity and improves branch-level testability.
+- Split connect/read timeout improves failure-shape clarity and avoids unnecessary long waits on connection setup.
+- Keep backward compatibility while making migration to sub-config access explicit and observable.

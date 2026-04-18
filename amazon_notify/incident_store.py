@@ -84,18 +84,18 @@ class IncidentStateStore:
             at = state.get("active_incident_at")
             suppressed_count = int(state.get("incident_suppressed_count", 0))
 
-            self._event_appender.append_event(
-                "incident_recovered",
-                run_id,
-                {
-                    "kind": kind,
-                },
-            )
             state.pop("active_incident_kind", None)
             state.pop("active_incident_message", None)
             state.pop("active_incident_at", None)
             state.pop("incident_suppressed_count", None)
             save_state(self.state_file, state)
+        self._event_appender.append_event(
+            "incident_recovered",
+            run_id,
+            {
+                "kind": kind,
+            },
+        )
         return {
             "kind": kind,
             "message": message,

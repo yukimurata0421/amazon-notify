@@ -384,3 +384,25 @@
 ### 理由
 - 同種ロジックの分岐重複を減らし、運用時の failure semantics のズレを防ぐため。
 - heartbeat と連続失敗カウントの扱いを 1 箇所に固定し、回帰時の検証コストを下げるため。
+
+## 29. incident recovery の state/event 順序を state-first にした理由
+
+### 採用
+- `IncidentStateStore.recover_incident()` は、`state.json` の incident 解消を保存してから `incident_recovered` event を追記する。
+- state 保存失敗時は event を追記しない。
+
+### 理由
+- 復旧 event が先に記録されると、state 永続化失敗時に「event 上は復旧済みだが state 上は障害継続」という矛盾が発生するため。
+- source-of-truth と派生の順序原則（正本更新を先に行う）を incident lifecycle にも適用するため。
+
+## 30. run_once phase 分割 / HTTP timeout 分離 / flat属性警告を追加した理由
+
+### 採用
+- `NotificationPipeline.run_once()` を phase ヘルパーへ分割し、`_RunState` で実行状態を集約した。
+- Discord Webhook は module-level `requests.Session` を再利用し、timeout を `(connect, read)` に分離した。
+- `RuntimeConfig.__getattr__` で flat 互換属性アクセス時に `DeprecationWarning` を 1 属性1回で出すようにした。
+
+### 理由
+- phase 分割で例外経路と結果組み立ての責務を分離し、回帰テストの粒度を上げるため。
+- connect/read timeout を分けることで障害特性を明確化し、不要な長時間待機を避けるため。
+- 互換を維持しつつ新しい sub-config API への移行圧力を明示的に与えるため。

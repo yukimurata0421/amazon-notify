@@ -29,7 +29,6 @@ All notable changes to this project will be documented in this file.
 - `PersistentState` TypedDict in `domain.py` for compile-time key-name validation of the JSON state dict.
 - `mask_webhook_url()` in `runtime.py` to redact webhook tokens from log output.
 - `_flock_with_timeout()` in `discord_client.py` for bounded file-lock acquisition (10 s default).
-- Pipeline component caching in `notifier._PIPELINE_CACHE` to avoid redundant object creation across `run_once` calls.
 - `.github/dependabot.yml` for automated pip and GitHub Actions dependency updates.
 - CI `pip` cache (`cache: pip` in `actions/setup-python@v6`) for faster dependency installation.
 
@@ -47,6 +46,7 @@ All notable changes to this project will be documented in this file.
 - Refactored `NotificationPipeline.run_once()` by extracting phase helpers for envelope processing, pipeline-error handling, unexpected-error handling, result building, and result persistence.
 - Switched Discord webhook transport to a module-level `requests.Session` with split timeout `(connect, read)`.
 - Added `DeprecationWarning` on `RuntimeConfig.__getattr__` flat-attribute access to guide migration toward sub-config access (`runtime.gmail_api.*`, `runtime.pubsub.*`, etc.).
+- Reordered incident recovery persistence flow: `state.json` is persisted first, and `incident_recovered` event is appended only after state commit succeeds.
 
 ### Tests
 - Added pagination-boundary regression tests to verify correct oldest-first processing when checkpoint appears on a later Gmail listing page.
