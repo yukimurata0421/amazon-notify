@@ -33,7 +33,9 @@ def test_build_runtime_defaults_and_mapping_api(tmp_path: Path) -> None:
     assert built.subject_pattern is None
 
 
-def test_runtime_flat_attr_access_emits_deprecation_warning_once(tmp_path: Path) -> None:
+def test_runtime_flat_attr_access_emits_deprecation_warning_once(
+    tmp_path: Path,
+) -> None:
     paths = _runtime_paths(tmp_path)
     built = runtime.build_runtime(
         {"discord_webhook_url": "https://discord.com/api/webhooks/1/token"},

@@ -102,7 +102,9 @@ class NotificationPipeline:
         except Exception as exc:
             self._handle_unexpected_error(run_id=run_id, state=state, exc=exc)
 
-        result = self._build_run_result(run_id=run_id, started_at=started_at, state=state)
+        result = self._build_run_result(
+            run_id=run_id, started_at=started_at, state=state
+        )
         result = self._persist_run_result(run_id=run_id, result=result)
         self._log_result(result)
         return result
@@ -119,7 +121,9 @@ class NotificationPipeline:
             dry_run=self.dry_run,
         )
 
-    def _handle_pipeline_error(self, *, run_id: str, state: _RunState, exc: PipelineError) -> None:
+    def _handle_pipeline_error(
+        self, *, run_id: str, state: _RunState, exc: PipelineError
+    ) -> None:
         state.failure_kind = exc.kind
         state.failure_message = str(exc)
         state.failure_message_id = exc.message_id
@@ -131,7 +135,9 @@ class NotificationPipeline:
         if isinstance(exc, PermanentAuthError):
             state.auth_status = self.source.get_auth_status()
 
-    def _handle_unexpected_error(self, *, run_id: str, state: _RunState, exc: Exception) -> None:
+    def _handle_unexpected_error(
+        self, *, run_id: str, state: _RunState, exc: Exception
+    ) -> None:
         state.failure_kind = FailureKind.SOURCE_FAILED
         state.failure_message = str(exc)
         state.should_retry = True
@@ -150,7 +156,9 @@ class NotificationPipeline:
             )
         self.source.mark_transient_issue(exc)
 
-    def _build_run_result(self, *, run_id: str, started_at: str, state: _RunState) -> RunResult:
+    def _build_run_result(
+        self, *, run_id: str, started_at: str, state: _RunState
+    ) -> RunResult:
         return RunResult(
             run_id=run_id,
             started_at=started_at,

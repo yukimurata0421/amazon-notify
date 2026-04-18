@@ -156,7 +156,9 @@ class RuntimeConfig:
                 config.get("state_file", "state.json"), base_dir=base_dir
             ),
             transient_state_file=app_config.resolve_runtime_path(
-                config.get("transient_state_file", DEFAULT_TRANSIENT_STATE_FILE_RELATIVE),
+                config.get(
+                    "transient_state_file", DEFAULT_TRANSIENT_STATE_FILE_RELATIVE
+                ),
                 base_dir=base_dir,
             ),
             events_file=app_config.resolve_runtime_path(
