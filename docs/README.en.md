@@ -13,6 +13,7 @@ This is the primary navigation page for docs. Start with `HYBRID_QUICKSTART` and
 ## Design Notes
 - [IMPLEMENTATION_RATIONALE.en.md](./IMPLEMENTATION_RATIONALE.en.md)
 - [engineering-decisions.en.md](./engineering-decisions.en.md)
+- [review-followup-2026-04-18.md](./review-followup-2026-04-18.md)
 - [PORTABILITY_PARAMS.en.md](./PORTABILITY_PARAMS.en.md)
 
 ## 日本語

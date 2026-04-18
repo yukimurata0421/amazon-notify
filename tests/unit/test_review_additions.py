@@ -15,7 +15,6 @@ from amazon_notify.checkpoint_store import JsonlCheckpointStore
 from amazon_notify.domain import AuthStatus, Checkpoint
 from amazon_notify.gmail_source import GmailClientAdapter, GmailMailSource
 from amazon_notify.runtime import mask_webhook_url
-from tests.unit.notifier_test_helpers import build_runtime
 
 # ── #14-a  discord_client: non-retryable request exception returns False ──
 
@@ -24,7 +23,7 @@ def test_post_webhook_returns_false_on_non_retryable_request_exception(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(
-        discord_client.requests,
+        discord_client._SESSION,
         "post",
         lambda *_a, **_kw: (_ for _ in ()).throw(
             discord_client.requests.exceptions.InvalidURL("bad url")

@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - Added `--verify-state` (alias of `--doctor` JSON) for scheduled consistency checks; added `--metrics` / `--metrics-plain` / `--metrics-window` for thin operational export (checkpoint age, recent run stats, dedupe/incident summaries); rationale in `docs/engineering-decisions.md` (§24).
 - Added `time_utils.parse_utc_iso()` for metrics and timestamp parsing.
 - Documented path/layout independence in README and related docs (config-directory-relative paths, `--config`, placeholder install paths); rationale in `docs/engineering-decisions.md` (§25–26).
+- Added explicit review follow-up tracker: `docs/review-followup-2026-04-18.md` (status table by review item, including rationale for each decision).
 - Added tag-based Release workflow (`.github/workflows/release.yml`) that:
   - requires a successful CI run for the tagged commit
   - builds distributable artifacts (`dist/amazon-notify.zip`, wheel, sdist)
@@ -43,6 +44,9 @@ All notable changes to this project will be documented in this file.
 - Tightened Discord dedupe alert/recovery sender contract by removing legacy `TypeError` fallback shims in `gmail_client.py`; test doubles now follow the explicit keyword-argument API.
 - Narrowed `except Exception` in `discord_client._post_webhook` to `except requests.exceptions.RequestException` to avoid swallowing programming errors.
 - Added docstring to `amazon_notify/commands/__init__.py` explaining the DI-seam purpose of the command layer.
+- Refactored `NotificationPipeline.run_once()` by extracting phase helpers for envelope processing, pipeline-error handling, unexpected-error handling, result building, and result persistence.
+- Switched Discord webhook transport to a module-level `requests.Session` with split timeout `(connect, read)`.
+- Added `DeprecationWarning` on `RuntimeConfig.__getattr__` flat-attribute access to guide migration toward sub-config access (`runtime.gmail_api.*`, `runtime.pubsub.*`, etc.).
 
 ### Tests
 - Added pagination-boundary regression tests to verify correct oldest-first processing when checkpoint appears on a later Gmail listing page.
