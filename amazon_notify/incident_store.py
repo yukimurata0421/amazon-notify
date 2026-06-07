@@ -8,8 +8,9 @@ from .gmail_transient_state import state_update_lock
 
 
 class EventAppender(Protocol):
-    def append_event(self, event_type: str, run_id: str, payload: dict[str, Any]) -> None:
-        ...
+    def append_event(
+        self, event_type: str, run_id: str, payload: dict[str, Any]
+    ) -> None: ...
 
 
 class IncidentStateStore:

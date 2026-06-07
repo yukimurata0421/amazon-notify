@@ -19,12 +19,15 @@ credentials.json
 token.json
 state.json
 .state.json.lock
+transient_state.json
+.transient_state.json.lock
 .discord_dedupe_state.json
 .discord_dedupe_state.lock
 events.jsonl
 events.jsonl.checkpoint.index.json
 runs.jsonl
 runs.jsonl.summary.index.json
+deployment/systemd/amazon-notify-pubsub.env
 
 # OS / editor
 .DS_Store

@@ -23,7 +23,9 @@ _RUN_SUMMARY_STATE_KEY = "last_run_summary"
 
 class _CheckpointIndex:
     def __init__(self, *, events_file: Path):
-        self.path = events_file.with_name(f"{events_file.name}{_CHECKPOINT_INDEX_SUFFIX}")
+        self.path = events_file.with_name(
+            f"{events_file.name}{_CHECKPOINT_INDEX_SUFFIX}"
+        )
 
     def read_payload(self, *, read_json_file) -> dict[str, Any] | None:
         return read_json_file(self.path)
@@ -411,7 +413,9 @@ class JsonlCheckpointStore:
         return entries, file_size
 
     def _load_checkpoint_from_index(self) -> str | None:
-        payload = self._checkpoint_index.read_payload(read_json_file=self._read_json_file)
+        payload = self._checkpoint_index.read_payload(
+            read_json_file=self._read_json_file
+        )
         if payload is None:
             return None
 
@@ -504,7 +508,9 @@ class JsonlCheckpointStore:
         )
 
     def _load_run_summary_from_index(self) -> dict[str, Any] | None:
-        payload = self._run_summary_index.read_payload(read_json_file=self._read_json_file)
+        payload = self._run_summary_index.read_payload(
+            read_json_file=self._read_json_file
+        )
         if payload is None:
             return None
 
@@ -612,7 +618,9 @@ class JsonlCheckpointStore:
             )
 
     def _read_summary_from_index_snapshot(self) -> dict[str, Any] | None:
-        payload = self._run_summary_index.read_payload(read_json_file=self._read_json_file)
+        payload = self._run_summary_index.read_payload(
+            read_json_file=self._read_json_file
+        )
         if payload is None:
             return None
         return self._normalize_summary(payload.get("summary"))

@@ -5,7 +5,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import TimeoutError as FutureTimeoutError
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -215,24 +215,41 @@ class _StreamingPullRunner:
             else:
                 updated_last_error = last_error
 
-            updates: dict[str, float | bool | int | str | None] = {
-                "updated_at": time.time(),
-                "last_error": updated_last_error,
-            }
-            if worker_last_seen_at is not None:
-                updates["worker_last_seen_at"] = worker_last_seen_at
-            if callback_last_seen_at is not None:
-                updates["callback_last_seen_at"] = callback_last_seen_at
-            if trigger_started_at is not None:
-                updates["trigger_started_at"] = trigger_started_at
-            if trigger_completed_at is not None:
-                updates["trigger_completed_at"] = trigger_completed_at
-            if last_trigger_ok is not None:
-                updates["last_trigger_ok"] = last_trigger_ok
-            if consecutive_trigger_failures is not None:
-                updates["consecutive_trigger_failures"] = consecutive_trigger_failures
-
-            self.heartbeat_state = replace(self.heartbeat_state, **updates)
+            current = self.heartbeat_state
+            self.heartbeat_state = HeartbeatSnapshot(
+                updated_at=time.time(),
+                worker_last_seen_at=(
+                    worker_last_seen_at
+                    if worker_last_seen_at is not None
+                    else current.worker_last_seen_at
+                ),
+                callback_last_seen_at=(
+                    callback_last_seen_at
+                    if callback_last_seen_at is not None
+                    else current.callback_last_seen_at
+                ),
+                trigger_started_at=(
+                    trigger_started_at
+                    if trigger_started_at is not None
+                    else current.trigger_started_at
+                ),
+                trigger_completed_at=(
+                    trigger_completed_at
+                    if trigger_completed_at is not None
+                    else current.trigger_completed_at
+                ),
+                last_trigger_ok=(
+                    last_trigger_ok
+                    if last_trigger_ok is not None
+                    else current.last_trigger_ok
+                ),
+                consecutive_trigger_failures=(
+                    consecutive_trigger_failures
+                    if consecutive_trigger_failures is not None
+                    else current.consecutive_trigger_failures
+                ),
+                last_error=updated_last_error,
+            )
 
     def _mark_heartbeat(self) -> None:
         if self.heartbeat_file is None:

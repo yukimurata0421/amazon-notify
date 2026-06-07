@@ -27,7 +27,9 @@ def validate_action_conflicts(args: argparse.Namespace) -> None:
     if len(selected_actions) <= 1:
         return
     joined = ", ".join(selected_actions)
-    stderr_error(f"action flags は同時指定できません。1つだけ指定してください: {joined}")
+    stderr_error(
+        f"action flags は同時指定できません。1つだけ指定してください: {joined}"
+    )
     raise SystemExit(1)
 
 

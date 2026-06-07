@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "amazon-notify"
-version = "0.4.0"
+version = "1.0.0"
 description = "Self-hosted Gmail to Discord notifier for Amazon.co.jp shipping emails"
 readme = "README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
   "requests>=2.32.0,<3.0.0",
   "google-api-python-client>=2.120.0,<3.0.0",
@@ -38,8 +39,8 @@ pubsub = [
 [project.scripts]
 amazon-notify = "amazon_notify.cli:main"
 
-[tool.setuptools]
-packages = ["amazon_notify", "amazon_notify.commands"]
+[tool.setuptools.packages.find]
+include = ["amazon_notify*"]
 
 [tool.ruff]
 target-version = "py311"
@@ -49,6 +50,7 @@ select = ["E4", "E7", "E9", "F", "I", "B", "UP", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "amazon_notify/cli.py" = ["RUF001"]
+"amazon_notify/commands/arguments.py" = ["RUF001"]
 # Legacy standalone scripts: intentional Japanese full-width punctuation in UI strings/comments.
 "amazon_mail_notifier.py" = ["RUF001", "RUF002", "RUF003"]
 "amazon_mail_to_discord.py" = ["RUF001", "RUF003"]

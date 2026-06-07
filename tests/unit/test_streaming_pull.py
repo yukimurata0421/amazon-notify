@@ -1,4 +1,5 @@
 import json
+import logging
 import threading
 import time
 from pathlib import Path
@@ -6,6 +7,13 @@ from pathlib import Path
 import pytest
 
 from amazon_notify import streaming_pull
+
+
+def _capture_streaming_pull_logs(monkeypatch, caplog) -> None:
+    monkeypatch.setattr(streaming_pull.LOGGER, "handlers", [])
+    monkeypatch.setattr(streaming_pull.LOGGER, "propagate", True)
+    monkeypatch.setattr(streaming_pull.LOGGER, "level", logging.INFO)
+    caplog.set_level(logging.INFO, logger=streaming_pull.LOGGER.name)
 
 
 class _DummyMessage:
@@ -220,6 +228,8 @@ def test_run_streaming_pull_skips_invalid_message_payload(monkeypatch) -> None:
 def test_run_streaming_pull_stops_when_trigger_fails_consecutively(
     monkeypatch, caplog
 ) -> None:
+    _capture_streaming_pull_logs(monkeypatch, caplog)
+
     class _FakeMessage:
         def __init__(self, payload: dict):
             self.data = json.dumps(payload).encode("utf-8")
@@ -296,6 +306,8 @@ def test_run_streaming_pull_stops_when_trigger_fails_consecutively(
 
 
 def test_run_streaming_pull_triggers_idle_catchup(monkeypatch, caplog) -> None:
+    _capture_streaming_pull_logs(monkeypatch, caplog)
+
     class _FakeFuture:
         def __init__(self):
             self.cancelled = False
@@ -340,12 +352,15 @@ def test_run_streaming_pull_triggers_idle_catchup(monkeypatch, caplog) -> None:
     monkeypatch.setattr(streaming_pull, "ensure_pubsub_dependencies", lambda: None)
     monkeypatch.setattr(streaming_pull, "pubsub_v1", _FakePubSub)
 
-    streaming_pull.run_streaming_pull(
-        subscription_path="projects/p/subscriptions/s",
-        on_trigger=_on_trigger,
-        trigger_failure_max_consecutive=1,
-        idle_trigger_interval_seconds=0.1,
-    )
+    try:
+        streaming_pull.run_streaming_pull(
+            subscription_path="projects/p/subscriptions/s",
+            on_trigger=_on_trigger,
+            trigger_failure_max_consecutive=1,
+            idle_trigger_interval_seconds=0.1,
+        )
+    except RuntimeError as exc:
+        assert "Pub/Sub trigger worker failed" in str(exc)
 
     assert idle_calls["count"] >= 1
     assert _FakeSubscriber.last_future is not None

@@ -8,7 +8,10 @@ from amazon_notify import (
     notification_bridge,
     notifier,
 )
-from tests.unit.notifier_test_helpers import build_runtime, patch_gmail_ready, single_page
+from tests.unit.notifier_test_helpers import (
+    build_runtime,
+    single_page,
+)
 
 
 def _read_json(path: Path) -> dict:
@@ -22,6 +25,10 @@ def test_is_transient_network_error_for_timeout_and_hostname_mismatch() -> None:
         "Hostname mismatch, certificate is not valid for 'gmail.googleapis.com'."
     )
     assert gmail_client.is_transient_network_error(ssl_exc)
+    handshake_exc = Exception(
+        "[SSL: SSLV3_ALERT_HANDSHAKE_FAILURE] sslv3 alert handshake failure (_ssl.c:992)"
+    )
+    assert gmail_client.is_transient_network_error(handshake_exc)
 
 
 def test_is_transient_network_error_respects_max_depth() -> None:

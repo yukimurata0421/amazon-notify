@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import argparse
-import os
 import getpass
+import os
 import pwd
 import shutil
 import subprocess
@@ -93,7 +93,9 @@ def main() -> int:
         venv_path = base_dir / ".venv"
         if not venv_path.exists():
             _run(["python3", "-m", "venv", str(venv_path)])
-        _run([str(venv_path / "bin/python"), "-m", "pip", "install", "--upgrade", "pip"])
+        _run(
+            [str(venv_path / "bin/python"), "-m", "pip", "install", "--upgrade", "pip"]
+        )
         if args.mode == "hybrid":
             _run([str(venv_path / "bin/pip"), "install", "-e", f"{base_dir}[pubsub]"])
         else:
@@ -107,7 +109,9 @@ def main() -> int:
     for name in required_scripts:
         path = base_dir / "deployment/systemd" / name
         if not path.exists():
-            print(f"{name} not found under {base_dir}/deployment/systemd", file=sys.stderr)
+            print(
+                f"{name} not found under {base_dir}/deployment/systemd", file=sys.stderr
+            )
             return 1
         os.chmod(path, 0o755)
 
@@ -127,6 +131,14 @@ def main() -> int:
         )
         os.chmod(renew_env, 0o644)
 
+    pubsub_env = base_dir / "deployment/systemd/amazon-notify-pubsub.env"
+    if not pubsub_env.exists():
+        shutil.copyfile(
+            script_dir / "amazon-notify-pubsub.env.example",
+            pubsub_env,
+        )
+        os.chmod(pubsub_env, 0o644)
+
     unit_dir = Path("/etc/systemd/system")
     render_targets = [
         ("amazon-notify.service", "amazon-notify.service"),
@@ -137,8 +149,14 @@ def main() -> int:
             [
                 ("amazon-notify-pubsub.service", "amazon-notify-pubsub.service"),
                 ("amazon-notify-fallback.service", "amazon-notify-fallback.service"),
-                ("amazon-notify-main-watchdog.service", "amazon-notify-main-watchdog.service"),
-                ("amazon-notify-watch-renew.service", "amazon-notify-watch-renew.service"),
+                (
+                    "amazon-notify-main-watchdog.service",
+                    "amazon-notify-main-watchdog.service",
+                ),
+                (
+                    "amazon-notify-watch-renew.service",
+                    "amazon-notify-watch-renew.service",
+                ),
             ]
         )
 

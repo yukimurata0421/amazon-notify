@@ -31,5 +31,8 @@ class EnospcScenario:
         try:
             store.advance_checkpoint(Checkpoint(message_id="cp-1"), "run-1")
         except CheckpointError as exc:
-            return {"ok": "ENOSPC" in str(exc) or "容量不足" in str(exc), "error": str(exc)}
+            return {
+                "ok": "ENOSPC" in str(exc) or "容量不足" in str(exc),
+                "error": str(exc),
+            }
         return {"ok": False, "error": "expected CheckpointError"}

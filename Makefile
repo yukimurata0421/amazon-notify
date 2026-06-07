@@ -42,8 +42,8 @@ release-check:
 	$(RUFF) format --check amazon_notify tests
 	$(MYPY) amazon_notify
 	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
-	docker build -t amazon-notify:0.4.0 .
-	docker run --rm -v "$(CURDIR):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config
+	docker build -t amazon-notify:1.0.0 .
+	docker run --rm -v "$(CURDIR):/work" amazon-notify:1.0.0 --config /work/config.example.json --validate-config
 
 run-once:
 	$(CLI) --once

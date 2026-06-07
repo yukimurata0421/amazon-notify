@@ -37,7 +37,9 @@ def build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
 
     state_last_cp = state_last_message_id(state_payload)
     runs_state_summary = normalize_summary(
-        state_payload.get("last_run_summary") if isinstance(state_payload, dict) else None
+        state_payload.get("last_run_summary")
+        if isinstance(state_payload, dict)
+        else None
     )
 
     frontier = events_scan["last_checkpoint"]
@@ -106,7 +108,9 @@ def build_runtime_report(runtime: RuntimeConfig) -> dict[str, Any]:
     )
 
     runs_index_summary = normalize_summary(
-        runs_index_payload.get("summary") if isinstance(runs_index_payload, dict) else None
+        runs_index_payload.get("summary")
+        if isinstance(runs_index_payload, dict)
+        else None
     )
     run_summary_ok, run_summary_detail = check_run_summary_consistency(
         runs_summary=runs_summary,

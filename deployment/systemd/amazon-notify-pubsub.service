@@ -9,6 +9,7 @@ OnFailure=amazon-notify-alert@%n.service
 Type=simple
 User=YOUR_USER
 WorkingDirectory=/opt/amazon-notify
+EnvironmentFile=-/opt/amazon-notify/deployment/systemd/amazon-notify-pubsub.env
 ExecStart=/opt/amazon-notify/.venv/bin/amazon-notify --config /opt/amazon-notify/config.json --streaming-pull --heartbeat-file /opt/amazon-notify/runtime/pubsub-heartbeat.txt --heartbeat-interval-seconds 30
 Restart=always
 RestartSec=10

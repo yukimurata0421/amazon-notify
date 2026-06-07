@@ -274,3 +274,33 @@ Adopted:
 Reasoning:
 - Prevent semantic drift between two logically identical failure-handling paths.
 - Keep heartbeat and consecutive-failure policy updates in one place to reduce regression risk and review cost.
+
+## 29. Why We Added Always-On Idle Catch-up via `pubsub_idle_trigger_interval_seconds`
+Adopted:
+- Run `run_once` periodically when StreamingPull is alive but callback traffic is idle.
+- Control interval with `pubsub_idle_trigger_interval_seconds` (default `300` seconds).
+
+Reasoning:
+- Keep Gmail frontier moving even when Pub/Sub delivery is temporarily missing or watch behavior drifts.
+- Treat “process alive” and “event arrival” as separate reliability signals.
+- Make recovery-latency vs load an explicit operational knob.
+
+## 30. Why We Added a Main Health Watchdog Timer That Restarts `amazon-notify-pubsub.service`
+Adopted:
+- Added `amazon-notify-main-watchdog.timer/.service` to restart main service when health is degraded.
+- Health judgment uses service state plus heartbeat freshness (`updated_at` / worker heartbeat age).
+
+Reasoning:
+- Provide a systemd-layer final recovery path when in-process self-healing is insufficient.
+- Separate fallback polling judgment from main service restart responsibility.
+- Keep periodic watchdog outcomes visible for post-incident analysis.
+
+## 31. Why Daily Gmail Watch Re-Registration Became Standard
+Adopted:
+- Added `amazon-notify-watch-renew.timer/.service` to run `--setup-watch` daily.
+- Introduced `pubsub_topic` in config as the canonical watch registration target.
+
+Reasoning:
+- Gmail watch is expiring by design; manual renewal is an avoidable operational risk.
+- Turn watch lifecycle management into deterministic recurring automation.
+- Eliminate renewal-forgotten outages after initial deployment.
