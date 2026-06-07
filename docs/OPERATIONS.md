@@ -154,8 +154,8 @@ make release-check
 - `ruff format --check .`
 - `mypy .`
 - `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
-- `docker build -t amazon-notify:0.4.0 .`
-- `docker run --rm -v "$(pwd):/work" amazon-notify:0.4.0 --config /work/config.example.json --validate-config`
+- `docker build -t amazon-notify:1.0.0 .`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:1.0.0 --config /work/config.example.json --validate-config`
 
 ## 手動更新とロールバック（自動 deploy はしない）
 このリポジトリでは本番 host への自動デプロイは行いません。更新と切り戻しは手動で行います。

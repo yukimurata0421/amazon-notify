@@ -1,4 +1,5 @@
 import socket
+import ssl
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn
@@ -243,7 +244,7 @@ def notify_token_recovery_if_needed(
 
 
 def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
-    if isinstance(exc, (TimeoutError, socket.timeout, socket.gaierror)):
+    if isinstance(exc, (TimeoutError, socket.timeout, socket.gaierror, ssl.SSLError)):
         return True
     if _LIBRARY_TRANSIENT_EXCEPTION_TYPES and isinstance(
         exc, _LIBRARY_TRANSIENT_EXCEPTION_TYPES
@@ -251,6 +252,9 @@ def is_transient_network_error(exc: Exception, max_depth: int = 10) -> bool:
         return True
 
     transient_keywords = (
+        "sslv3_alert_handshake_failure",
+        "alert handshake failure",
+        "handshake failure",
         "temporary failure in name resolution",
         "timed out",
         "max retries exceeded",

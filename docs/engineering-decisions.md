@@ -406,3 +406,36 @@
 - phase 分割で例外経路と結果組み立ての責務を分離し、回帰テストの粒度を上げるため。
 - connect/read timeout を分けることで障害特性を明確化し、不要な長時間待機を避けるため。
 - 互換を維持しつつ新しい sub-config API への移行圧力を明示的に与えるため。
+
+## 31. `pubsub_idle_trigger_interval_seconds` で idle catch-up を常設した理由
+
+### 採用
+- StreamingPull が生きていても callback が来ない区間に、一定間隔で `run_once` を実行する。
+- 間隔は `pubsub_idle_trigger_interval_seconds`（既定 `300` 秒）で制御する。
+
+### 理由
+- Pub/Sub の通知欠落や watch の揺らぎがあっても、Gmail 側の frontier を定期追従させるため。
+- 「プロセス生存」と「イベント到達」を分離して扱い、サイレントな取りこぼし窓を短くするため。
+- 監視頻度を固定値で明示し、運用者が負荷と回収速度を調整できるようにするため。
+
+## 32. main 健康監視 timer で `amazon-notify-pubsub.service` 再起動を自動化した理由
+
+### 採用
+- `amazon-notify-main-watchdog.timer` / `.service` を追加し、heartbeat 異常時に main service を再起動する。
+- 判定は `service state` と `heartbeat / worker heartbeat` の鮮度で行う。
+
+### 理由
+- アプリ内自己復旧で回復しきれない停滞に対して、systemd レイヤーで最終復旧手段を持つため。
+- fallback 側のポーリング実行可否判定と、main 側の再起動責務を分離して運用を単純化するため。
+- 監視結果を定期実行の形で残し、障害解析時に「いつ復旧介入したか」を追跡しやすくするため。
+
+## 33. Gmail watch の日次再登録 timer を標準運用にした理由
+
+### 採用
+- `amazon-notify-watch-renew.timer` / `.service` を追加し、`--setup-watch` を日次で再実行する。
+- `pubsub_topic` を config に持たせ、再登録先を運用設定で固定する。
+
+### 理由
+- Gmail watch は期限付きであるため、手動更新に依存すると期限切れで callback が止まるため。
+- 定期再登録を仕組み化することで、通知経路の寿命管理を運用タスクではなく定常処理にするため。
+- 初回セットアップ後の「更新忘れ」という単純障害を設計段階で除去するため。
