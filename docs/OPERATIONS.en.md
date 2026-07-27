@@ -201,8 +201,8 @@ What it executes:
 - `ruff format --check .`
 - `mypy .`
 - `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
-- `docker build -t amazon-notify:1.0.0 .`
-- `docker run --rm -v "$(pwd):/work" amazon-notify:1.0.0 --config /work/config/config.example.json --validate-config`
+- `docker build -t amazon-notify:1.1.0 .`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:1.1.0 --config /work/config/config.example.json --validate-config`
 
 ## Manual update and rollback (no auto deploy)
 This repository intentionally does not auto-deploy to production hosts. Updates and rollback are manual.

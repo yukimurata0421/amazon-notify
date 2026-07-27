@@ -1,5 +1,5 @@
 [![CI](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v1.0.0-blue)](https://github.com/yukimurata0421/amazon-notify/releases/tag/v1.0.0)
+[![Release](https://img.shields.io/badge/release-v1.1.0-blue)](https://github.com/yukimurata0421/amazon-notify/releases/tag/v1.1.0)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.12-blue)
 [![Coverage](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/yukimurata0421/amazon-notify/main/.github/badges/coverage.json)](https://github.com/yukimurata0421/amazon-notify/blob/main/.github/badges/coverage.json)
 [![Lint](https://img.shields.io/badge/lint-ruff-brightgreen?style=flat-square)](https://github.com/yukimurata0421/amazon-notify/actions/workflows/ci.yml)
@@ -23,7 +23,7 @@ Japanese README: [README.ja.md](./README.ja.md)
 | Track | Description |
 |---|---|
 | `main` branch | Latest implementation (may be ahead of a release tag) |
-| Latest release | `v1.0.0` |
+| Latest release | `v1.1.0` |
 | Next intended release | Not set yet (see `CHANGELOG.md` Unreleased) |
 
 ## Behavior Example

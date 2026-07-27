@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-07-27
+
 ### Added
 - Added explicit first-run synchronization with `initial_sync_mode`:
   - `skip_existing` is the safe default and records the current inbox frontier without notifying historical mail.
