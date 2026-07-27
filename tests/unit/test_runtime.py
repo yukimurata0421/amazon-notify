@@ -94,6 +94,7 @@ def test_validate_config_reports_numeric_and_retry_errors(tmp_path: Path) -> Non
     errors = runtime.validate_config(
         {
             "discord_webhook_url": "",
+            "initial_sync_mode": "unknown",
             "max_messages": "x",
             "poll_interval_seconds": 5,
             "gmail_api_max_retries": "x",
@@ -117,6 +118,7 @@ def test_validate_config_reports_numeric_and_retry_errors(tmp_path: Path) -> Non
 
     joined = "\n".join(errors)
     assert "discord_webhook_url" in joined
+    assert "initial_sync_mode は skip_existing または backfill" in joined
     assert "max_messages は整数" in joined
     assert "poll_interval_seconds は 10 以上" in joined
     assert "gmail_api_max_retries は整数" in joined

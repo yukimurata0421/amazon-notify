@@ -317,3 +317,29 @@ Reasoning:
 - Gmail watch is expiring by design; manual renewal is an avoidable operational risk.
 - Turn watch lifecycle management into deterministic recurring automation.
 - Eliminate renewal-forgotten outages after initial deployment.
+
+## 33. Why First Sync Defaults to `skip_existing` With a Discord Confirmation
+
+Adopted:
+- New installations default to `initial_sync_mode: "skip_existing"` and do not notify mail that already exists at startup.
+- Send one setup-complete Discord message after Gmail connectivity succeeds and record successful delivery as an audit event.
+- Persist `initial_sync_completed` even for an empty inbox so the first future message is processed.
+- If setup delivery fails, retain the initialized frontier and retry only the setup message on the next cycle.
+- Require explicit `initial_sync_mode: "backfill"` to process existing mail.
+
+Reasoning:
+- Prevent first-run notification floods while giving users visible proof that Gmail and Discord connectivity work.
+- Separate an absent checkpoint from incomplete initialization, including the empty-inbox case.
+- Keep initialization and setup delivery as separate events so persistence or webhook failures do not reprocess historical mail.
+
+## 34. Why the Python Package Uses a `src` Layout
+
+Adopted:
+- Keep importable production code under `src/amazon_notify/`.
+- Configure setuptools and pytest explicitly for the `src` root.
+- Build and install a wheel in CI before allowing the test job to proceed.
+
+Reasoning:
+- Prevent tests from passing only because the repository root happens to be on `sys.path`.
+- Exercise the same package discovery boundary used by release wheels and Docker builds.
+- Keep production code, tests, configuration examples, deployment assets, and documentation visibly separated.

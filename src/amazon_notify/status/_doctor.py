@@ -277,8 +277,8 @@ def check_checkpoint_index_consistency(
     row = read_jsonl_row_at_offset(events_file, offset)
     if row is None:
         return False, "checkpoint index offset の参照行を読み取れません"
-    if row.get("event") != "checkpoint_advanced":
-        return False, "checkpoint index offset が checkpoint_advanced を指していません"
+    if row.get("event") not in {"checkpoint_advanced", "initial_sync_completed"}:
+        return False, "checkpoint index offset が checkpoint event を指していません"
     if row.get("checkpoint") != index_checkpoint:
         return False, "checkpoint index の checkpoint が参照行と不一致"
     if index_checkpoint != events_frontier:

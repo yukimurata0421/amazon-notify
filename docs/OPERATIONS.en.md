@@ -7,12 +7,18 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 ## Initial Setup
 1. `python3 -m venv .venv && source .venv/bin/activate`
 2. `pip install .`
-3. `cp config.example.json config.json`
-   - If you need Pub/Sub or advanced retry knobs, start from `config.full.example.json`.
+3. `cp config/config.example.json config.json`
+   - If you need Pub/Sub or advanced retry knobs, start from `config/config.full.example.json`.
 4. Set `discord_webhook_url` in `config.json`
 5. Place `credentials.json` next to `config.json`
 6. Run `amazon-notify --reauth`
 7. Verify with `amazon-notify --once`
+
+The first normal run defaults to `initial_sync_mode: "skip_existing"`: existing
+mail is not notified and one setup-complete Discord message confirms Gmail and
+webhook connectivity. `--dry-run` neither tests Discord delivery nor persists
+initial-sync state. Set `initial_sync_mode: "backfill"` only when existing mail
+must be processed.
 
 ## Common Operations
 - Polling loop: `amazon-notify`
@@ -56,6 +62,10 @@ For design background, see `docs/HYBRID_ARCHITECTURE.en.md` and `docs/engineerin
 
 ## v0.4.0 Migration Notes
 - Checkpoint source of truth is `events.jsonl` (`checkpoint_advanced`).
+- Initial-sync source of truth is `initial_sync_completed` in `events.jsonl`.
+- Successful setup delivery is recorded as `initial_sync_notification_sent`.
+  If delivery fails, only the setup message is retried on the next polling cycle;
+  existing mail is not reprocessed.
 - `state.json` remains a derived compatibility snapshot.
 - On first startup only, if `events.jsonl` is empty and `state.json.last_message_id` exists, one bootstrap `checkpoint_advanced` event is written.
 - Discord dedupe state is unified under the runtime directory (`.discord_dedupe_state.json`).
@@ -192,7 +202,7 @@ What it executes:
 - `mypy .`
 - `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
 - `docker build -t amazon-notify:1.0.0 .`
-- `docker run --rm -v "$(pwd):/work" amazon-notify:1.0.0 --config /work/config.example.json --validate-config`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:1.0.0 --config /work/config/config.example.json --validate-config`
 
 ## Manual update and rollback (no auto deploy)
 This repository intentionally does not auto-deploy to production hosts. Updates and rollback are manual.

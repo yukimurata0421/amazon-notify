@@ -75,8 +75,8 @@ English README: [README.md](./README.md)
 python3 -m venv .venv
 source .venv/bin/activate
 pip install .
-cp config.example.json config.json
-# Pub/Sub や詳細パラメータを使う場合は config.full.example.json をベースにしてください
+cp config/config.example.json config.json
+# Pub/Sub や詳細パラメータを使う場合は config/config.full.example.json をベースにしてください
 ```
 
 1. `config.json` の `discord_webhook_url` を設定
@@ -135,6 +135,26 @@ amazon-notify --restore-drill
 amazon-notify --scenario-harness
 amazon-notify --scenario-harness --scenario-names gmail_transient_failure,discord_429_retry
 ```
+
+### 初回起動の安全動作
+
+既定の `initial_sync_mode` は `skip_existing` です。新規環境の初回通常起動では、
+その時点の受信箱を処理済み境界として記録し、既存メールの個別通知は送りません。
+代わりに Gmail 接続と Discord Webhook の疎通を確認できるセットアップ完了通知を
+Discord へ 1 件だけ送ります。受信箱が空でも初期同期完了を記録するため、あとから
+最初に届いた新着メールは通知対象になります。
+
+`--dry-run` は既存メールの抽出候補を確認できますが、Discord送信も初期同期状態の
+保存も行いません。既存メールを明示的に処理したい場合だけ、次を設定してください。
+
+```json
+{
+  "initial_sync_mode": "backfill"
+}
+```
+
+`backfill` は初回から最大 `max_messages` 件ずつ既存メールを処理するため、対象メールが
+多い受信箱ではDiscord通知が連続する可能性があります。
 
 ## Runtime Artifacts
 

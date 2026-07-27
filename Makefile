@@ -25,26 +25,26 @@ coverage:
 	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
 
 lint:
-	$(PYTHON) -m compileall -q amazon_notify
-	$(RUFF) format --check amazon_notify tests
-	$(RUFF) check amazon_notify tests
+	$(PYTHON) -m compileall -q src/amazon_notify
+	$(RUFF) format --check src/amazon_notify tests
+	$(RUFF) check src/amazon_notify tests
 
 ruff:
-	$(RUFF) check amazon_notify tests
+	$(RUFF) check src/amazon_notify tests
 
 format-check:
-	$(RUFF) format --check amazon_notify tests
+	$(RUFF) format --check src/amazon_notify tests
 
 typecheck:
-	$(MYPY) amazon_notify
+	$(MYPY) src/amazon_notify
 
 release-check:
-	$(RUFF) check amazon_notify tests
-	$(RUFF) format --check amazon_notify tests
-	$(MYPY) amazon_notify
+	$(RUFF) check src/amazon_notify tests
+	$(RUFF) format --check src/amazon_notify tests
+	$(MYPY) src/amazon_notify
 	$(PYTHON) -m pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90
 	docker build -t amazon-notify:$(VERSION) .
-	docker run --rm -v "$(CURDIR):/work" amazon-notify:$(VERSION) --config /work/config.example.json --validate-config
+	docker run --rm -v "$(CURDIR):/work" amazon-notify:$(VERSION) --config /work/config/config.example.json --validate-config
 
 run-once:
 	$(CLI) --once
@@ -71,26 +71,23 @@ install-systemd:
 	bash deployment/systemd/install-systemd.sh --mode hybrid --no-install-deps
 
 clean:
-	find . -type d -name '__pycache__' -exec rm -rf {} +
-	find . -type f -name '*.pyc' -delete
-	find . -type d -name '*.egg-info' -exec rm -rf {} +
-	rm -rf build
-	rm -rf .pytest_cache
+	find src tests -type d -name '__pycache__' -prune -exec rm -rf {} +
+	find src tests -type f -name '*.pyc' -delete
+	find . -maxdepth 2 -type d -name '*.egg-info' -exec rm -rf {} +
+	rm -rf build dist .pytest_cache .mypy_cache .ruff_cache
+	rm -f .coverage coverage.xml
 
 dist: clean
 	mkdir -p dist
 	rm -f dist/amazon-notify.zip
-	zip -r dist/amazon-notify.zip \
-		amazon_notify \
+	python3 -m zipfile -c dist/amazon-notify.zip \
+		src \
 		CHANGELOG.md \
-		config.example.json \
+		config \
 		deployment \
 		docs \
 		LICENSE \
 		Makefile \
 		pyproject.toml \
 		README.md \
-		README.ja.md \
-		-x '*/__pycache__' \
-		-x '*/__pycache__/*' \
-		-x '*.pyc'
+		README.ja.md

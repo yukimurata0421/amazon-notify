@@ -95,6 +95,9 @@ class _DummySource:
     def iter_new_messages(self, _checkpoint: Checkpoint, _max_messages: int):
         raise TransientSourceError("transient gmail source failure")
 
+    def get_latest_message_id(self) -> str | None:
+        return "cp-0"
+
 
 class _DummyClassifier:
     def classify(self, _envelope):
@@ -103,6 +106,9 @@ class _DummyClassifier:
 
 class _DummyNotifier:
     def notify(self, _candidate) -> bool:
+        return True
+
+    def notify_setup(self, *, mode: str, checkpoint: str | None) -> bool:
         return True
 
 
@@ -124,6 +130,22 @@ class _DummyCheckpointStore:
         self.events.append((event_type, run_id, payload))
 
     def append_run_result(self, _result) -> None:
+        return None
+
+    def load_initial_sync_state(self) -> dict[str, Any]:
+        return {
+            "completed": True,
+            "mode": "legacy",
+            "checkpoint": "cp-0",
+            "notification_sent": True,
+        }
+
+    def complete_initial_sync(
+        self, *, checkpoint: Checkpoint, mode: str, run_id: str
+    ) -> None:
+        return None
+
+    def mark_initial_sync_notification_sent(self, *, run_id: str) -> None:
         return None
 
 

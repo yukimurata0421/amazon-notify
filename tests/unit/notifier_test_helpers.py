@@ -49,3 +49,4 @@ def patch_gmail_ready(
         "get_gmail_service_with_status",
         lambda **_: (resolved_service, AuthStatus.READY),
     )
+    monkeypatch.setattr(notifier, "send_discord_test", lambda *_args, **_kwargs: True)

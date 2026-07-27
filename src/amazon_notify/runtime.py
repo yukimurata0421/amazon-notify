@@ -105,6 +105,7 @@ class RuntimeConfig:
     runs_file: Path
     discord_dedupe_state_file: Path
     max_messages: int
+    initial_sync_mode: str
     dry_run: bool
     gmail_api: GmailApiConfig
     discord_retry: DiscordRetryConfig
@@ -174,6 +175,9 @@ class RuntimeConfig:
                 base_dir=base_dir,
             ),
             max_messages=int(config.get("max_messages", 50)),
+            initial_sync_mode=str(config.get("initial_sync_mode", "skip_existing"))
+            .strip()
+            .lower(),
             dry_run=dry_run,
             gmail_api=GmailApiConfig(
                 max_retries=int(config.get("gmail_api_max_retries", 4)),
@@ -302,6 +306,14 @@ def validate_config(config: dict, *, paths: RuntimePaths | None = None) -> list[
     webhook = config.get("discord_webhook_url")
     if not isinstance(webhook, str) or not webhook.strip():
         errors.append("discord_webhook_url が未設定です。")
+
+    initial_sync_mode = config.get("initial_sync_mode", "skip_existing")
+    if not isinstance(
+        initial_sync_mode, str
+    ) or initial_sync_mode.strip().lower() not in {"skip_existing", "backfill"}:
+        errors.append(
+            "initial_sync_mode は skip_existing または backfill を指定してください。"
+        )
 
     for key in ("max_messages", "poll_interval_seconds"):
         if key not in config:

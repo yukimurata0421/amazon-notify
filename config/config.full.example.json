@@ -3,6 +3,7 @@
   "amazon_from_pattern": "amazon\\.co\\.jp",
   "amazon_subject_pattern": "(配達済み|発送|お届け)",
   "max_messages": 50,
+  "initial_sync_mode": "skip_existing",
   "poll_interval_seconds": 60,
   "pubsub_subscription": "projects/REPLACE_ME/subscriptions/amazon-notify-sub",
   "pubsub_main_service_name": "amazon-notify-pubsub.service",

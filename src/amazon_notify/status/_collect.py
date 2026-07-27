@@ -44,7 +44,7 @@ def scan_events_jsonl(path: Path) -> dict[str, Any]:
     def on_payload(_offset: int, payload: dict[str, Any]) -> None:
         nonlocal last_checkpoint, last_incident_event
         event_name = payload.get("event")
-        if event_name == "checkpoint_advanced":
+        if event_name in {"checkpoint_advanced", "initial_sync_completed"}:
             checkpoint_value = payload.get("checkpoint")
             last_checkpoint = (
                 checkpoint_value if isinstance(checkpoint_value, str) else None
@@ -288,7 +288,10 @@ def last_checkpoint_advanced_at(path: Path) -> datetime | None:
 
     def on_payload(_offset: int, payload: dict[str, Any]) -> None:
         nonlocal last_at
-        if payload.get("event") != "checkpoint_advanced":
+        if payload.get("event") not in {
+            "checkpoint_advanced",
+            "initial_sync_completed",
+        }:
             return
         at_val = payload.get("at")
         if not isinstance(at_val, str):

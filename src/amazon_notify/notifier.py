@@ -11,6 +11,7 @@ from .discord_client import (
     send_discord_alert,
     send_discord_notification,
     send_discord_recovery,
+    send_discord_test,
 )
 from .domain import (
     AuthStatus,
@@ -89,6 +90,35 @@ class DiscordNotifier:
             max_attempts=self.max_attempts,
             base_delay_seconds=self.base_delay_seconds,
             max_delay_seconds=self.max_delay_seconds,
+        )
+
+    def notify_setup(self, *, mode: str, checkpoint: str | None) -> bool:
+        if self.dry_run:
+            LOGGER.info(
+                "DRY_RUN_SETUP_NOTIFICATION: mode=%s checkpoint=%s",
+                mode,
+                checkpoint,
+            )
+            return True
+        if mode == "skip_existing":
+            initial_sync_message = (
+                "セットアップが完了しました。\n"
+                "Gmail接続: 正常\n"
+                "Discord通知: 正常\n"
+                "初期同期: 既存メールを通知対象外として初期化\n"
+                "これ以降に届いた対象メールを通知します。"
+            )
+        else:
+            initial_sync_message = (
+                "セットアップが完了しました。\n"
+                "Gmail接続: 正常\n"
+                "Discord通知: 正常\n"
+                "初期同期: 既存メールをbackfill対象として開始します。"
+            )
+        return send_discord_test(
+            self.webhook_url,
+            initial_sync_message,
+            dedupe_state_path=self.dedupe_state_path,
         )
 
 
@@ -242,6 +272,7 @@ def _build_pipeline(
         notifier=notifier_impl,
         checkpoint_store=checkpoint_store,
         max_messages=runtime.max_messages,
+        initial_sync_mode=runtime.initial_sync_mode,
         dry_run=runtime.dry_run,
     )
     return pipeline, checkpoint_store

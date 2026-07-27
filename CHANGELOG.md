@@ -4,7 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-No changes yet.
+### Added
+- Added explicit first-run synchronization with `initial_sync_mode`:
+  - `skip_existing` is the safe default and records the current inbox frontier without notifying historical mail.
+  - `backfill` remains an explicit opt-in for processing existing mail.
+  - a single Discord setup-complete message confirms Gmail and webhook connectivity.
+  - empty-inbox initialization and failed setup-message retries are persisted in `events.jsonl`.
+
+### Changed
+- Initial synchronization now records auditable `initial_sync_completed` and `initial_sync_notification_sent` events instead of treating an absent checkpoint as an implicit bounded backfill.
+- Moved the installable package to the standard `src/amazon_notify/` layout and aligned setuptools, Docker, Make, lint, type-check, coverage, and CI paths.
+- Replaced the external `zip` command in source archive creation with Python's standard-library `zipfile` module.
+- Updated the development test dependency to patched pytest 9 releases.
+
+### Tests
+- Added repository contract tests for both distributed example configs, README local links, and the required src layout.
+- Added a CI packaging job that builds a wheel, installs it into an isolated environment, imports the installed package, and runs the CLI.
 
 ## [1.0.0] - 2026-06-06
 

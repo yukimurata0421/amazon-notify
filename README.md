@@ -75,8 +75,8 @@ Runtime paths (`state_file`, `events_file`, `runs_file`, `log_file`, and similar
 python3 -m venv .venv
 source .venv/bin/activate
 pip install .
-cp config.example.json config.json
-# use config.full.example.json if you need Pub/Sub / advanced retry knobs
+cp config/config.example.json config.json
+# use config/config.full.example.json if you need Pub/Sub / advanced retry knobs
 ```
 
 1. Set `discord_webhook_url` in `config.json`
@@ -135,6 +135,28 @@ amazon-notify --restore-drill
 amazon-notify --scenario-harness
 amazon-notify --scenario-harness --scenario-names gmail_transient_failure,discord_429_retry
 ```
+
+### Safe first startup
+
+`initial_sync_mode` defaults to `skip_existing`. On the first non-dry-run start
+of a new installation, the current inbox frontier is recorded without sending
+individual notifications for existing mail. One setup-complete message is sent
+to Discord to confirm both Gmail access and webhook delivery. An empty inbox is
+also recorded as initialized, so the first message arriving later is processed
+normally.
+
+`--dry-run` can preview existing matching mail, but it neither posts to Discord
+nor persists initial-sync state. Use the following explicit opt-in only when
+existing mail should be processed:
+
+```json
+{
+  "initial_sync_mode": "backfill"
+}
+```
+
+`backfill` processes up to `max_messages` existing messages per run and can
+produce multiple Discord notifications when the inbox contains matching mail.
 
 ## Runtime Artifacts
 

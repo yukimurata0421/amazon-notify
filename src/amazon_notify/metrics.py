@@ -156,7 +156,10 @@ def _parse_ts(value: object) -> datetime | None:
 def _checkpoint_age_seconds(events: list[dict[str, Any]]) -> float | None:
     checkpoint_at: datetime | None = None
     for row in events:
-        if row.get("event") != "checkpoint_advanced":
+        if row.get("event") not in {
+            "checkpoint_advanced",
+            "initial_sync_completed",
+        }:
             continue
         parsed = _parse_ts(row.get("at"))
         if parsed is not None:

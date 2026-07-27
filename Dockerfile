@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /build
 
 COPY pyproject.toml README.md LICENSE ./
-COPY amazon_notify ./amazon_notify
+COPY src ./src
 
 RUN pip install --upgrade pip build && python -m build --wheel
 
@@ -23,7 +23,7 @@ RUN groupadd --gid 10001 amazon-notify \
     && useradd --uid 10001 --gid 10001 --create-home --shell /usr/sbin/nologin amazon-notify
 
 COPY --from=builder /build/dist/*.whl /tmp/
-COPY config.example.json config.full.example.json ./
+COPY config ./config
 
 RUN pip install --upgrade pip && pip install /tmp/*.whl && rm -f /tmp/*.whl
 

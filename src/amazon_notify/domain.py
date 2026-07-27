@@ -76,6 +76,7 @@ class PersistentState(TypedDict, total=False):
     """Primary state snapshot (checkpoint / summary / incident)."""
 
     last_message_id: str | None
+    initial_sync: dict[str, Any]
     last_run_summary: dict[str, Any]
     active_incident_kind: str
     active_incident_message: str
@@ -112,9 +113,13 @@ class MailSource(Protocol):
         self, checkpoint: Checkpoint, max_messages: int
     ) -> Iterable[MailEnvelope]: ...
 
+    def get_latest_message_id(self) -> str | None: ...
+
 
 class Notifier(Protocol):
     def notify(self, candidate: NotificationCandidate) -> bool: ...
+
+    def notify_setup(self, *, mode: str, checkpoint: str | None) -> bool: ...
 
 
 class Classifier(Protocol):
@@ -131,3 +136,11 @@ class CheckpointStore(Protocol):
     ) -> None: ...
 
     def append_run_result(self, result: RunResult) -> None: ...
+
+    def load_initial_sync_state(self) -> dict[str, Any]: ...
+
+    def complete_initial_sync(
+        self, *, checkpoint: Checkpoint, mode: str, run_id: str
+    ) -> None: ...
+
+    def mark_initial_sync_notification_sent(self, *, run_id: str) -> None: ...

@@ -8,12 +8,17 @@
 ## 初回セットアップ
 1. `python3 -m venv .venv && source .venv/bin/activate`
 2. `pip install .`
-3. `cp config.example.json config.json`
-   - Pub/Sub や詳細な retry/backoff 設定が必要な場合は `config.full.example.json` をベースにします。
+3. `cp config/config.example.json config.json`
+   - Pub/Sub や詳細な retry/backoff 設定が必要な場合は `config/config.full.example.json` をベースにします。
 4. `config.json` の `discord_webhook_url` を設定
 5. `credentials.json` を `config.json` と同じディレクトリに配置
 6. `amazon-notify --reauth` で `token.json` を作成
 7. `amazon-notify --once` で動作確認
+
+初回通常起動では既定の `initial_sync_mode: "skip_existing"` により既存メールを
+通知せず、Discordへセットアップ完了通知を1件送ります。`--dry-run` はDiscord疎通を
+行わず、初期同期状態も保存しません。過去メールを処理する必要がある場合だけ
+`initial_sync_mode: "backfill"` を明示してください。
 8. 必要に応じて `amazon-notify --test-discord` で Discord 疎通確認
 
 ## 通常運用
@@ -65,6 +70,9 @@
 
 ## v0.4.0 移行仕様
 - checkpoint の正本は `events.jsonl`（`checkpoint_advanced`）です。
+- 初期同期の正本は `events.jsonl` の `initial_sync_completed` です。
+- Discord疎通通知の成功は `initial_sync_notification_sent` に記録されます。送信失敗時は
+  既存メールを再処理せず、次の監視周期でセットアップ通知だけを再試行します。
 - `state.json` は互換スナップショット（派生物）として更新されます。
 - 初回起動時に `events.jsonl` が空で `state.json.last_message_id` がある場合のみ、bootstrap 用 `checkpoint_advanced` を 1 回記録します。
 - Discord dedupe state は runtime directory 配下（`.discord_dedupe_state.json`）に統一されます。
@@ -155,7 +163,7 @@ make release-check
 - `mypy .`
 - `pytest -q --cov=amazon_notify --cov-report=term-missing --cov-report=xml --cov-fail-under=90`
 - `docker build -t amazon-notify:1.0.0 .`
-- `docker run --rm -v "$(pwd):/work" amazon-notify:1.0.0 --config /work/config.example.json --validate-config`
+- `docker run --rm -v "$(pwd):/work" amazon-notify:1.0.0 --config /work/config/config.example.json --validate-config`
 
 ## 手動更新とロールバック（自動 deploy はしない）
 このリポジトリでは本番 host への自動デプロイは行いません。更新と切り戻しは手動で行います。

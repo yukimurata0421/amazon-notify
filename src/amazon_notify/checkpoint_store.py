@@ -19,6 +19,8 @@ MIGRATION_RUN_ID = "migration-bootstrap"
 _CHECKPOINT_INDEX_SUFFIX = ".checkpoint.index.json"
 _RUN_SUMMARY_INDEX_SUFFIX = ".summary.index.json"
 _RUN_SUMMARY_STATE_KEY = "last_run_summary"
+_INITIAL_SYNC_EVENT = "initial_sync_completed"
+_INITIAL_SYNC_NOTIFICATION_EVENT = "initial_sync_notification_sent"
 
 
 class _CheckpointIndex:
@@ -162,6 +164,111 @@ class JsonlCheckpointStore:
 
         return Checkpoint(message_id=bootstrap_checkpoint)
 
+    def load_initial_sync_state(self) -> dict[str, Any]:
+        event_entries, _eof_size = self._load_jsonl_entries(self.events_file)
+        events = [payload for _, payload in event_entries]
+        initial_event = next(
+            (
+                event
+                for event in reversed(events)
+                if event.get("event") == _INITIAL_SYNC_EVENT
+            ),
+            None,
+        )
+        if initial_event is not None:
+            notification_sent = any(
+                event.get("event") == _INITIAL_SYNC_NOTIFICATION_EVENT
+                for event in events
+            )
+            return {
+                "completed": True,
+                "mode": initial_event.get("mode"),
+                "checkpoint": initial_event.get("checkpoint"),
+                "notification_sent": notification_sent,
+                "legacy": False,
+            }
+
+        # Existing installations already have a processing frontier. Treat them as
+        # initialized without emitting a surprising setup notification on upgrade.
+        if self._find_last_checkpoint_entry(event_entries) is not None:
+            return {
+                "completed": True,
+                "mode": "legacy",
+                "checkpoint": self.load_checkpoint().message_id,
+                "notification_sent": True,
+                "legacy": True,
+            }
+
+        state_file_existed = self.state_file.exists()
+        state = load_state(self.state_file)
+        legacy_checkpoint = state.get("last_message_id")
+        if state_file_existed:
+            return {
+                "completed": True,
+                "mode": "legacy",
+                "checkpoint": legacy_checkpoint,
+                "notification_sent": True,
+                "legacy": True,
+            }
+        return {
+            "completed": False,
+            "mode": None,
+            "checkpoint": None,
+            "notification_sent": False,
+            "legacy": False,
+        }
+
+    def complete_initial_sync(
+        self,
+        *,
+        checkpoint: Checkpoint,
+        mode: str,
+        run_id: str,
+    ) -> None:
+        try:
+            self.append_event(
+                _INITIAL_SYNC_EVENT,
+                run_id,
+                {
+                    "checkpoint": checkpoint.message_id,
+                    "mode": mode,
+                    "source": "initial_sync",
+                },
+            )
+        except OSError as exc:
+            raise CheckpointError(
+                _format_storage_write_error(
+                    "initial sync event 保存",
+                    self.events_file,
+                    exc,
+                ),
+                checkpoint.message_id,
+            ) from exc
+
+        try:
+            with state_update_lock(self.state_file):
+                state = load_state(self.state_file)
+                state["last_message_id"] = checkpoint.message_id
+                state["initial_sync"] = {
+                    "completed": True,
+                    "mode": mode,
+                    "completed_at": utc_now_iso(),
+                }
+                save_state(self.state_file, state)
+        except OSError as exc:
+            LOGGER.warning(
+                "INITIAL_SYNC_STATE_SNAPSHOT_UPDATE_FAILED: checkpoint=%s error=%s",
+                checkpoint.message_id,
+                exc,
+            )
+
+    def mark_initial_sync_notification_sent(self, *, run_id: str) -> None:
+        self.append_event(
+            _INITIAL_SYNC_NOTIFICATION_EVENT,
+            run_id,
+            {"source": "initial_sync"},
+        )
+
     def advance_checkpoint(self, checkpoint: Checkpoint, run_id: str) -> None:
         try:
             self.append_event(
@@ -206,7 +313,7 @@ class JsonlCheckpointStore:
             **payload,
         }
         offset, eof_size = self._append_jsonl(self.events_file, event)
-        if event_type != "checkpoint_advanced":
+        if event_type not in {"checkpoint_advanced", _INITIAL_SYNC_EVENT}:
             return
 
         checkpoint = event.get("checkpoint")
@@ -458,7 +565,7 @@ class JsonlCheckpointStore:
         row = self._read_jsonl_row_at_offset(self.events_file, offset)
         if row is None:
             return None
-        if row.get("event") != "checkpoint_advanced":
+        if row.get("event") not in {"checkpoint_advanced", _INITIAL_SYNC_EVENT}:
             return None
         if row.get("checkpoint") != checkpoint:
             return None
@@ -758,7 +865,7 @@ class JsonlCheckpointStore:
         entries: list[tuple[int, dict[str, Any]]],
     ) -> tuple[int, dict[str, Any]] | None:
         for offset, event in reversed(entries):
-            if event.get("event") == "checkpoint_advanced":
+            if event.get("event") in {"checkpoint_advanced", _INITIAL_SYNC_EVENT}:
                 return offset, event
         return None
 
@@ -767,6 +874,6 @@ class JsonlCheckpointStore:
         events: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
         for event in reversed(events):
-            if event.get("event") == "checkpoint_advanced":
+            if event.get("event") in {"checkpoint_advanced", _INITIAL_SYNC_EVENT}:
                 return event
         return None

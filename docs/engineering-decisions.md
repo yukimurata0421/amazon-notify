@@ -313,7 +313,7 @@
 
 ### 採用
 - `--scenario-harness` / `--scenario-names`
-- 実装: `amazon_notify/scenario_harness.py`
+- 実装: `src/amazon_notify/scenario_harness.py`
 - 検証シナリオ:
   - Gmail transient failure
   - Discord 429 / timeout retry
@@ -345,7 +345,7 @@
 - `--metrics`（JSON）
 - `--metrics-plain`（簡易テキスト）
 - `--metrics-window`（直近 run 集計窓）
-- 実装: `amazon_notify/status.py` の `build_metrics_report()`
+- 実装: `src/amazon_notify/status.py` の `build_metrics_report()`
 
 ### 理由
 - 本プロジェクトは大規模監視基盤を前提にしないため、薄い exporter 面を先に用意する方が費用対効果が高い。
@@ -357,7 +357,7 @@
 - `--archive-runtime` / `--archive-label` / `--archive-dir` / `--archive-no-gzip`
 - `--restore-runtime` / `--restore-label`
 - `--restore-drill`
-- 実装: `amazon_notify/retention.py`
+- 実装: `src/amazon_notify/retention.py`
   - snapshot archive + manifest
   - restore 後に index rebuild + verify
   - 一時ディレクトリでの非破壊 drill
@@ -439,3 +439,29 @@
 - Gmail watch は期限付きであるため、手動更新に依存すると期限切れで callback が止まるため。
 - 定期再登録を仕組み化することで、通知経路の寿命管理を運用タスクではなく定常処理にするため。
 - 初回セットアップ後の「更新忘れ」という単純障害を設計段階で除去するため。
+
+## 34. 初回同期を `skip_existing` 既定 + Discord疎通通知にした理由
+
+### 採用
+- 新規環境では `initial_sync_mode: "skip_existing"` を既定とし、起動時点の既存メールを通知しない。
+- Gmail接続後にDiscordへセットアップ完了通知を1件送り、疎通成功を監査イベントへ記録する。
+- 受信箱が空でも `initial_sync_completed` を保存し、将来の最初の新着を通知対象にする。
+- Discord疎通通知に失敗した場合、初期同期境界は維持したまま次周期に通知だけを再試行する。
+- 既存メール処理は `initial_sync_mode: "backfill"` の明示指定に限定する。
+
+### 理由
+- 初回の過去メール連続通知を防ぎつつ、「本当に稼働しているか」を利用者がDiscord上で確認できるようにするため。
+- checkpoint不在と初期同期未完了を分離し、空の受信箱や再起動でも初回判定を曖昧にしないため。
+- 初期同期と疎通通知を別イベントにして、永続化失敗やWebhook障害時も重複通知・過去メール再処理を避けるため。
+
+## 35. Pythonパッケージを `src` レイアウトにした理由
+
+### 採用
+- import可能な本番コードを `src/amazon_notify/` 配下へ置く。
+- setuptoolsとpytestの探索起点を `src` として明示する。
+- CIでwheelを構築し、隔離環境へインストールしてからテストjobを通す。
+
+### 理由
+- リポジトリルートが偶然 `sys.path` に入ることでテストだけが成功する状態を防ぐため。
+- Release wheelとDocker buildが使うpackage discovery境界をCIでも検証するため。
+- 本番コード、テスト、設定例、deployment資材、文書の責務をディレクトリで明確に分けるため。

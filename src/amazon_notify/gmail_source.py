@@ -208,6 +208,29 @@ class GmailMailSource:
             max_messages=max_messages,
         )
 
+    def get_latest_message_id(self) -> str | None:
+        """Return the current inbox frontier without fetching message contents."""
+        service = self._resolve_service_for_run()
+        try:
+            messages, _next_page_token = self._call_gmail_api_with_retry(
+                "list_latest_message",
+                lambda: self.gmail_client.list_recent_messages_page(
+                    service,
+                    query="in:inbox",
+                    max_results=1,
+                    page_token=None,
+                ),
+            )
+        except Exception as exc:
+            if isinstance(exc, self.gmail_client.http_error_type):
+                if self.gmail_client.is_retryable_http_error(exc):
+                    raise TransientSourceError(f"Gmail API 一時エラー: {exc}") from exc
+                raise SourceError(f"Gmail API 恒久エラー: {exc}") from exc
+            if self.gmail_client.is_transient_network_error(exc):
+                raise TransientSourceError(str(exc)) from exc
+            raise SourceError(f"Gmail API 予期しないエラー: {exc}") from exc
+        return messages[0]["id"] if messages else None
+
     def _resolve_service_for_run(self) -> Any:
         # token refresh のタイミングを取りこぼさないため、run ごとに service を評価する。
         service, status = self.gmail_client.get_gmail_service_with_status(

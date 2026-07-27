@@ -49,6 +49,7 @@ class NotificationPipeline:
         checkpoint_store: CheckpointStore,
         *,
         max_messages: int,
+        initial_sync_mode: str = "skip_existing",
         dry_run: bool = False,
     ):
         self.source = source
@@ -56,6 +57,7 @@ class NotificationPipeline:
         self.notifier = notifier
         self.checkpoint_store = checkpoint_store
         self.max_messages = max_messages
+        self.initial_sync_mode = initial_sync_mode
         self.dry_run = dry_run
 
     def run_once(self) -> RunResult:
@@ -69,9 +71,15 @@ class NotificationPipeline:
         )
 
         try:
+            initialized_checkpoint = self._initialize_if_needed(
+                run_id=run_id,
+                checkpoint=checkpoint_before,
+            )
+            state.checkpoint_before = initialized_checkpoint
+            state.checkpoint_after = initialized_checkpoint
             self.source.notify_recovery_if_needed()
             for envelope in self.source.iter_new_messages(
-                checkpoint_before, self.max_messages
+                state.checkpoint_before, self.max_messages
             ):
                 self._mark_message_processed(state=state)
                 candidate = self.classifier.classify(envelope)
@@ -108,6 +116,56 @@ class NotificationPipeline:
         result = self._persist_run_result(run_id=run_id, result=result)
         self._log_result(result)
         return result
+
+    def _initialize_if_needed(
+        self, *, run_id: str, checkpoint: Checkpoint
+    ) -> Checkpoint:
+        if self.dry_run:
+            return checkpoint
+
+        initial_state = self.checkpoint_store.load_initial_sync_state()
+        if initial_state["completed"]:
+            if not initial_state["notification_sent"]:
+                self._send_setup_notification(
+                    run_id=run_id,
+                    mode=str(initial_state["mode"]),
+                    checkpoint=initial_state.get("checkpoint"),
+                )
+            return checkpoint
+
+        initialized_checkpoint = checkpoint
+        if self.initial_sync_mode == "skip_existing":
+            initialized_checkpoint = Checkpoint(
+                message_id=self.source.get_latest_message_id()
+            )
+
+        self.checkpoint_store.complete_initial_sync(
+            checkpoint=initialized_checkpoint,
+            mode=self.initial_sync_mode,
+            run_id=run_id,
+        )
+        self._send_setup_notification(
+            run_id=run_id,
+            mode=self.initial_sync_mode,
+            checkpoint=initialized_checkpoint.message_id,
+        )
+        return initialized_checkpoint
+
+    def _send_setup_notification(
+        self,
+        *,
+        run_id: str,
+        mode: str,
+        checkpoint: str | None,
+    ) -> None:
+        if self.notifier.notify_setup(mode=mode, checkpoint=checkpoint):
+            self.checkpoint_store.mark_initial_sync_notification_sent(run_id=run_id)
+            return
+        LOGGER.warning(
+            "INITIAL_SYNC_NOTIFICATION_FAILED: run_id=%s mode=%s",
+            run_id,
+            mode,
+        )
 
     def _mark_message_processed(self, *, state: _RunState) -> None:
         state.processed_count += 1

@@ -59,7 +59,11 @@ def _check_checkpoint_timestamp_monotonic(events_file: Path) -> tuple[bool, str]
     rows, error = _read_jsonl_rows(events_file)
     if error is not None:
         return False, error
-    checkpoint_rows = [row for row in rows if row.get("event") == "checkpoint_advanced"]
+    checkpoint_rows = [
+        row
+        for row in rows
+        if row.get("event") in {"checkpoint_advanced", "initial_sync_completed"}
+    ]
     if len(checkpoint_rows) <= 1:
         return True, "checkpoint_advanced が 0/1 件のため単調性検査をスキップ"
 

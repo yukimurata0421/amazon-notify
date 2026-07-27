@@ -25,7 +25,8 @@ Issues = "https://github.com/yukimurata0421/amazon-notify/issues"
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0.0,<9.0.0",
+  "build>=1.2.0,<2.0.0",
+  "pytest>=9.0.3,<10.0.0",
   "pytest-cov>=5.0.0,<6.0.0",
   "ruff>=0.6.0,<1.0.0",
   "mypy>=1.10.0,<2.0.0",
@@ -40,7 +41,13 @@ pubsub = [
 amazon-notify = "amazon_notify.cli:main"
 
 [tool.setuptools.packages.find]
+where = ["src"]
 include = ["amazon_notify*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src"]
 
 [tool.ruff]
 target-version = "py311"
@@ -49,8 +56,8 @@ target-version = "py311"
 select = ["E4", "E7", "E9", "F", "I", "B", "UP", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
-"amazon_notify/cli.py" = ["RUF001"]
-"amazon_notify/commands/arguments.py" = ["RUF001"]
+"src/amazon_notify/cli.py" = ["RUF001"]
+"src/amazon_notify/commands/arguments.py" = ["RUF001"]
 # Legacy standalone scripts: intentional Japanese full-width punctuation in UI strings/comments.
 "amazon_mail_notifier.py" = ["RUF001", "RUF002", "RUF003"]
 "amazon_mail_to_discord.py" = ["RUF001", "RUF003"]
