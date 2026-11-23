@@ -332,6 +332,15 @@ Reasoning:
 - Separate an absent checkpoint from incomplete initialization, including the empty-inbox case.
 - Keep initialization and setup delivery as separate events so persistence or webhook failures do not reprocess historical mail.
 
+### Development Background (Retrospective)
+
+While preparing to explain Amazon Notify to another engineer, I revisited how a
+fresh installation establishes its first checkpoint. Without an explicit
+initialization policy, existing matching Gmail messages could be treated as
+unprocessed and generate an unexpected burst of Discord notifications. The
+design review identified this as a potential first-run issue. Version 1.1.0 made
+`skip_existing` the default and required explicit opt-in for `backfill`.
+
 ## 34. Why the Python Package Uses a `src` Layout
 
 Adopted:
