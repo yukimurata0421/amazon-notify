@@ -18,6 +18,8 @@ Two operating modes are supported:
 
 Japanese README: [README.ja.md](./README.ja.md)
 
+**Operational record (November 23, 2026).** One installation's retained history spanned at least 232 days. Of 84,229 recorded runs, 99.988% succeeded. All 10 state-consistency checks passed at capture. [Measurement details and limits](./docs/operational-evidence-20261123.md)
+
 ## Version Track
 
 | Track | Description |
